@@ -66,7 +66,7 @@ pub(crate) fn run(args: &[String], paths: &Paths) -> (i32, String, String) {
 }
 
 fn usage() -> String {
-    "usage: mx-system-snapshot.sh --json\n       mx-system-snapshot.sh --standing-agent-home-summary\n\nPrint the read-only canonical orchestration snapshot.\nThe JSON contract includes a task-first mx-portfolio.v1 projection with projects, roles, attempts, briefs, dependencies, decisions, evidence, allocations, domains, and freshness.\nCollection is bounded; unavailable observations remain explicit partial or unknown facts.\n".into()
+    "usage: mx-system-snapshot.sh --json\n       mx-system-snapshot.sh --standing-agent-home-summary\n\nPrint the read-only canonical orchestration snapshot.\nThe JSON contract includes a task-first mx-portfolio.v1 projection with projects, roles, attempts, briefs, dependencies, decisions, evidence, allocations, domains, and freshness.\nCollection is bounded; unavailable observations remain explicit partial or unknown facts.\nRegistered worker/coordinator descendants are traversed by verified ownership; observation quality and implementation completion remain separate from schedule state.\n".into()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1136,7 +1136,7 @@ fn daemon_home_summary(paths: &Paths, generated: &str, backlog: &Value, tasks: &
         &json!({"records":[],"total":0,"complete":true}),
         &json!({"workflow_runs":child_workflows}),
     );
-    json!({"schema":"mx-daemon-home-summary.v1","generated":generated,"home":home,"valid":valid,"reason":reason,"invalidity":invalidity,"state":state,"portfolio":child_portfolio,"tasks":canonical_tasks,"workflow_runs":child_workflows["records"],"active_children":active,"decisions_open":decisions,"holds":holds,"queued":queued,"landed":landed,"endpoints":endpoints,"domains":domains_all,"counts":{"active_children":active_all.len(),"decisions_open":decisions_all.len(),"holds":holds_all.len(),"queued":queued_all.len(),"landed":landed_all.len(),"endpoints":endpoints_all.len(),"useful_tasks":useful_tasks,"sessions":sessions,"worker_sessions":worker_sessions,"coordinator_sessions":coordinator_sessions,"attempts_known":attempts_known,"coordinator_tasks":domains_all.len(),"tasks_total":task_rows.len(),"tasks_shown":canonical_tasks.len()},"omitted":omitted})
+    json!({"schema":"mx-daemon-home-summary.v1","generated":generated,"home":home,"valid":valid,"reason":reason,"invalidity":invalidity,"state":state,"registry":registry(paths,generated),"portfolio":child_portfolio,"tasks":canonical_tasks,"workflow_runs":child_workflows["records"],"active_children":active,"decisions_open":decisions,"holds":holds,"queued":queued,"landed":landed,"endpoints":endpoints,"domains":domains_all,"counts":{"active_children":active_all.len(),"decisions_open":decisions_all.len(),"holds":holds_all.len(),"queued":queued_all.len(),"landed":landed_all.len(),"endpoints":endpoints_all.len(),"useful_tasks":useful_tasks,"sessions":sessions,"worker_sessions":worker_sessions,"coordinator_sessions":coordinator_sessions,"attempts_known":attempts_known,"coordinator_tasks":domains_all.len(),"tasks_total":task_rows.len(),"tasks_shown":canonical_tasks.len()},"omitted":omitted})
 }
 
 fn daemon_summary_invalid(home: &Path, generated: &str, invalidity: &Value, reason: &str) -> Value {
@@ -1191,16 +1191,63 @@ fn system_model(paths: &Paths, generated: &str, backlog: Value, tasks: Value) ->
     let wake = wake_queue(paths);
     let (headroom, headroom_reason) = headroom(paths);
     let daemon_current = daemon_current(paths, generated, &tasks);
-    let domains = domain_projection(paths, &tasks, &daemon_current, generated);
+    let descendants = descendant_projection(paths, generated, &daemon_current);
+    let mut observed_homes = daemon_current.clone();
+    let mut domain_tasks = tasks.as_array().cloned().unwrap_or_default();
+    for record in array(&descendants, "records")
+        .iter()
+        .filter(|record| record["validated_home"].is_string())
+    {
+        let mut observed = record.clone();
+        observed["home"] = record["validated_home"].clone();
+        observed["provenance"] = json!({"selected":"structured-home"});
+        observed_homes["records"]
+            .as_array_mut()
+            .expect("daemon records")
+            .push(observed);
+        domain_tasks.extend(array(record, "tasks").iter().cloned());
+    }
+    let domains = domain_projection(paths, &json!(domain_tasks), &observed_homes, generated);
     let daemon_landed = daemon_landed(&daemon_current);
     let later_feeds = later(paths);
-    let portfolio = portfolio(paths, generated, &backlog, &tasks, &domains, &later_feeds);
-    json!({"schema":"mx-system-snapshot.v1","generated":generated,"mx_home":paths.home,"primary":primary_observation(paths, generated),"roots":{"mx_root":paths.root,"state":paths.state,"data":paths.data,"config":paths.config,"projects":paths.projects},"backlog":backlog,"tasks":tasks,"portfolio":portfolio,"native_delegations":native_observations(&paths.state),"main_inventory":inventory,"scout_reports":reports,"watcher":watcher,"wake_queue":wake,"dispatch_queue":dispatch(paths),"headroom":headroom,"headroom_reason":headroom_reason,"domains":domains,"vplan_reviews":vplans(paths),"later_feeds":later_feeds,"daemon_current":daemon_current,"daemon_landed":daemon_landed,"daemon_guidance":{"note":"For kind=daemon, catchup selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority."}})
+    let mut homes = domains.clone();
+    if let Some(records) = homes["records"].as_array_mut() {
+        records.extend(array(&descendants, "records").iter().cloned());
+    }
+    homes["complete"] = json!(domains["complete"] == true && descendants["complete"] == true);
+    let portfolio = portfolio(paths, generated, &backlog, &tasks, &homes, &later_feeds);
+    json!({"schema":"mx-system-snapshot.v1","generated":generated,"mx_home":paths.home,"primary":primary_observation(paths, generated),"roots":{"mx_root":paths.root,"state":paths.state,"data":paths.data,"config":paths.config,"projects":paths.projects},"backlog":backlog,"tasks":tasks,"portfolio":portfolio,"native_delegations":native_observations(&paths.state),"main_inventory":inventory,"scout_reports":reports,"watcher":watcher,"wake_queue":wake,"dispatch_queue":dispatch(paths),"headroom":headroom,"headroom_reason":headroom_reason,"domains":domains,"descendants":descendants,"vplan_reviews":vplans(paths),"later_feeds":later_feeds,"daemon_current":daemon_current,"daemon_landed":daemon_landed,"daemon_guidance":{"note":"For kind=daemon, catchup selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority."}})
 }
 
 // Scope is the complete accepted brief, not a display title. Keep the original
 // scope in the projection and derive a label from its task/charter section.
+fn bounded_label(text: &str, limit: usize) -> String {
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() <= limit {
+        normalized
+    } else {
+        format!(
+            "{}…",
+            normalized
+                .chars()
+                .take(limit.saturating_sub(1))
+                .collect::<String>()
+        )
+    }
+}
+
 fn scope_title(scope: &str) -> Option<String> {
+    // Historical writers flattened accepted Markdown scopes into one line.
+    // Select the section before bounding; never show scaffold instructions.
+    for heading in ["# Task ", "# Charter ", "# Routing scope "] {
+        if let Some((_, section)) = scope.split_once(heading) {
+            let section = section.split(" #").next().unwrap_or(section);
+            let title = section.lines().find(|line| !line.trim().is_empty())?.trim();
+            if title != "{TASK}" {
+                return Some(bounded_label(title, 100));
+            }
+        }
+    }
     let lines = scope.lines().map(str::trim).collect::<Vec<_>>();
     for heading in ["# Task", "# Charter", "# Routing scope"] {
         if let Some(index) = lines.iter().position(|line| *line == heading) {
@@ -1209,7 +1256,7 @@ fn scope_title(scope: &str) -> Option<String> {
                 .take_while(|line| !line.starts_with("# "))
                 .find(|line| !line.is_empty() && **line != "{TASK}");
             if let Some(title) = title {
-                return Some(title.trim_start_matches('#').trim().to_owned());
+                return Some(bounded_label(title.trim_start_matches('#').trim(), 100));
             }
         }
     }
@@ -1217,14 +1264,14 @@ fn scope_title(scope: &str) -> Option<String> {
         .iter()
         .find(|line| !line.is_empty())
         .filter(|line| !line.starts_with("You are ") && !line.starts_with("# "))
-        .map(|line| (*line).to_owned())
+        .map(|line| bounded_label(line, 100))
 }
 
 fn portfolio_task_title(task: &Value) -> String {
     if let Some(title) = task.pointer("/backlog/title").and_then(Value::as_str)
         && !title.trim().is_empty()
     {
-        return title.trim().to_owned();
+        return bounded_label(title, 100);
     }
     let coordination = &task["coordination"];
     let revision = coordination["accepted_brief_revision"].as_u64();
@@ -1368,6 +1415,11 @@ fn portfolio(
                     .pointer("/coordination/parent_id")
                     .and_then(Value::as_str)
                     == Some(id)
+                    && candidate
+                        .pointer("/coordination/parent_home")
+                        .and_then(Value::as_str)
+                        .unwrap_or(owner_home)
+                        == owner_home
             })
             .filter_map(|candidate| {
                 let child = candidate["id"].as_str()?;
@@ -1522,11 +1574,20 @@ fn portfolio(
             || observation_source.is_none()
             || matches!(observation_source, Some("error" | "timeout" | "none"));
         projected.push(json!({
-            "key":task_key,"id":id,"title":title,"parent_id":parent_id,"root_id":root_id,"children":children,"project":project,
+            "key":task_key,"id":id,"title":title,
+            "description":accepted_brief.and_then(|brief|brief["scope"].as_str()).map(|scope|bounded_label(scope_title(scope).as_deref().unwrap_or(scope), 500)),
+            "observation":{
+                "state":task.pointer("/current_state/state"),"source":observation_source,
+                "quality":if matches!(observation_source,Some("pane"|"backend"|"native-event")){"current"}else if matches!(observation_source,Some("status-log"|"status"|"run-step")){"historical"}else{"unknown"},
+                "collected_at":task.pointer("/current_state/observed_at"),"observed_at":Value::Null,"age_seconds":Value::Null,
+                "detail":task.pointer("/current_state/detail"),"endpoint_exists":task.pointer("/endpoint/exists"),"agent_alive":task.pointer("/endpoint/agent_alive")
+            },
+            "completion":{"kind":if current_delivery.is_some_and(|evidence|evidence["outcome"]=="human-merged"){"human-merged"}else if coordination.is_some_and(|row|row.pointer("/schedule/state")==Some(&json!("completed"))){"implementation-complete"}else if task.pointer("/current_state/state")==Some(&json!("done")){"worker-reported-done"}else{"unproven"},"parent_verified":false},
+            "parent_id":parent_id,"root_id":root_id,"children":children,"project":project,
             "state":coordination.and_then(|row|row.pointer("/schedule/state")).unwrap_or(&task["current_state"]["state"]),
             "priority":coordination.and_then(|row|row.pointer("/schedule/priority")).and_then(Value::as_i64).or_else(||backlog.and_then(|row|row["priority"].as_str()).and_then(|value|value.parse().ok())).unwrap_or(0),
             "role":coordination.and_then(|row|row["role"].as_str()),
-            "owner":{"home":owner_home,"coordinator":coordination.and_then(|row|row["owning_coordinator"].as_str()),"parent_id":parent_id},
+            "owner":{"home":owner_home,"coordinator":coordination.and_then(|row|row["owning_coordinator"].as_str()),"parent_id":parent_id,"parent_home":coordination.and_then(|row|row["parent_home"].as_str())},
             "attempt":coordination.map(|row|row["attempt"].clone()).unwrap_or(Value::Null),"prior_attempts":attempts,
             "brief":{"revision":accepted_revision,"digest":coordination.and_then(|row|row["accepted_brief_digest"].as_str()),"path":coordination.and_then(|row|row["accepted_brief_path"].as_str()),"scope":accepted_brief.and_then(|brief|brief["scope"].as_str()),"research":accepted_brief.and_then(|brief|brief["source_artifacts"].as_array()).cloned().unwrap_or_default()},
             "workflow":workflow,"dependencies":dependencies,"decisions":decisions,
@@ -2282,6 +2343,7 @@ fn read_child_summary_with_timeout(
             "mx-system-snapshot.sh",
             "--standing-agent-home-summary",
         ])
+        .env("MX_MULTICALL_EXPLICIT", "1")
         .env("MX_ROOT_OVERRIDE", &paths.root)
         .env("MX_HOME", home)
         .env("MX_STATE_OVERRIDE", home.join("state"))
@@ -2555,6 +2617,202 @@ fn daemon_current(paths: &Paths, generated: &str, tasks: &Value) -> Value {
     }
     let shown = records.len();
     json!({"registry":registry,"records":records,"total_registered":total_registered,"total":total,"shown":shown,"truncated":total-shown})
+}
+
+/// Traverse registered homes for every assignment role, retaining failed routes.
+/// Child subprocesses only collect their own home; this owner applies one global
+/// budget, depth and record limit and never follows a guessed filesystem path.
+fn descendant_projection(paths: &Paths, generated: &str, direct: &Value) -> Value {
+    descendant_projection_with_reader(paths, generated, direct, |home, timeout| {
+        read_child_summary_with_timeout(paths, home, generated, timeout)
+    })
+}
+
+fn descendant_projection_with_reader(
+    paths: &Paths,
+    generated: &str,
+    direct: &Value,
+    mut read: impl FnMut(&Path, Duration) -> Result<Value, String>,
+) -> Value {
+    let limit = env_usize("MX_SNAPSHOT_DESCENDANTS", 40);
+    let depth_limit = env_usize("MX_SNAPSHOT_DESCENDANT_DEPTH", 8);
+    let budget = Duration::from_millis(env_usize("MX_SNAPSHOT_DESCENDANT_BUDGET_MS", 3000) as u64);
+    let started = Instant::now();
+    let mut records = Vec::new();
+    let mut queue = VecDeque::new();
+    let mut seen = std::collections::BTreeSet::from([paths
+        .home
+        .canonicalize()
+        .unwrap_or_else(|_| paths.home.clone())]);
+    let mut truncated = 0usize;
+    for record in array(direct, "records") {
+        queue.push_back((
+            paths.home.clone(),
+            paths.state.clone(),
+            record.clone(),
+            0usize,
+        ));
+    }
+    while let Some((parent_home, parent_state, mut record, depth)) = queue.pop_front() {
+        if records.len() >= limit {
+            truncated += 1 + queue.len();
+            break;
+        }
+        let id = record["id"].as_str().unwrap_or("").to_owned();
+        record["parent_home"] = json!(parent_home);
+        record["parent_task_key"] = json!(
+            multplx_domain::lifecycle::subagent_model::qualified_task_id(
+                parent_home.to_str().unwrap_or("unknown"),
+                &id,
+            )
+        );
+        let child_home = record["home"].as_str().map(PathBuf::from);
+        let verified = record["registry_error"]
+            .as_str()
+            .map_or(Ok(()), |reason| Err(reason.to_owned()))
+            .and_then(|()| {
+                child_home
+                    .as_ref()
+                    .ok_or_else(|| "registered home missing".to_owned())
+                    .and_then(|home| {
+                        let parent_paths = Paths {
+                            root: paths.root.clone(),
+                            home: parent_home.clone(),
+                            state: parent_state.clone(),
+                            data: parent_home.join("data"),
+                            config: parent_home.join("config"),
+                            projects: parent_home.join("projects"),
+                            source_root: paths.source_root.clone(),
+                        };
+                        let home = validate_home(&parent_paths, &id, home)?;
+                        if let Some(allocation) =
+                            multplx_domain::lifecycle::home_seed::read_home_allocation(
+                                &parent_paths.data,
+                                &id,
+                            )?
+                        {
+                            if allocation.binding.owner_home != parent_home
+                                || allocation.binding.path != home
+                                || allocation.state != "active"
+                            {
+                                return Err(
+                            "registered home allocation has conflicting ownership or is not active"
+                                .into(),
+                        );
+                            }
+                            multplx_domain::lifecycle::home_seed::verify_active_home(&allocation)?;
+                        } else {
+                            // Legacy homes need an exact canonical task route, not only
+                            // a registry label and matching seed marker.
+                            let bytes = multplx_core::filesystem::read_bounded_regular(
+                                parent_state.join(format!("{id}.meta")),
+                                multplx_core::filesystem::MAX_TASK_METADATA_BYTES,
+                            )
+                            .map_err(|e| e.to_string())?;
+                            let task = multplx_domain::lifecycle::subagent_model::read_meta(
+                                &id,
+                                &String::from_utf8(bytes).map_err(|e| e.to_string())?,
+                            )?;
+                            if task.legacy_unknown
+                                || task.owner_home.as_deref() != parent_home.to_str()
+                                || task
+                                    .persistent_home
+                                    .as_deref()
+                                    .and_then(|p| Path::new(p).canonicalize().ok())
+                                    != Some(home.clone())
+                            {
+                                return Err("registered home ownership is unverified".into());
+                            }
+                        }
+                        Ok(home)
+                    })
+            });
+        let home = match verified {
+            Ok(home) if seen.insert(home.clone()) => home,
+            Ok(_) => {
+                record["valid"] = json!(false);
+                record["reason"] = json!("duplicate or cyclic registered home ownership");
+                record["portfolio"] = Value::Null;
+                records.push(record);
+                continue;
+            }
+            Err(error) => {
+                record["valid"] = json!(false);
+                record["reason"] = json!(error);
+                record["portfolio"] = Value::Null;
+                records.push(record);
+                continue;
+            }
+        };
+        record["validated_home"] = json!(home);
+        let summary = if depth == 0 && record["provenance"]["selected"] == "structured-home" {
+            Ok(record.clone())
+        } else if started.elapsed() >= budget {
+            Err("descendant observation budget exhausted".into())
+        } else {
+            read(
+                &home,
+                budget
+                    .saturating_sub(started.elapsed())
+                    .min(env_duration("MX_SNAPSHOT_DAEMON_TIMEOUT", 2)),
+            )
+        };
+        match summary {
+            Ok(summary) => {
+                for field in [
+                    "portfolio",
+                    "tasks",
+                    "domains",
+                    "counts",
+                    "omitted",
+                    "valid",
+                    "reason",
+                ] {
+                    record[field] = summary[field].clone();
+                }
+                let child_paths = Paths {
+                    root: paths.root.clone(),
+                    home: home.clone(),
+                    state: home.join("state"),
+                    data: home.join("data"),
+                    config: home.join("config"),
+                    projects: home.join("projects"),
+                    source_root: paths.source_root.clone(),
+                };
+                let registry = summary
+                    .get("registry")
+                    .cloned()
+                    .unwrap_or_else(|| registry(&child_paths, generated));
+                if registry["complete"] != true {
+                    record["routes_partial"] = json!(true);
+                }
+                let child_routes = array(&registry, "records");
+                if depth >= depth_limit {
+                    truncated += child_routes.len();
+                } else {
+                    for route in child_routes {
+                        let mut next = route.clone();
+                        next["valid"] = json!(false);
+                        next["portfolio"] = Value::Null;
+                        queue.push_back((home.clone(), home.join("state"), next, depth + 1));
+                    }
+                }
+            }
+            Err(error) => {
+                record["valid"] = json!(false);
+                record["reason"] = json!(error);
+                record["portfolio"] = Value::Null;
+            }
+        }
+        records.push(record);
+    }
+    let complete = truncated == 0
+        && direct["truncated"] == 0
+        && direct["registry"]["complete"] == true
+        && records
+            .iter()
+            .all(|record| record["valid"] == true && record["routes_partial"] != true);
+    json!({"records":records,"complete":complete,"truncated":truncated})
 }
 
 fn daemon_landed(current: &Value) -> Value {
@@ -2988,7 +3246,10 @@ mod tests {
             super::scope_title(scaffold).as_deref(),
             Some("Fix the dashboard attention cards")
         );
-        assert_eq!(super::scope_title(&scaffold.replace('\n', " ")), None);
+        assert_eq!(
+            super::scope_title(&scaffold.replace('\n', " ")).as_deref(),
+            Some("Fix the dashboard attention cards")
+        );
         for (scope, expected) in [
             (
                 "# Task\n\n# Charter\nCoordinate the UI",
@@ -3182,6 +3443,262 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn completion_does_not_end_descendants_or_prove_parent_delivery() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().to_path_buf();
+        let paths = Paths {
+            root: home.clone(),
+            home: home.clone(),
+            state: home.join("state"),
+            data: home.join("data"),
+            config: home.join("config"),
+            projects: home.join("projects"),
+            source_root: home.clone(),
+        };
+        let mut parent = json!({"id":"parent","coordination":{
+            "owner_home":home,"role":"implementer","parent_id":null,"persistent":true,"runtime":{"session_id":"standing-session"},"attempt":{"id":"attempt-1","generation":1},"accepted_brief_revision":1,
+            "briefs":[{"revision":1,"scope":"Repair Viz"}],"schedule":{"state":"completed","decisions":[{"id":"choice","question":"Which target?","answer":null}]},"delivery":{"history":[]}
+        },"current_state":{"state":"done","source":"status-log"},"endpoint":{"exists":true,"agent_alive":"alive"},"paths":{},"backlog":null});
+        let child = json!({"id":"child","coordination":{"owner_home":home,"parent_home":home,"parent_id":"parent","schedule":{"state":"runnable"},"briefs":[],"runtime":{}},"current_state":{"state":"unknown","source":"timeout"},"paths":{},"backlog":null});
+        let foreign = json!({"id":"foreign","coordination":{"owner_home":"/other","parent_home":"/other","parent_id":"parent","schedule":{"state":"runnable"}},"current_state":{"state":"unknown","source":"none"},"paths":{},"backlog":null});
+        let project = |parent: &Value| {
+            portfolio(
+                &paths,
+                "now",
+                &json!({"records":[]}),
+                &json!([parent.clone(), child.clone(), foreign.clone()]),
+                &json!({"records":[],"total":0,"complete":true}),
+                &json!({}),
+            )
+        };
+        let rows = project(&parent);
+        let completed = rows["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["id"] == "parent")
+            .unwrap();
+        assert_eq!(completed["completion"]["kind"], "implementation-complete");
+        assert_eq!(completed["completion"]["parent_verified"], false);
+        assert_eq!(completed["observation"]["agent_alive"], "alive");
+        assert_eq!(completed["decisions"][0]["question"], "Which target?");
+        assert_eq!(
+            completed["children"],
+            json!([format!("{}#task:child", home.display())])
+        );
+        let active_child = rows["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["id"] == "child")
+            .unwrap();
+        assert_eq!(active_child["state"], "runnable");
+        assert_eq!(active_child["observation"]["quality"], "unknown");
+        assert_eq!(active_child["freshness"]["partial"], true);
+        parent["coordination"]["schedule"]["state"] = json!("runnable");
+        let rows = project(&parent);
+        assert_eq!(
+            rows["tasks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|task| task["id"] == "parent")
+                .unwrap()["completion"]["kind"],
+            "worker-reported-done"
+        );
+        parent["coordination"]["delivery"] = json!({"current_commit":"a","history":[{"commit":"a","attempt_id":"attempt-1","attempt_generation":1,"brief_revision":1,"outcome":"human-merged"}]});
+        let rows = project(&parent);
+        assert_eq!(
+            rows["tasks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|task| task["id"] == "parent")
+                .unwrap()["completion"]["kind"],
+            "human-merged"
+        );
+    }
+
+    #[test]
+    fn titles_are_unicode_bounded_and_instruction_only_scopes_stay_unlabeled() {
+        let long = format!("# Task\n{}\n# Setup\nInstructions", "修復 🛠 ".repeat(100));
+        let title = scope_title(&long).unwrap();
+        assert_eq!(title.chars().count(), 100);
+        assert!(title.ends_with('…'));
+        assert!(title.starts_with("修復 🛠"));
+        assert_eq!(
+            scope_title("You are a persistent worker. # Setup Use tools."),
+            None
+        );
+        assert_eq!(
+            scope_title("# Task {TASK} # Charter Repair Viz # Setup Instructions").as_deref(),
+            Some("Repair Viz")
+        );
+    }
+
+    fn owned_test_home(root: &Path, id: &str) -> PathBuf {
+        let home = root.join(id);
+        for directory in ["data", "state", "config", "projects", "bin"] {
+            fs::create_dir_all(home.join(directory)).unwrap();
+        }
+        fs::write(home.join("AGENTS.md"), "fixture").unwrap();
+        fs::write(home.join(multplx_core::agent_home::MARKER), id).unwrap();
+        home.canonicalize().unwrap()
+    }
+
+    fn test_home_route(parent: &Path, id: &str, child: &Path) {
+        use multplx_domain::lifecycle::subagent_model::{
+            ArtifactKind, AssignmentRole, TaskRecord, write_meta,
+        };
+        let mut task = TaskRecord::new(
+            id.into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            true,
+            "root".into(),
+            "root".into(),
+            parent.to_string_lossy().into_owned(),
+        );
+        task.persistent_home = Some(child.to_string_lossy().into_owned());
+        fs::write(
+            parent.join("state").join(format!("{id}.meta")),
+            write_meta("kind=daemon\n", &task).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn descendant_workers_recurse_through_exact_ownership_and_retain_failed_routes() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = owned_test_home(temp.path(), "home");
+        let worker = owned_test_home(temp.path(), "worker");
+        let nested = owned_test_home(temp.path(), "nested");
+        let foreign = owned_test_home(temp.path(), "foreign");
+        test_home_route(&home, "worker", &worker);
+        test_home_route(&worker, "nested", &nested);
+        use std::os::unix::fs::MetadataExt;
+        let metadata = fs::metadata(&nested).unwrap();
+        let allocation = multplx_domain::lifecycle::home_seed::HomeAllocation {
+            version: 1,
+            binding: multplx_domain::lifecycle::home_seed::HomeBinding {
+                id: "nested".into(),
+                owner_home: worker.clone(),
+                path: nested.clone(),
+                lease_id: "fixture-lease".into(),
+                generation: 1,
+            },
+            runtime_root: temp.path().join("runtime"),
+            state: "active".into(),
+            retained_path: None,
+            directory_identity: Some((metadata.dev(), metadata.ino())),
+            git_allocation: None,
+        };
+        fs::write(
+            worker.join("data/.home-allocation-nested.json"),
+            serde_json::to_vec(&allocation).unwrap(),
+        )
+        .unwrap();
+        // A registry/marker pair is insufficient without a task or allocation route.
+        fs::write(worker.join("data").join(multplx_core::agent_home::REGISTRY),format!("- nested - worker (home: {}; role: implementer)\n- foreign - unrelated (home: {}; role: implementer)\n",nested.display(),foreign.display())).unwrap();
+        let paths = Paths {
+            root: temp.path().join("runtime"),
+            home: home.clone(),
+            state: home.join("state"),
+            data: home.join("data"),
+            config: home.join("config"),
+            projects: home.join("projects"),
+            source_root: temp.path().join("runtime"),
+        };
+        let direct = json!({"truncated":0,"registry":{"complete":true},"records":[{"id":"worker","home":worker,"valid":true,"provenance":{"selected":"structured-home"},"portfolio":{"tasks":[],"projects":[]},"tasks":[]}]});
+        let mut reads = 0;
+        let projection = descendant_projection_with_reader(
+            &paths,
+            "now",
+            &direct,
+            |observed, _| {
+                assert_eq!(observed, nested);
+                reads += 1;
+                Ok(
+                    json!({"valid":true,"portfolio":{"tasks":[{"key":"nested#task:leaf","state":"runnable"}],"projects":[]},"tasks":[],"registry":{"complete":true,"records":[]}}),
+                )
+            },
+        );
+        assert_eq!(reads, 1);
+        assert_eq!(projection["records"].as_array().unwrap().len(), 3);
+        let record = projection["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|record| record["id"] == "nested")
+            .unwrap();
+        assert_eq!(record["validated_home"], json!(nested));
+        assert_eq!(
+            record["parent_task_key"],
+            json!(format!("{}#task:nested", worker.display()))
+        );
+        assert_eq!(record["portfolio"]["tasks"][0]["state"], "runnable");
+        let unresolved = projection["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|record| record["id"] == "foreign")
+            .unwrap();
+        assert_eq!(unresolved["valid"], false);
+        assert!(
+            unresolved["reason"]
+                .as_str()
+                .unwrap()
+                .contains("No such file")
+        );
+        assert!(unresolved["portfolio"].is_null());
+        assert_eq!(projection["complete"], false);
+        let mut foreign_allocation = allocation.clone();
+        foreign_allocation.binding.owner_home = home.clone();
+        fs::write(
+            worker.join("data/.home-allocation-nested.json"),
+            serde_json::to_vec(&foreign_allocation).unwrap(),
+        )
+        .unwrap();
+        let conflicting = descendant_projection_with_reader(&paths, "now", &direct, |_, _| {
+            panic!("foreign route must not be read")
+        });
+        assert!(
+            conflicting["records"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|record| record["id"] == "nested"
+                    && record["reason"]
+                        .as_str()
+                        .is_some_and(|reason| reason.contains("conflicting ownership")))
+        );
+        test_home_route(&worker, "home", &home);
+        fs::write(
+            worker.join("data").join(multplx_core::agent_home::REGISTRY),
+            format!(
+                "- home - cycle (home: {}; role: implementer)\n",
+                home.display()
+            ),
+        )
+        .unwrap();
+        let cyclic = descendant_projection_with_reader(&paths, "now", &direct, |_, _| {
+            panic!("cycle must not be read")
+        });
+        assert_eq!(
+            cyclic["records"][1]["reason"],
+            "duplicate or cyclic registered home ownership"
+        );
+        let failure = descendant_projection_with_reader(
+            &paths,
+            "now",
+            &json!({"truncated":0,"registry":{"complete":true},"records":[{"id":"worker","home":worker}]}),
+            |_, _| Err("timed out".into()),
+        );
+        assert_eq!(failure["records"][0]["valid"], false);
+        assert_eq!(failure["records"][0]["reason"], "timed out");
+    }
 
     #[test]
     fn verb_and_key_reconciliation_preserves_authority() {
@@ -3407,6 +3924,10 @@ mod tests {
             .find(|task| task["id"] == "same-name")
             .unwrap();
         assert_eq!(current["state"], "waiting-dependency");
+        assert_eq!(current["observation"]["state"], "parked");
+        assert_eq!(current["observation"]["quality"], "historical");
+        assert!(current["observation"]["observed_at"].is_null());
+        assert_eq!(current["completion"]["kind"], "unproven");
         assert_eq!(current["workflow"]["id"], "run-1");
         assert_eq!(current["workflow"]["revision"], "rev-7");
         assert_eq!(current["dependencies"][0]["blocking"], true);

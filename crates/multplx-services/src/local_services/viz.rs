@@ -74,6 +74,7 @@ struct Runtime {
     last_refresh_finished_at: Option<String>,
     last_refresh_error: Option<String>,
     metrics: RefreshMetrics,
+    forge_cache: BTreeMap<String, (Instant, Value)>,
 }
 
 struct ServerContext {
@@ -361,7 +362,18 @@ fn artifact_owner_roots(
                 .ok()
                 .filter(|candidate| candidate == &owner)
         });
-    let child_home = direct.or(nested)?;
+    let descendant = snapshot
+        .pointer("/descendants/records")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find_map(|record| {
+            let candidate = record["validated_home"].as_str()?;
+            fs::canonicalize(candidate)
+                .ok()
+                .filter(|candidate| candidate == &owner)
+        });
+    let child_home = direct.or(nested).or(descendant)?;
     let state = child_home.join("state");
     Some(
         [
@@ -437,6 +449,17 @@ fn collect_artifacts(root: &Path, snapshot: &Value) -> Vec<Value> {
     {
         for child in children {
             if let Some(child_tasks) = child.pointer("/portfolio/tasks").and_then(Value::as_array) {
+                tasks.extend(child_tasks);
+            }
+        }
+    }
+    if let Some(records) = snapshot
+        .pointer("/descendants/records")
+        .and_then(Value::as_array)
+    {
+        for record in records {
+            if let Some(child_tasks) = record.pointer("/portfolio/tasks").and_then(Value::as_array)
+            {
                 tasks.extend(child_tasks);
             }
         }
@@ -521,6 +544,17 @@ fn collect_cached_artifacts(
             }
         }
     }
+    if let Some(records) = snapshot
+        .pointer("/descendants/records")
+        .and_then(Value::as_array)
+    {
+        for record in records {
+            if let Some(child_tasks) = record.pointer("/portfolio/tasks").and_then(Value::as_array)
+            {
+                tasks.extend(child_tasks);
+            }
+        }
+    }
     for task in tasks {
         let id = task.get("id").and_then(Value::as_str).unwrap_or("task");
         let Some(allowed_roots) = task
@@ -564,6 +598,7 @@ fn meaningful_value(value: &mut Value, freshness_object: bool) {
                 .any(|name| fields.contains_key(*name));
             if !has_identity {
                 fields.remove("generated");
+                fields.remove("collected_at");
             }
             if freshness_object || (fields.contains_key("freshness") && !has_identity) {
                 for name in ["observed_at", "age_seconds", "age_secs"] {
@@ -594,6 +629,147 @@ fn unavailable_error(runtime: &Runtime) -> ServiceError {
     }
 }
 
+fn snapshot_portfolio_tasks(snapshot: &Value) -> Vec<&Value> {
+    let mut tasks = snapshot
+        .pointer("/portfolio/tasks")
+        .and_then(Value::as_array)
+        .map(|rows| rows.iter().collect::<Vec<_>>())
+        .unwrap_or_default();
+    for feed in ["domains", "daemon_current", "descendants"] {
+        for record in snapshot
+            .pointer(&format!("/{feed}/records"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            tasks.extend(
+                record
+                    .pointer("/portfolio/tasks")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten(),
+            );
+        }
+    }
+    tasks
+}
+
+impl ServerContext {
+    /// The dashboard owns this disposable observation cache. Canonical delivery
+    /// and task records remain untouched; the domain owner validates identities.
+    fn forge_observations(&self, snapshot: &Value) -> Vec<Value> {
+        self.forge_observations_with_reader(snapshot, |url, timeout| {
+            let identity = multplx_domain::review_delivery::PrIdentity::parse(url)?;
+            let output = run_bounded_command(
+                Path::new("gh"),
+                &["pr", "view", url, "--json", "url,state,title,headRefOid"],
+                &[],
+                timeout,
+                64 * 1024,
+            )
+            .map_err(|error| error.message)?;
+            if !output.status.success() {
+                return Err(
+                    "forge observation unavailable (authentication, access or network failure)"
+                        .into(),
+                );
+            }
+            multplx_domain::review_delivery::parse_pr_observation(&identity, &output.stdout)
+        })
+    }
+
+    fn forge_observations_with_reader(
+        &self,
+        snapshot: &Value,
+        mut read: impl FnMut(&str, Duration) -> std::result::Result<Value, String>,
+    ) -> Vec<Value> {
+        let urls = snapshot_portfolio_tasks(snapshot)
+            .iter()
+            .filter_map(|task| task.pointer("/evidence/pr/url").and_then(Value::as_str))
+            .collect::<BTreeSet<_>>();
+        let ttl = Duration::from_secs(
+            parse_integer_env("MX_VIZ_FORGE_REFRESH_SECS", 60, 10, 3600)
+                .unwrap_or(60)
+                .max(10),
+        );
+        let budget = Duration::from_millis(3000);
+        let started = Instant::now();
+        let mut results = Vec::new();
+        for (index, url) in urls.into_iter().enumerate() {
+            let cached = self
+                .runtime
+                .lock()
+                .expect("runtime")
+                .forge_cache
+                .get(url)
+                .cloned();
+            if let Some((at, value)) = &cached
+                && at.elapsed() < ttl
+            {
+                let mut value = value.clone();
+                value["age_seconds"] = json!(at.elapsed().as_secs());
+                results.push(value);
+                continue;
+            }
+            if started.elapsed() >= budget || index >= 100 {
+                let mut value = cached.map(|(_,value)|value).unwrap_or_else(||json!({"url":url,"state":"unknown","title":Value::Null,"head":Value::Null,"observed_at":Value::Null}));
+                value["freshness"] = json!(if value["state"] == "unknown" {
+                    "unknown"
+                } else {
+                    "stale"
+                });
+                value["error"] = json!("forge observation budget exhausted");
+                value["age_seconds"] = self
+                    .runtime
+                    .lock()
+                    .expect("runtime")
+                    .forge_cache
+                    .get(url)
+                    .map(|(at, _)| json!(at.elapsed().as_secs()))
+                    .unwrap_or(Value::Null);
+                results.push(value);
+                continue;
+            }
+            let observation = read(
+                url,
+                budget
+                    .saturating_sub(started.elapsed())
+                    .min(Duration::from_millis(1500)),
+            );
+            let mut value = match observation {
+                Ok(value) => value,
+                Err(error) => {
+                    json!({"url":url,"state":"unknown","title":Value::Null,"head":Value::Null,"error":error})
+                }
+            };
+            value["observed_at"] = json!(utc_now());
+            value["age_seconds"] = json!(0);
+            value["freshness"] = json!(if value["state"] == "unknown" {
+                "unknown"
+            } else {
+                "fresh"
+            });
+            self.runtime
+                .lock()
+                .expect("runtime")
+                .forge_cache
+                .insert(url.to_owned(), (Instant::now(), value.clone()));
+            results.push(value);
+        }
+        // Bound retained observations when task history changes.
+        let keep = results
+            .iter()
+            .filter_map(|value| value["url"].as_str())
+            .collect::<BTreeSet<_>>();
+        self.runtime
+            .lock()
+            .expect("runtime")
+            .forge_cache
+            .retain(|url, _| keep.contains(url.as_str()));
+        results
+    }
+}
+
 impl ServerContext {
     fn refresh_snapshot_once(&self) -> Result<SnapshotCache> {
         let (raw, snapshot) = execute_json(
@@ -605,16 +781,20 @@ impl ServerContext {
         )?;
         let (artifacts, artifact_refs) =
             collect_cached_artifacts(&self.root, &self.home, &self.state, &snapshot);
+        let forge_observations = self.forge_observations(&snapshot);
         let server = json!({"version":VERSION,"started":self.started,"pid":std::process::id()});
         let body = format!(
-            "{{\"server\":{},\"artifacts\":{},\"snapshot\":{raw}}}\n",
+            "{{\"server\":{},\"artifacts\":{},\"forge_observations\":{},\"snapshot\":{raw}}}\n",
             serde_json::to_string(&server).expect("server JSON"),
-            serde_json::to_string(&artifacts).expect("artifact JSON")
+            serde_json::to_string(&artifacts).expect("artifact JSON"),
+            serde_json::to_string(&forge_observations).expect("forge JSON")
         )
         .into_bytes();
         let mut meaningful_snapshot = snapshot.clone();
         meaningful_value(&mut meaningful_snapshot, false);
-        let meaningful = json!({"artifacts":artifacts,"snapshot":meaningful_snapshot});
+        let mut meaningful_forge = json!(forge_observations);
+        meaningful_value(&mut meaningful_forge, true);
+        let meaningful = json!({"artifacts":artifacts,"forge_observations":meaningful_forge,"snapshot":meaningful_snapshot});
         Ok(SnapshotCache {
             content_hash: sha256_hex(
                 serde_json::to_vec(&meaningful).expect("meaningful snapshot JSON"),
@@ -1111,6 +1291,7 @@ pub(super) fn run_server(args: &[OsString]) -> Result<i32> {
             last_refresh_finished_at: None,
             last_refresh_error: None,
             metrics: RefreshMetrics::default(),
+            forge_cache: BTreeMap::new(),
         }),
     });
     println!("READY {port}");
@@ -1405,6 +1586,7 @@ mod tests {
                 last_refresh_finished_at: None,
                 last_refresh_error: None,
                 metrics: RefreshMetrics::default(),
+                forge_cache: BTreeMap::new(),
             }),
         })
     }
@@ -1424,6 +1606,75 @@ mod tests {
             .iter()
             .find(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
             .map(|(_, value)| value.as_str())
+    }
+
+    #[test]
+    fn forge_cache_bounds_reads_refreshes_reopened_prs_and_keeps_unknown_explicit() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = context(temp.path().to_path_buf(), temp.path().join("unused"));
+        let url = "https://github.com/example/project/pull/1";
+        let snapshot = json!({"portfolio":{"tasks":[{"evidence":{"pr":{"url":url}}},{"evidence":{"pr":{"url":url}}}]}});
+        let mut reads = 0;
+        let first = context.forge_observations_with_reader(&snapshot, |observed, timeout| {
+            assert_eq!(observed, url);
+            assert!(timeout <= Duration::from_millis(1500));
+            reads += 1;
+            Ok(json!({"url":url,"state":"merged","title":"Repair Viz","head":"a".repeat(40)}))
+        });
+        assert_eq!(reads, 1);
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0]["state"], "merged");
+        assert_eq!(first[0]["freshness"], "fresh");
+        let cached = context
+            .forge_observations_with_reader(&snapshot, |_, _| panic!("cached PR queried again"));
+        assert_eq!(cached[0]["state"], "merged");
+        context
+            .runtime
+            .lock()
+            .unwrap()
+            .forge_cache
+            .get_mut(url)
+            .unwrap()
+            .0 = Instant::now() - Duration::from_secs(3601);
+        let reopened = context.forge_observations_with_reader(&snapshot,|_,_|Ok(json!({"url":url,"state":"open","title":"Repair Viz reopened","head":"b".repeat(40)})));
+        assert_eq!(reopened[0]["state"], "open");
+        context
+            .runtime
+            .lock()
+            .unwrap()
+            .forge_cache
+            .get_mut(url)
+            .unwrap()
+            .0 = Instant::now() - Duration::from_secs(3601);
+        let inaccessible =
+            context.forge_observations_with_reader(&snapshot, |_, _| Err("access denied".into()));
+        assert_eq!(inaccessible[0]["state"], "unknown");
+        assert_eq!(inaccessible[0]["freshness"], "unknown");
+        assert_eq!(inaccessible[0]["error"], "access denied");
+        context.forge_observations_with_reader(&json!({"portfolio":{"tasks":[]}}), |_, _| {
+            panic!("no PR")
+        });
+        assert!(context.runtime.lock().unwrap().forge_cache.is_empty());
+    }
+
+    #[test]
+    fn forge_refresh_budget_is_shared_across_the_whole_portfolio() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = context(temp.path().to_path_buf(), temp.path().join("unused"));
+        let snapshot = json!({"portfolio":{"tasks":[
+            {"evidence":{"pr":{"url":"https://github.com/example/project/pull/1"}}},
+            {"evidence":{"pr":{"url":"https://github.com/example/project/pull/2"}}}
+        ]}});
+        let mut reads = 0;
+        let observed = context.forge_observations_with_reader(&snapshot, |_, _| {
+            reads += 1;
+            std::thread::sleep(Duration::from_millis(3005));
+            Err("timeout".into())
+        });
+        assert_eq!(reads, 1);
+        assert_eq!(observed.len(), 2);
+        assert_eq!(observed[1]["freshness"], "unknown");
+        assert_eq!(observed[1]["error"], "forge observation budget exhausted");
     }
 
     #[test]
@@ -1742,6 +1993,7 @@ mod tests {
                 "freshness":{"status":"fresh","age_seconds":0,"observed_at":"one"},
                 "tasks":[{"latest_change":{"state":"working","observed_at":"one"}}]
             },
+            "observation":{"collected_at":"one","quality":"historical"},
             "event":{"event_id":"event-1","generated":"one","observed_at":"one"}
         });
         let mut age_only = json!({
@@ -1752,6 +2004,7 @@ mod tests {
                 "freshness":{"status":"fresh","age_seconds":9,"observed_at":"two"},
                 "tasks":[{"latest_change":{"state":"working","observed_at":"two"}}]
             },
+            "observation":{"collected_at":"two","quality":"historical"},
             "event":{"event_id":"event-1","generated":"one","observed_at":"one"}
         });
         meaningful_value(&mut first, false);
