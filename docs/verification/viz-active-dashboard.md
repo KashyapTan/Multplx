@@ -60,6 +60,8 @@ It verifies the emitted observation and completion schema, actual merged-PR hist
 The native graph distinguishes observed sessions from assignments and marks activity unknown; retained and opaque session evidence does not create extra accepted tasks.
 The service-backed scale runner also verifies that repeated failed refreshes remain visible through retry-start responses, including conditional `304` responses.
 A service unit regression proves that only a successful refresh clears the retained error.
+The failure banner stays visible on both tabs, stale root observations say so, and task labels identify the last known state during an outage.
+Nested assignment disclosures, focus and graph navigation survive polling without undoing a newer user interaction.
 
 ## Validation boundary
 

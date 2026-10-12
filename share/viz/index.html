@@ -41,6 +41,8 @@
         <div id="attention-list" class="attention-list"></div>
       </section>
 
+      <div id="state-banner" class="state-banner loading" role="status">Loading the shared projection…</div>
+
       <nav class="view-switch" aria-label="Workspace view">
         <button id="tasks-view-button" class="view-tab selected" type="button" aria-pressed="true">Tasks</button>
         <button id="agents-view-button" class="view-tab" type="button" aria-pressed="false">Agents</button>
@@ -94,7 +96,6 @@
             <button id="clear-filters" class="ghost-btn" type="button">Clear</button>
           </form>
 
-          <div id="state-banner" class="state-banner loading" role="status">Loading the shared projection…</div>
           <div id="task-summary" class="result-summary" aria-live="polite"></div>
           <div id="task-list" class="task-groups" tabindex="-1"></div>
           <details id="task-reconciliation" class="history-panel" hidden>

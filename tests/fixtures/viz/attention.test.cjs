@@ -32,8 +32,8 @@ const extract = (name) => {
 };
 const context = vm.createContext({ document, URLSearchParams, URL });
 vm.runInContext(source.slice(source.indexOf("const list ="), source.indexOf("const connectionNote =")) +
-  "\nlet currentPayload=null; let portfolio; let attentionItemCount=0; let agentsViewActive=false;\n" +
-  ["titleCase", "projectRecord", "normalizedTasks", "statusTone", "chip", "taskKey", "hashForTask", "stableFocusKey", "restoreFocus", "forgeMatchesRevision", "forgeObservation", "deliveryStatus", "displayTaskTitle", "readyPrUrl", "renderAttention", "detailSection", "taskDetails", "factGrid", "openQuestions", "taskIsHistory", "taskIsReconciliation", "stateName", "taskRole", "primaryTaskStatus"].map(extract).join("\n"), context);
+  "\nconst taskDetailDisclosures=new Map(); let currentPayload=null; let portfolio; let attentionItemCount=0; let agentsViewActive=false;\n" +
+  ["titleCase", "projectRecord", "normalizedTasks", "statusTone", "chip", "taskKey", "hashForTask", "stableFocusKey", "restoreFocus", "forgeMatchesRevision", "forgeObservation", "deliveryStatus", "displayTaskTitle", "readyPrUrl", "renderAttention", "detailSection", "taskDetails", "restoreTaskDisclosure", "factGrid", "openQuestions", "taskIsHistory", "taskIsReconciliation", "stateName", "taskRole", "primaryTaskStatus"].map(extract).join("\n"), context);
 const snapshot = JSON.parse(execFileSync(process.execPath, [path.join(__dirname, "attention.mjs")], { encoding: "utf8" }));
 context.input = snapshot.portfolio;
 vm.runInContext("portfolio=input; renderAttention();", context);

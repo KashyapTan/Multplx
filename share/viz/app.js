@@ -32,6 +32,7 @@ let pollInFlight = false;
 let lastError = null;
 let lastAppliedHash = null;
 const expanded = new Set();
+const taskDetailDisclosures = new Map();
 let normalizedAgentGraph = null;
 let selectedAgentKey = null;
 let agentSearchValue = "";
@@ -446,7 +447,7 @@ function renderDecisions(task) {
         el("p", "", decision.answer ? `Answered: ${decision.answer}` : `${titleCase(decision.state || "historical")} · brief revision ${valueOr(decision.brief_revision)}`));
     }
     history.append(content);
-    section.append(history);
+    section.append(restoreTaskDisclosure(history, task, "previous-questions"));
   }
   return section;
 }
@@ -482,6 +483,14 @@ function renderEvidence(task) {
   return section;
 }
 
+function restoreTaskDisclosure(details, task, kind) {
+  const key = JSON.stringify([taskKey(task), kind]);
+  details.dataset.taskDisclosure = key;
+  details.children[0].dataset.focusKey = `task-disclosure:${key}`;
+  details.open = taskDetailDisclosures.get(key)?.open || false;
+  return details;
+}
+
 function taskDetails(task) {
   const body = el("div", "task-details");
   const overview = detailSection("Assignment");
@@ -492,13 +501,13 @@ function taskDetails(task) {
   if (task.brief?.scope && task.brief.scope !== description) {
     const scope = el("details", "attention-details");
     scope.append(el("summary", "", "Full assignment description"), el("div", "attention-detail-body", task.brief.scope));
-    overview.append(scope);
+    overview.append(restoreTaskDisclosure(scope, task, "description"));
   }
   body.append(overview);
   const technical = el("details", "technical-details");
   technical.append(el("summary", "", "Execution, sessions and technical details"));
   technical.append(factGrid([["Task ID", task.id], ["Project checkout", projectRecord(task).path]]), renderExecution(task), renderWorkflow(task));
-  body.append(technical);
+  body.append(restoreTaskDisclosure(technical, task, "technical"));
   if (task.title && displayTaskTitle(task) !== task.title) {
     const original = detailSection("Original task text");
     const details = el("details", "attention-details");
@@ -508,7 +517,7 @@ function taskDetails(task) {
     text.setAttribute("role", "region");
     text.setAttribute("aria-label", `Original task text for ${task.id}`);
     details.append(text);
-    original.append(details);
+    original.append(restoreTaskDisclosure(details, task, "original-text"));
     body.append(original);
   }
   const decisions = renderDecisions(task);
@@ -559,7 +568,9 @@ function taskRow(task) {
   const identity = el("div", "task-identity", `${project.display} · ${titleCase(taskRole(task))}`);
   left.append(title, identity);
   const right = el("div", "task-signals");
-  right.append(chip(primaryTaskStatus(task), taskStatusTone(task)));
+  const taskStatus = chip(primaryTaskStatus(task), taskStatusTone(task));
+  taskStatus.dataset.taskStatus = taskKey(task);
+  right.append(taskStatus);
   summary.append(left, right);
   details.append(summary, taskDetails(task));
   details.addEventListener("toggle", () => {
@@ -594,6 +605,9 @@ function renderTaskGroups(target, tasks) {
 function renderTasks() {
   if (!portfolio) return;
   const focusKey = stableFocusKey();
+  for (const details of document.querySelectorAll("[data-task-disclosure]")) {
+    taskDetailDisclosures.set(details.dataset.taskDisclosure, { open: details.open, scroll: details.querySelector(".attention-detail-body")?.scrollTop || 0 });
+  }
   const tasks = filteredTasks();
   const active = tasks.filter((task) => !taskIsHistory(task) && !taskIsReconciliation(task));
   const historical = tasks.filter(taskIsHistory);
@@ -613,6 +627,10 @@ function renderTasks() {
   }
   const all = normalizedTasks(portfolio);
   const totalActive = all.filter((task) => !taskIsHistory(task) && !taskIsReconciliation(task)).length;
+  for (const details of document.querySelectorAll("[data-task-disclosure]")) {
+    const body = details.querySelector(".attention-detail-body");
+    if (body) body.scrollTop = taskDetailDisclosures.get(details.dataset.taskDisclosure)?.scroll || 0;
+  }
   document.querySelector("#task-summary").textContent = `${active.length} active shown · ${totalActive} active assignments · ${all.filter(taskIsHistory).length} in history · ${all.filter(taskIsReconciliation).length} uncertain`;
   restoreFocus(focusKey);
 }
@@ -674,7 +692,9 @@ function displayTaskTitle(task) {
     const sentence = description.replace(/\s+/g, " ").split(/(?<=[.!?])\s/)[0];
     return Array.from(sentence).length <= 100 ? sentence : `${Array.from(sentence).slice(0, 97).join("").replace(/\s+\S*$/, "")}…`;
   }
-  return titleCase(String(task.id || "Untitled assignment").replace(/[_-]\d{4,}$/, ""));
+  const identity = String(task.id || "Untitled assignment").replace(/[_-]\d{4,}$/, "");
+  if (/^[\da-f-]{20,}$/i.test(identity)) return "Untitled assignment";
+  return identity.replace(/[_-]/g, " ").split(/\s+/).map((word) => /^[A-Z]{2,3}$/.test(word) ? word : word.slice(0, 1).toUpperCase() + word.slice(1).toLowerCase()).join(" ");
 }
 
 function readyPrUrl(task) {
@@ -821,6 +841,21 @@ function renderFreshness() {
   const sourceStatus = serviceCache === "stale" ? "stale" : freshness.status;
   const status = lastError ? "error" : age > staleAfterSeconds && sourceStatus === "fresh" ? "stale" : sourceStatus || "unknown";
   const partial = freshness.partial === true;
+  for (const item of document.querySelectorAll("[data-primary-cache-detail]")) item.textContent = serviceCache || "unknown";
+  for (const item of document.querySelectorAll("[data-primary-session-state]")) {
+    const live = item.dataset.primarySessionState === "live";
+    const historical = live && (lastError || age > staleAfterSeconds);
+    item.textContent = historical ? "Session observation stale" : live ? "Session process observed" : "Session status unavailable";
+    item.className = `chip tone-${historical ? "amber" : live ? "blue" : "neutral"}`;
+  }
+  const byKey = new Map(normalizedTasks(portfolio).map((task) => [taskKey(task), task]));
+  for (const item of document.querySelectorAll("[data-task-status]")) {
+    const task = byKey.get(item.dataset.taskStatus);
+    if (task) {
+      item.textContent = `${lastError ? "Last known: " : ""}${primaryTaskStatus(task)}`;
+      item.className = `chip tone-${lastError ? "neutral" : taskStatusTone(task)}`;
+    }
+  }
   const banner = document.querySelector("#state-banner");
   const ageChip = document.querySelector("#snapshot-age");
   ageChip.textContent = `Dashboard updated ${ageText(age)} ago`;
@@ -904,15 +939,19 @@ function agentCard(node, isRoot = false) {
 
   const facts = el("div", "agent-card-facts");
   if (isRoot) {
-    facts.append(chip(node.state === "live" ? "Session process observed" : "Session status unavailable", node.state === "live" ? "blue" : "neutral"));
+    const sessionStatus = chip(node.state === "live" ? "Session process observed" : "Session status unavailable", node.state === "live" ? "blue" : "neutral");
+    sessionStatus.dataset.primarySessionState = node.state;
+    facts.append(sessionStatus);
     const details = el("details", "root-observation-details");
     const summary = el("summary", "", "Session observation details");
     summary.dataset.focusKey = "root-observation";
     details.open = rootObservationOpen;
     details.addEventListener("toggle", () => { rootObservationOpen = details.open; });
     details.append(summary);
-    details.append(factGrid([["Session evidence", node.sessionDetails], ["Home", node.home],
-      ["Dashboard snapshot", node.freshness], ["Dashboard cache", serviceCache || "unknown"]]));
+    const observed = factGrid([["Session evidence", node.sessionDetails], ["Home", node.home],
+      ["Dashboard snapshot", node.freshness], ["Dashboard cache", serviceCache || "unknown"]]);
+    observed.lastElementChild.dataset.primaryCacheDetail = "";
+    details.append(observed);
     card.append(facts, details);
     return card;
   }
@@ -922,7 +961,9 @@ function agentCard(node, isRoot = false) {
     card.title += `\n${node.sessionDetails}\nObservation: ${node.native?.observation_id || "unknown"}`;
     return card;
   }
-  facts.append(chip(primaryTaskStatus(node.task), taskStatusTone(node.task)));
+  const taskStatus = chip(primaryTaskStatus(node.task), taskStatusTone(node.task));
+  taskStatus.dataset.taskStatus = taskKey(node.task);
+  facts.append(taskStatus);
   card.title = `${card.title}\nSession details: ${node.sessionDetails || node.session}`;
   card.append(facts, el("span", "agent-card-owner", taskIsHistory(node.task) && node.children.length ? "Completed parent · active descendants below" : "Open assignment details"));
   if (node.domain?.coordinator?.runtime_home) {
@@ -1091,16 +1132,23 @@ function renderAgents(snapshot) {
   collapseButton.disabled = branches.length === 0 || branches.every((node) => collapsedAgentKeys.has(node.key));
   const rootButton = document.querySelector("#agents-root");
   rootButton.disabled = false;
+  const renderedScrollLeft = viewport.scrollLeft;
+  const renderedScrollTop = viewport.scrollTop;
   requestAnimationFrame(() => {
     drawAgentConnectors(graph);
-    restoreFocus(focusedGeneralKey);
-    viewport.scrollLeft = scrollLeft;
-    viewport.scrollTop = scrollTop;
-    if (focusedKey && !document.querySelector("#agents-view").hidden) {
+    // A user may scroll or focus a card before this frame runs. Preserve that
+    // newer interaction instead of restoring the earlier render snapshot.
+    if (viewport.scrollLeft === renderedScrollLeft && viewport.scrollTop === renderedScrollTop) {
+      viewport.scrollLeft = scrollLeft;
+      viewport.scrollTop = scrollTop;
+    }
+    const restoreAgentFocus = document.activeElement === document.body;
+    if (restoreAgentFocus) restoreFocus(focusedGeneralKey);
+    if (restoreAgentFocus && focusedKey && !document.querySelector("#agents-view").hidden) {
       [...document.querySelectorAll("[data-agent-card-key]")]
         .find((card) => card.dataset.agentCardKey === focusedKey)
         ?.focus({ preventScroll: true });
-    } else if (focusedCollapseKey && !document.querySelector("#agents-view").hidden) {
+    } else if (restoreAgentFocus && focusedCollapseKey && !document.querySelector("#agents-view").hidden) {
       [...document.querySelectorAll("[data-agent-collapse-key]")]
         .find((button) => button.dataset.agentCollapseKey === focusedCollapseKey)
         ?.focus({ preventScroll: true });
@@ -1162,7 +1210,6 @@ function setAgentsView(agentsVisible) {
   requestAnimationFrame(() => {
     if (agentsVisible) {
       drawAgentConnectors(normalizedAgentGraph);
-      agents.scrollIntoView({ block: "start" });
       if (!wasAgentsVisible) centerAgentRoot();
     } else tasks.scrollIntoView({ block: "start" });
   });

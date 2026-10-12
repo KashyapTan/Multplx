@@ -25,7 +25,9 @@ try {
     const page = await browser.newPage({ viewport });
     page.on("pageerror", (error) => errors.push(error.message));
     const payload = dashboardFixture();
-    await page.route("**/api/state", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(payload), headers: { "X-Multplx-Cache": "fresh", "X-Multplx-Observation-Age-Ms": "0" } }));
+    let cacheStatus = "fresh";
+    let refreshError = null;
+    await page.route("**/api/state", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(payload), headers: { "X-Multplx-Cache": cacheStatus, "X-Multplx-Observation-Age-Ms": "0", ...(refreshError ? { "X-Multplx-Refresh-Error": refreshError } : {}) } }));
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.locator("#task-summary").filter({ hasText: "7 active shown" }).waitFor();
     await page.keyboard.press("Tab");
@@ -47,6 +49,10 @@ try {
     await mismatch.locator(":scope > summary").click();
     assert.match(await mismatch.textContent(), /Agent availability.*No process observed/s);
     await mismatch.locator(".technical-details > summary").click();
+    await mismatch.locator(".technical-details > summary").focus();
+    await page.waitForTimeout(600);
+    assert.equal(await mismatch.locator(".technical-details").getAttribute("open"), "", "nested execution disclosure survives polling");
+    assert.equal(await mismatch.locator(".technical-details > summary").evaluate((node) => document.activeElement === node), true);
     assert.match(await mismatch.textContent(), /Task ID.*mismatch.*Project checkout.*\/example\/dashboard/s);
     await mismatch.locator(":scope > summary").click();
     await page.locator("#search").fill("player statistics");
@@ -81,8 +87,8 @@ try {
     await page.screenshot({ path: path.join(output, `agents-${layout}.png`), fullPage: true });
     // Every rendered descendant remains reachable in the graph's bounded scroll container.
     const lastCard = page.locator("#agents-tree [data-agent-card-key]").last();
-    await lastCard.focus();
-    await lastCard.evaluate((node) => node.scrollIntoView({ block: "nearest", behavior: "instant" }));
+    await lastCard.evaluate((node) => { node.focus({ preventScroll: true }); node.scrollIntoView({ block: "nearest", behavior: "instant" }); });
+    await page.waitForTimeout(100);
     assert.equal(await lastCard.isVisible(), true);
     assert.equal(await lastCard.evaluate((node) => {
       const card = node.getBoundingClientRect(); const view = document.querySelector("#agents-viewport").getBoundingClientRect();
@@ -104,9 +110,17 @@ try {
     payload.forge_observations[0].state = "merged";
     await page.locator("#attention-count").filter({ hasText: "1 actionable" }).waitFor();
     assert.match(await page.locator(".attention-item").textContent(), /Should archived projects be included/);
+    cacheStatus = "stale";
+    refreshError = "Fixture reader is unavailable";
+    payload.snapshot.primary = { schema: "mx-primary-observation.v1", home: payload.snapshot.mx_home, state: payload.snapshot.roots.state, status: "live", identity_verified: true };
+    await page.locator("#state-banner").filter({ hasText: "Refresh failed. Showing the last good snapshot" }).waitFor();
+    await page.locator("#agents-view-button").click();
+    assert.equal(await page.locator("#state-banner").isVisible(), true, "failure evidence is visible on Agents too");
+    await page.locator("[data-primary-session-state]").filter({ hasText: "Session observation stale" }).waitFor();
+    assert.match(await page.locator('#agents-tree [data-task-status]').first().textContent(), /Last known:/);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
     assert.equal(overflow, false);
-    results[layout] = { active: 7, history: 2, uncertain: 2, nested_context: true, filters: true, disclosures: true, forge_refresh: true, status_separation: true, native_graph: true, observed_native_sessions: 3, assignments_exclude_native: true, overflow: false };
+    results[layout] = { active: 7, history: 2, uncertain: 2, nested_context: true, filters: true, disclosures: true, forge_refresh: true, status_separation: true, native_graph: true, stale_view_evidence: true, observed_native_sessions: 3, assignments_exclude_native: true, overflow: false };
     await page.close();
   }
   assert.deepEqual(errors, []);

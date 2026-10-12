@@ -237,3 +237,5 @@ The exact key set and serialization are owned by `multplx-services::local_servic
 A dead or identity-mismatched record is removed without signaling the recorded PID.
 The server removes a record during shutdown only when both its token and PID match, so an older generation cannot erase a replacement record.
 `bin/mx-doctor.sh` includes this location in its orphan-server invariant check.
+
+[Active dashboard regression evidence](verification/viz-active-dashboard.md) records the synthetic desktop/mobile screenshots and actual Rust service browser checks.

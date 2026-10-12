@@ -8,6 +8,10 @@
     "disclosures": true,
     "forge_refresh": true,
     "status_separation": true,
+    "native_graph": true,
+    "stale_view_evidence": true,
+    "observed_native_sessions": 3,
+    "assignments_exclude_native": true,
     "overflow": false
   },
   "mobile": {
@@ -19,6 +23,10 @@
     "disclosures": true,
     "forge_refresh": true,
     "status_separation": true,
+    "native_graph": true,
+    "stale_view_evidence": true,
+    "observed_native_sessions": 3,
+    "assignments_exclude_native": true,
     "overflow": false
   }
 }
