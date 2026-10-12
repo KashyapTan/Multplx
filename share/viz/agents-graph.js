@@ -136,6 +136,19 @@
       }
     });
 
+    const nativeRows = rows(portfolio?.native_children?.records);
+    for (const record of nativeRows) {
+      const parentKey = text(record?.parent_task_key);
+      const owner = parentKey && sourceKeys.get(parentKey);
+      const key = text(record?.key);
+      if (!key || !text(record?.child_id) || owner?.length !== 1 || nodes.some((node) => node.key === key)) continue;
+      nodes.push({ key, sourceKey: key, id: record.child_id, title: `${record.provider || "Provider"} observed session`,
+        kind: "native", role: "observed native session", home: owner[0].home, state: text(record.state) || "unknown",
+        freshness: "activity unknown", provider: text(record.provider), session: "activity unknown",
+        sessionDetails: `Recorded ${record.state || "unknown"} event; current activity and liveness are not observed.`,
+        task: owner[0].task, native: record, order: owner[0].order + .5, parentKey: text(record.parent_native_key) || parentKey,
+        children: [], unresolved: null, issues: [], });
+    }
     const byKey = new Map(nodes.map((node) => [node.key, node]));
     const runtimeOwners = new Map();
     for (const node of nodes) {
@@ -157,7 +170,7 @@
       const runtimeHome = text(descendant?.home);
       const parentKey = text(descendant?.parent_task_key);
       const owners = parentKey ? sourceKeys.get(parentKey) : null;
-      if (runtimeHome && runtimeHome === text(descendant?.validated_home)
+      if ((descendant?.ownership_verified === true || (descendant?.ownership_verified === undefined && descendant?.valid === true)) && runtimeHome && runtimeHome === text(descendant?.validated_home)
           && owners?.length === 1 && text(descendant?.parent_home) === owners[0].home) {
         if (!runtimeOwners.has(runtimeHome)) runtimeOwners.set(runtimeHome, []);
         if (!runtimeOwners.get(runtimeHome).includes(owners[0])) runtimeOwners.get(runtimeHome).push(owners[0]);
@@ -213,6 +226,7 @@
     }
 
     for (const node of nodes) {
+      if (node.kind === "native") continue;
       if (node.issues.length) {
         node.unresolved = node.issues[0];
         continue;
@@ -274,7 +288,8 @@
     sortTree(root);
     unresolved.sort((left, right) => left.order - right.order || left.key.localeCompare(right.key));
 
-    const total = Number.isSafeInteger(portfolio?.counts?.records) ? portfolio.counts.records : nodes.length;
+    const canonicalCount = nodes.filter((node) => node.kind === "task").length;
+    const total = (Number.isSafeInteger(portfolio?.counts?.records) ? portfolio.counts.records : canonicalCount) + nativeRows.length;
     const truncated = Number.isSafeInteger(portfolio?.counts?.truncated) ? portfolio.counts.truncated : Math.max(0, total - nodes.length);
     const freshness = portfolio?.freshness || {};
     const domainsComplete = snapshot?.domains?.complete === true;
@@ -285,6 +300,8 @@
       nodes,
       unresolved,
       total,
+      nativeCount: nodes.filter((node) => node.kind === "native").length,
+      opaqueNative: rows(portfolio?.native_children?.opaque),
       truncated,
       partial,
       partialReasons: [...new Set([

@@ -58,6 +58,8 @@ vm.runInContext(source.slice(source.indexOf("const list ="), source.indexOf("con
   const state = { ...named("finished"), evidence: {}, completion: { kind: "implementation-complete" } };
   assert.equal(evaluate("primaryTaskStatus", state), "Implementation complete");
   assert.equal(evaluate("taskIsHistory", state), true);
+  state.evidence = { review_queue: { state: "review-findings" } };
+  assert.equal(evaluate("primaryTaskStatus", state), "Review findings");
   state.decisions = [{ question: "A real unresolved question", state: "open" }];
   assert.equal(evaluate("taskIsHistory", state), false);
   console.log("dashboard selectors: active/history, uncertainty, completion evidence, reopened/merged PRs, titles and blockers passed");

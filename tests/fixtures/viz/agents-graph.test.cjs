@@ -200,3 +200,18 @@ for (const status of ["live", "unregistered", "stale", "unavailable"]) {
   child.owner.parent_home = "/missing";
   assert.match(normalize(snapshot([owner, localCollision, child])).nodes.find((node) => node.id === "child").unresolved, /recorded parent route/);
 }
+
+{
+  const owner = task("native-owner");
+  const fixture = snapshot([owner]);
+  fixture.portfolio.native_children = { records: [
+    { key: "native:first", parent_task_key: owner.key, provider: "codex", child_id: "child-1", state: "started", current_attempt: true },
+    { key: "native:nested", parent_task_key: owner.key, parent_native_key: "native:first", provider: "codex", child_id: "child-2", state: "result", current_attempt: true },
+  ], opaque: [{ parent_task_key: owner.key, reason: "identity unavailable" }] };
+  const graph = normalize(fixture);
+  assert.equal(graph.nativeCount, 2);
+  assert.equal(graph.root.children[0].children[0].kind, "native");
+  assert.equal(graph.root.children[0].children[0].children[0].key, "native:nested");
+  assert.equal(graph.nodes.filter((node) => node.kind === "task").length, 1, "native observations do not become extra tasks");
+  assert.equal(graph.opaqueNative.length, 1);
+}

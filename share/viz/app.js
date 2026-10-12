@@ -92,7 +92,8 @@ function openQuestions(task) {
 
 function taskIsReconciliation(task) {
   if (openQuestions(task).length || readyPrUrl(task) || list(task.dependencies).some((row) => row.blocking) || taskIsHistory(task)) return false;
-  if (["session-turn-ended", "validation-complete"].includes(task.completion?.kind)) return true;
+  if (task.completion?.kind === "worker-reported-done") return false;
+  if (["session-turn-ended", "validation-complete"].includes(task.completion?.kind) || (task.observation?.quality === "current" && task.observation?.state === "done")) return true;
   const forge = forgeObservation(task);
   if (forge && (!forgeMatchesRevision(task, forge) || forge.state === "unknown" || forge.freshness !== "fresh")) return true;
   if (stateName(task) === "unknown") return true;
@@ -125,6 +126,9 @@ function primaryTaskStatus(task) {
   if (readyPrUrl(task)) return "Review PR";
   if (list(task.dependencies).some((row) => row.blocking)) return "Blocked";
   if (["merged", "closed"].includes(deliveryStatus(task)) && (!forgeObservation(task) || forgeObservation(task).freshness === "fresh") && forgeMatchesRevision(task, forgeObservation(task))) return titleCase(deliveryStatus(task));
+  const delivery = deliveryStatus(task);
+  const deliveryLabels = { "needs-checks": "Checks needed", "blocked-by-dependencies": "Blocked", "review-findings": "Review findings", "publication-failed": "Publication failed", "stale-revision": "Revision needs review" };
+  if (deliveryLabels[delivery]) return deliveryLabels[delivery];
   if (task.completion?.kind === "worker-reported-done") return "Awaiting parent verification";
   if (taskIsReconciliation(task)) return "Needs reconciliation";
   if (task.observation?.quality === "current" && !taskIsHistory(task)) {
@@ -134,9 +138,6 @@ function primaryTaskStatus(task) {
     if (observed === "blocked") return "Blocked";
   }
   if (task.completion?.kind === "implementation-complete") return "Implementation complete";
-  const delivery = deliveryStatus(task);
-  const deliveryLabels = { "needs-checks": "Checks needed", "blocked-by-dependencies": "Blocked", "review-findings": "Review findings", "publication-failed": "Publication failed", "stale-revision": "Revision needs review" };
-  if (deliveryLabels[delivery]) return deliveryLabels[delivery];
   const labels = { done: "Completed", complete: "Completed", completed: "Completed", running: "In progress", working: "In progress", runnable: "Ready to start", "queued-request": "Queued", "accepted-request": "Accepted", "waiting-external": "Waiting", unknown: "Status unknown" };
   return labels[stateName(task)] || titleCase(stateName(task));
 }
@@ -835,9 +836,18 @@ function render(payload) {
   applyHash(false);
 }
 
+function agentNodeIsHistory(node) {
+  if (node.kind === "native") return node.native?.current_attempt === false || ["result", "interrupted"].includes(node.state) || taskIsHistory(node.task);
+  return taskIsHistory(node.task);
+}
+
+function agentNodeIsReconciliation(node) {
+  return node.kind !== "native" && taskIsReconciliation(node.task);
+}
+
 function agentSearchMatches(node, query) {
   if (!query) return false;
-  return [node.id, node.title, node.home, node.role, node.state, node.freshness, node.provider, node.session]
+  return [node.id, node.title, node.home, node.role, node.state, node.freshness, node.provider, node.session, node.task && taskSearchText(node.task)]
     .filter(Boolean).join(" ").toLowerCase().includes(query);
 }
 
@@ -866,7 +876,7 @@ function agentCard(node, isRoot = false) {
   }
   card.append(
     el("span", "agent-card-role", isRoot ? "Main orchestrator" : node.role),
-    el("strong", "agent-card-title", node.task ? displayTaskTitle(node.task) : node.title || node.id),
+    el("strong", "agent-card-title", node.kind === "native" ? `${titleCase(node.provider || "Provider")} observed session` : node.task ? displayTaskTitle(node.task) : node.title || node.id),
   );
 
   const facts = el("div", "agent-card-facts");
@@ -881,6 +891,12 @@ function agentCard(node, isRoot = false) {
     details.append(factGrid([["Session evidence", node.sessionDetails], ["Home", node.home],
       ["Dashboard snapshot", node.freshness], ["Dashboard cache", serviceCache || "unknown"]]));
     card.append(facts, details);
+    return card;
+  }
+  if (node.kind === "native") {
+    facts.append(chip("Activity unknown", "neutral"));
+    card.append(facts, el("span", "agent-card-owner", `Recorded ${node.state} event · open owner details`));
+    card.title += `\n${node.sessionDetails}\nObservation: ${node.native?.observation_id || "unknown"}`;
     return card;
   }
   facts.append(chip(primaryTaskStatus(node.task), taskStatusTone(node.task)));
@@ -984,7 +1000,7 @@ function renderAgents(snapshot) {
   const focusedGeneralKey = stableFocusKey();
   const graph = agentsGraphApi.normalize({ ...object(snapshot), portfolio: portfolio || {} });
   normalizedAgentGraph = graph;
-  const activeKeys = new Set(graph.nodes.filter((node) => !taskIsHistory(node.task) && !taskIsReconciliation(node.task)).map((node) => node.key));
+  const activeKeys = new Set(graph.nodes.filter((node) => !agentNodeIsHistory(node) && !agentNodeIsReconciliation(node)).map((node) => node.key));
   const allByKey = new Map(graph.nodes.map((node) => [node.key, node]));
   for (const key of [...activeKeys]) {
     let node = allByKey.get(key);
@@ -995,10 +1011,10 @@ function renderAgents(snapshot) {
       node = allByKey.get(node.parentKey);
     }
   }
-  const historicalNodes = graph.nodes.filter((node) => taskIsHistory(node.task));
+  const historicalNodes = graph.nodes.filter(agentNodeIsHistory);
   const historyTarget = document.querySelector("#agent-history-list");
   historyTarget.replaceChildren(...historicalNodes.map((node) => agentCard(node)));
-  const uncertainNodes = graph.nodes.filter((node) => taskIsReconciliation(node.task));
+  const uncertainNodes = graph.nodes.filter(agentNodeIsReconciliation);
   document.querySelector("#agent-reconciliation-list").replaceChildren(...uncertainNodes.map((node) => agentCard(node)));
   document.querySelector("#agent-reconciliation-label").textContent = `Needs reconciliation · ${uncertainNodes.length} uncertain assignments`;
   document.querySelector("#agent-reconciliation").hidden = uncertainNodes.length === 0;
@@ -1034,11 +1050,12 @@ function renderAgents(snapshot) {
   for (const node of graph.unresolved) unresolvedList.append(agentBranch(node, graph, matching, ancestors));
   const coordinators = graph.nodes.filter((node) => node.role === "sub-orchestrator" && !taskIsHistory(node.task)).length;
   const searchSummary = query ? ` · ${matching.size} match${matching.size === 1 ? "" : "es"}${matching.size ? "" : " · no matching assignments"}` : "";
-  const assignmentCount = graph.truncated ? `${graph.nodes.length} of ${graph.total} assignments shown` : `${graph.nodes.filter((node) => !taskIsHistory(node.task)).length} active assignments · ${historicalNodes.length} in history`;
+  const assignmentCount = graph.truncated ? `${graph.nodes.length} of ${graph.total} assignments shown` : `${graph.nodes.filter((node) => node.kind === "task" && !agentNodeIsHistory(node) && !agentNodeIsReconciliation(node)).length} active assignments · ${graph.nativeCount || 0} observed native sessions · ${historicalNodes.length} in history`;
   const summary = `${assignmentCount} · ${coordinators} coordinators · root ${graph.root.healthLabel}${graph.partial ? " · projection partial" : " · projection complete"}${searchSummary}`;
   document.querySelector("#agents-summary").textContent = summary;
   const warning = document.querySelector("#agents-warning");
   const warnings = [...graph.partialReasons];
+  if (graph.opaqueNative?.length) warnings.push(`${graph.opaqueNative.length} native observations lack verified child identity; details remain with their owner`);
   if (graph.unresolved.length) warnings.push(`${graph.unresolved.length} assignment${graph.unresolved.length === 1 ? "" : "s"} with unresolved ownership`);
   warning.hidden = warnings.length === 0;
   warning.textContent = warnings.join(" · ");
