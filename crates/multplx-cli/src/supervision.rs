@@ -4011,8 +4011,7 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
                             }
                         } else if let Some((capture, _)) = backend_capture(&window)
                             && let Some(hash) = pane_hash(&capture)
-                        {
-                            if let Some(reminder) = handle_paused_stale(
+                            && let Some(reminder) = handle_paused_stale(
                                 &state,
                                 &window,
                                 &hash,
@@ -4020,12 +4019,12 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
                                     "MX_PAUSE_RESURFACE_SECS",
                                     21_600,
                                 )),
-                            ) {
-                                if reminder.is_empty() {
-                                    return 1;
-                                }
-                                pause_reason = Some(reminder);
+                            )
+                        {
+                            if reminder.is_empty() {
+                                return 1;
                             }
+                            pause_reason = Some(reminder);
                         }
                     }
                 }
