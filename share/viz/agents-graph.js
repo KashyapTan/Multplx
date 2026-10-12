@@ -293,7 +293,8 @@
     const truncated = Number.isSafeInteger(portfolio?.counts?.truncated) ? portfolio.counts.truncated : Math.max(0, total - nodes.length);
     const freshness = portfolio?.freshness || {};
     const domainsComplete = snapshot?.domains?.complete === true;
-    const partial = freshness.partial === true || truncated > 0 || !domainsComplete;
+    const nativeTruncated = Number(portfolio?.native_children?.truncated) || 0;
+    const partial = freshness.partial === true || truncated > 0 || nativeTruncated > 0 || !domainsComplete;
     return {
       root,
       rootKey,
@@ -307,6 +308,7 @@
       partialReasons: [...new Set([
         ...rows(freshness.reasons).filter((reason) => typeof reason === "string"),
         ...(truncated ? [`${truncated} assignment${truncated === 1 ? "" : "s"} omitted by the portfolio limit`] : []),
+        ...(nativeTruncated ? [`${nativeTruncated} native session observations omitted by the portfolio limit`] : []),
         ...(!domainsComplete ? ["domain projection incomplete or unavailable"] : []),
       ])],
     };

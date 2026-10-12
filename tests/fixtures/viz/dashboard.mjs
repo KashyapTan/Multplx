@@ -25,7 +25,11 @@ export function dashboardFixture() {
   ];
   return {
     snapshot: { mx_home: home, roots: { state: `${home}/state` }, domains: { records: [], complete: true },
-      portfolio: { schema: "mx-portfolio.v1", tasks, counts: { records: tasks.length }, freshness: { status: "fresh" } } },
+      portfolio: { schema: "mx-portfolio.v1", tasks, native_children: { records: [
+        { key: "native:first", parent_task_key: `${home}#task:active-child`, provider: "codex", child_id: "first", state: "started", current_attempt: true },
+        { key: "native:nested", parent_task_key: `${home}#task:active-child`, parent_native_key: "native:first", provider: "codex", child_id: "second", state: "started", current_attempt: true },
+        { key: "native:history", parent_task_key: `${home}#task:active-child`, provider: "codex", child_id: "result", state: "result", current_attempt: true },
+      ], opaque: [{ parent_task_key: `${home}#task:active-child`, observation_id: "opaque", reason: "Provider child identity unavailable" }] }, counts: { records: tasks.length }, freshness: { status: "fresh" } } },
     forge_observations: [
       { url: "https://example.invalid/pull/1", state: "open", freshness: "fresh", head: "example-head" },
       { url: "https://example.invalid/pull/2", state: "merged", freshness: "fresh", head: "example-head" },

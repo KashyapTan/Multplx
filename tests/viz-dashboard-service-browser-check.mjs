@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // Actual Rust snapshot/service/browser integration using an owned synthetic home.
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const runtime = path.join(root, "target/release/mx");
-const fixture = mkdtempSync(path.join(tmpdir(), "mx-viz-service-browser-"));
+const fixture = realpathSync(mkdtempSync(path.join(tmpdir(), "mx-viz-service-browser-")));
 const output = process.env.MX_VIZ_BROWSER_OUTPUT || "/tmp/mx-viz-dashboard-service-browser";
 mkdirSync(output, { recursive: true });
 const home = path.join(fixture, "home");
@@ -21,6 +21,8 @@ for (const directory of [home, child]) {
   writeFileSync(path.join(directory, "data/backlog.md"), "# Backlog\n");
 }
 writeFileSync(path.join(child, ".mx-agent-home"), "parent\n");
+writeFileSync(path.join(child, "data/backlog.md"), "# Backlog\n\n## In flight\n- [ ] nested - Repair nested presentation (repo: sample, kind: delivery)\n");
+writeFileSync(path.join(home, "data/agents.md"), `- parent - Synthetic standing worker (home: ${child}; role: implementer)\n`);
 const commit = "a".repeat(40);
 const pr = "https://github.com/example/dashboard/pull/7";
 const model = (id, owner, state, options = {}) => ({
@@ -47,7 +49,12 @@ writeTask(model("parent", home, "completed", { persistent: true, persistent_home
 const childTask = model("nested", child, "waiting-human");
 childTask.schedule.decisions = [{ id: "rollout", task_id: "nested", brief_revision: 1, workflow_revision: null, question: "Should this fixture include archived projects?", answer: null }];
 writeTask(childTask, "blocked");
-writeTask(model("reported", home, "runnable"), "done");
+const reported = model("reported", home, "runnable");
+reported.native_observations = [
+  { observation_id: "native-start", provider: "codex", child_id: "native-first", parent_session_id: null, turn_id: null, parent_attempt: reported.attempt, state: "started", observed_at: "2026-10-12T12:00:00Z", artifact: null, recovery: "session-bound" },
+  { observation_id: "native-nested", provider: "codex", child_id: "native-second", parent_session_id: "native-first", turn_id: null, parent_attempt: reported.attempt, state: "started", observed_at: "2026-10-12T12:01:00Z", artifact: null, recovery: "session-bound" },
+];
+writeTask(reported, "done");
 writeTask(model("historical", home, "running"), "working");
 writeFileSync(path.join(fakebin, "gh"), `#!/bin/sh\nprintf '%s\\n' '{"url":"${pr}","state":"MERGED","title":"Repair presentation","headRefOid":"${commit}"}'\n`, { mode: 0o755 });
 writeFileSync(path.join(fakebin, "tmux"), '#!/bin/sh\ncase "$1" in list-windows) printf "%s\\n" mx-merged mx-parent mx-nested mx-reported mx-historical ;; display-message) printf "%s\\n" "%fixture" ;; esac\n', { mode: 0o755 });
@@ -65,13 +72,13 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   assert.ok(payload, "Rust service must publish a synthetic canonical snapshot");
-  writeFileSync(path.join(output, "debug-state.json"), JSON.stringify(payload, null, 2));
   assert.equal(payload.snapshot.portfolio.schema, "mx-portfolio.v1");
   assert.equal(payload.forge_observations[0].state, "merged");
   const merged = payload.snapshot.portfolio.tasks.find((task) => task.id === "merged");
   const nested = payload.snapshot.portfolio.tasks.find((task) => task.id === "nested");
   assert.equal(merged.completion.kind, "implementation-complete");
   assert.equal(merged.observation.quality, "historical");
+  assert.equal(payload.snapshot.portfolio.native_children.records.length, 2);
   assert.ok(nested, "registered standing-worker child is in the actual Rust portfolio");
   assert.ok(payload.snapshot.descendants.records.some((row) => row.parent_task_key.endsWith("task:parent") && row.validated_home === child));
   const { chromium } = await import(process.env.MX_PLAYWRIGHT_MODULE);
@@ -89,6 +96,7 @@ try {
     await page.locator("#agents-view-button").click();
     assert.equal(await page.locator('#agents-tree [data-agent-card-key$="task:parent"]').count(), 1);
     assert.equal(await page.locator('#agents-tree [data-agent-card-key$="task:nested"]').count(), 1);
+    assert.equal(await page.locator("#agents-tree .agent-card-role").filter({ hasText: "observed native session" }).count(), 2);
     assert.equal(await page.locator("#agents-unresolved-panel").isVisible(), false, "exact validated descendant parent is connected");
     await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo({ top: 0, behavior: "instant" }); });
     await page.screenshot({ path: path.join(output, `service-agents-${layout}.png`), fullPage: true });

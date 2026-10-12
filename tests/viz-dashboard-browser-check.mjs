@@ -69,6 +69,11 @@ try {
     assert.equal(await page.locator("#agents-tree [data-agent-card-key$='task:active-child']").isVisible(), false);
     await page.locator("#agent-search").fill("current schedule");
     assert.equal(await page.locator("#agents-tree [data-agent-card-key$='task:active-child']").isVisible(), true);
+    assert.equal(await page.locator('#agents-tree [data-agent-card-key="native:first"]').count(), 1);
+    assert.equal(await page.locator('#agents-tree [data-agent-card-key="native:nested"]').count(), 1);
+    assert.equal(await page.locator('#agents-tree [data-agent-card-key="native:history"]').count(), 0);
+    assert.match(await page.locator('#agents-tree [data-agent-card-key="native:first"]').textContent(), /Activity unknown/);
+    assert.equal(await page.locator('#agent-history-list [data-agent-card-key="native:history"]').count(), 1);
     await page.locator("#agent-search").fill("");
     await page.locator("#agents-expand").click();
     await page.locator("#agents-root").click();

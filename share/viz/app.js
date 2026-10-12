@@ -376,7 +376,8 @@ function renderExecution(task) {
     for (const record of nativeObservations) {
       const item = el("div", "nested-row");
       item.append(chip("provider observation", "neutral"), el("strong", "", record.child_id || record.observation_id || "identity unavailable"));
-      item.append(el("span", "nested-meta", [record.provider, record.state, record.child_id ? "child identified" : "not counted as a session"].filter(Boolean).join(" · ")));
+      item.append(el("span", "nested-meta", [record.provider, record.state, record.child_id ? "child identified · activity unknown" : "not counted as a session"].filter(Boolean).join(" · ")));
+      if (record.artifact) appendEvidenceLink(item, "Transcript", record.artifact, "transcript");
       observed.append(item);
     }
     section.append(observed);
@@ -837,7 +838,7 @@ function render(payload) {
 }
 
 function agentNodeIsHistory(node) {
-  if (node.kind === "native") return node.native?.current_attempt === false || ["result", "interrupted"].includes(node.state) || taskIsHistory(node.task);
+  if (node.kind === "native") return node.native?.current_attempt !== true || ["result", "interrupted"].includes(node.state) || taskIsHistory(node.task);
   return taskIsHistory(node.task);
 }
 
@@ -868,6 +869,11 @@ function agentCard(node, isRoot = false) {
     card.addEventListener("click", () => {
       selectedAgentKey = node.key;
       showAgentTask(node.task);
+      if (node.kind === "native") {
+        const row = [...document.querySelectorAll(".task-row")].find((candidate) => candidate.dataset.taskId === taskKey(node.task));
+        const details = row?.querySelector(".technical-details");
+        if (details) details.open = true;
+      }
     });
   } else {
     card.tabIndex = 0;
@@ -1018,7 +1024,7 @@ function renderAgents(snapshot) {
   document.querySelector("#agent-reconciliation-list").replaceChildren(...uncertainNodes.map((node) => agentCard(node)));
   document.querySelector("#agent-reconciliation-label").textContent = `Needs reconciliation · ${uncertainNodes.length} uncertain assignments`;
   document.querySelector("#agent-reconciliation").hidden = uncertainNodes.length === 0;
-  document.querySelector("#agent-history-label").textContent = `History · ${historicalNodes.length} completed assignments and retained sessions`;
+  document.querySelector("#agent-history-label").textContent = `History · ${historicalNodes.length} records · completed assignments and retained sessions`;
   const prune = (node) => { node.children = node.children.filter((child) => activeKeys.has(child.key)); node.children.forEach(prune); };
   prune(graph.root);
   graph.unresolved = graph.unresolved.filter((node) => activeKeys.has(node.key));
@@ -1061,7 +1067,7 @@ function renderAgents(snapshot) {
   warning.textContent = warnings.join(" · ");
   const expandButton = document.querySelector("#agents-expand");
   const collapseButton = document.querySelector("#agents-collapse");
-  const branches = graph.nodes.filter((node) => node.role === "sub-orchestrator" && node.children.length);
+  const branches = graph.nodes.filter((node) => node.children.length);
   expandButton.disabled = branches.length === 0 || branches.every((node) => !collapsedAgentKeys.has(node.key));
   collapseButton.disabled = branches.length === 0 || branches.every((node) => collapsedAgentKeys.has(node.key));
   const rootButton = document.querySelector("#agents-root");
@@ -1251,7 +1257,7 @@ document.querySelector("#agents-expand").addEventListener("click", () => {
 });
 document.querySelector("#agents-collapse").addEventListener("click", () => {
   for (const node of normalizedAgentGraph?.nodes || []) {
-    if (node.role === "sub-orchestrator" && node.children.length) collapsedAgentKeys.add(node.key);
+    if (node.children.length) collapsedAgentKeys.add(node.key);
   }
   renderAgents(currentPayload?.snapshot || currentPayload || {});
 });
