@@ -31,7 +31,9 @@ fn canonical_questions(root: &Value) -> Vec<Value> {
     let mut questions = Vec::new();
     for task in array(root.pointer("/portfolio/tasks")) {
         for decision in array(task.get("decisions")) {
-            if decision["answer"].is_null()
+            if decision["source"].as_str() == Some("coordination")
+                && decision["brief_revision"].as_u64().is_some()
+                && decision["answer"].is_null()
                 && !matches!(
                     decision["state"].as_str(),
                     Some("superseded" | "cancelled" | "answered")
@@ -950,7 +952,7 @@ mod tests {
     use super::*;
     #[test]
     fn canonical_questions_survive_finished_or_unavailable_sessions_until_answered() {
-        let mut root = json!({"portfolio":{"tasks":[{"key":"home#task:worker","id":"worker","state":"completed","owner":{"home":"home"},"observation":{"quality":"unknown"},"decisions":[{"id":"choice","question":"Use cached or live data?","answer":null,"brief_revision":2}]}]}});
+        let mut root = json!({"portfolio":{"tasks":[{"key":"home#task:worker","id":"worker","state":"completed","owner":{"home":"home"},"observation":{"quality":"unknown"},"decisions":[{"id":"choice","question":"Use cached or live data?","answer":null,"brief_revision":2,"source":"coordination"}]}]}});
         let questions = canonical_questions(&root);
         assert_eq!(questions.len(), 1);
         assert_eq!(questions[0]["question"], "Use cached or live data?");
@@ -962,6 +964,9 @@ mod tests {
                 .unwrap()
                 .contains("parent records")
         );
+        root["portfolio"]["tasks"][0]["decisions"][0]["source"] = json!("status-event");
+        assert!(canonical_questions(&root).is_empty());
+        root["portfolio"]["tasks"][0]["decisions"][0]["source"] = json!("coordination");
         root["portfolio"]["tasks"][0]["decisions"][0]["state"] = json!("superseded");
         assert!(canonical_questions(&root).is_empty());
         root["portfolio"]["tasks"][0]["decisions"][0]["state"] = json!("open");
