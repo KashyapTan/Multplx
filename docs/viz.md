@@ -193,6 +193,7 @@ Opaque native observations do not become invented agent nodes.
 Connections use home-qualified task identity and verified registered home ownership for every assignment role.
 The additive `descendants` projection traverses ordinary worker homes as well as coordinator homes, with one global record, depth and time budget.
 Modern routes require an active home allocation with matching owner and directory identity; legacy routes require a canonical task with the exact owner and persistent home.
+`ownership_verified` records exact route validation separately from the child observation `valid` flag, so a partial portfolio does not erase verified lineage.
 Duplicate homes, cycles, registry failures, unknown ownership and failed child observations remain explicit unresolved records.
 Descendant portfolios are merged by qualified task key, including active children of completed parents.
 The domain projection reuses those observations rather than collecting each coordinator home twice.

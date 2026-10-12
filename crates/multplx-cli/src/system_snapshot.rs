@@ -2659,6 +2659,7 @@ fn descendant_projection_with_reader(
             break;
         }
         let id = record["id"].as_str().unwrap_or("").to_owned();
+        record["ownership_verified"] = json!(false);
         record["parent_home"] = json!(parent_home);
         record["parent_task_key"] = json!(
             multplx_domain::lifecycle::subagent_model::qualified_task_id(
@@ -2744,6 +2745,7 @@ fn descendant_projection_with_reader(
                 continue;
             }
         };
+        record["ownership_verified"] = json!(true);
         record["validated_home"] = json!(home);
         let summary = if depth == 0 && record["provenance"]["selected"] == "structured-home" {
             Ok(record.clone())
@@ -3656,6 +3658,7 @@ mod tests {
             .find(|record| record["id"] == "nested")
             .unwrap();
         assert_eq!(record["validated_home"], json!(nested));
+        assert_eq!(record["ownership_verified"], true);
         assert_eq!(
             record["parent_task_key"],
             json!(format!("{}#task:nested", worker.display()))
@@ -3668,6 +3671,7 @@ mod tests {
             .find(|record| record["id"] == "foreign")
             .unwrap();
         assert_eq!(unresolved["valid"], false);
+        assert_eq!(unresolved["ownership_verified"], false);
         assert!(
             unresolved["reason"]
                 .as_str()
@@ -3720,6 +3724,7 @@ mod tests {
         );
         assert_eq!(failure["records"][0]["valid"], false);
         assert_eq!(failure["records"][0]["reason"], "timed out");
+        assert_eq!(failure["records"][0]["ownership_verified"], true);
     }
 
     #[test]
