@@ -104,6 +104,7 @@ A worker done report establishes a reported outcome, and the canonical completed
 A provider turn ending and a local validation run finishing remain separate `session-turn-ended` and `validation-complete` observations.
 Neither supplies a worker delivery report or parent verification.
 A standing worker can remain available after its assignment finishes.
+The catchup projection reports a standing worker’s currently observed own assignment separately from its private home’s child-work queue, so an empty child queue does not erase an active worker.
 The task projection preserves `observation` and `completion` separately from schedule state and snapshot collection freshness.
 `observation.collected_at` is the collector time, while an unrecorded underlying event time and age stay null.
 Historical status and run-step observations do not become proof of a currently working model.
