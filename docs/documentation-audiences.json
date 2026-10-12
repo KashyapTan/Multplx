@@ -537,6 +537,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": "docs/verification/viz-active-dashboard.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/orchestrator-contract.md",
       "audience": "maintainer-verification"
     },
@@ -551,10 +555,6 @@
     {
       "path": "plans/actionable-wake-supervision.md",
       "audience": "maintainer-architecture"
-    },
-    {
-      "path": "docs/verification/viz-active-dashboard.md",
-      "audience": "maintainer-verification"
     }
   ]
 }
