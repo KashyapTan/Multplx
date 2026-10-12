@@ -189,3 +189,14 @@ for (const status of ["live", "unregistered", "stale", "unavailable"]) {
   fixture.descendants.records[1].validated_home = "/different";
   assert.equal(normalize(fixture).unresolved.length, 1, "unvalidated descendant route is not inferred");
 }
+
+{
+  const owner = task("parent");
+  const childHome = "/mx/worker";
+  const localCollision = task("parent", childHome);
+  const child = task("child", childHome, "parent", { owner: { home: childHome, parent_home: home } });
+  const graph = normalize(snapshot([owner, localCollision, child]));
+  assert.equal(graph.nodes.find((node) => node.id === "child").parentKey, owner.key);
+  child.owner.parent_home = "/missing";
+  assert.match(normalize(snapshot([owner, localCollision, child])).nodes.find((node) => node.id === "child").unresolved, /recorded parent route/);
+}

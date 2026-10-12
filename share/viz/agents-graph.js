@@ -157,7 +157,7 @@
       const runtimeHome = text(descendant?.home);
       const parentKey = text(descendant?.parent_task_key);
       const owners = parentKey ? sourceKeys.get(parentKey) : null;
-      if (descendant?.valid === true && runtimeHome && runtimeHome === text(descendant?.validated_home)
+      if (runtimeHome && runtimeHome === text(descendant?.validated_home)
           && owners?.length === 1 && text(descendant?.parent_home) === owners[0].home) {
         if (!runtimeOwners.has(runtimeHome)) runtimeOwners.set(runtimeHome, []);
         if (!runtimeOwners.get(runtimeHome).includes(owners[0])) runtimeOwners.get(runtimeHome).push(owners[0]);
@@ -168,6 +168,17 @@
       if (!node.home) return { issue: "owner home unavailable" };
       const task = node.task;
       const reference = text(task?.parent_id) || text(task?.owner?.parent_id) || text(task?.owner?.coordinator);
+      const parentHome = text(task?.owner?.parent_home) || text(task?.parent_home);
+      if (parentHome && reference) {
+        if (reference === "root" || reference === `root-home:${parentHome}`) {
+          if (parentHome === rootHome) return { key: rootKey };
+          const owners = runtimeOwners.get(parentHome);
+          return owners?.length === 1 ? { key: owners[0].key } : { issue: "recorded parent home has no unique validated owner" };
+        }
+        const exact = sourceKeys.get(reference) || homeIds.get(`${parentHome}\u0000${reference}`);
+        if (exact?.length === 1 && exact[0].home === parentHome) return { key: exact[0].key };
+        return { issue: exact?.length > 1 ? "ambiguous recorded parent route" : "recorded parent route not found or conflicts with parent home" };
+      }
       if (!reference) {
         if (rootHome && node.home === rootHome && text(task?.root_id) === rootRef) return { key: rootKey };
         return { issue: "parent owner unavailable" };

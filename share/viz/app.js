@@ -92,18 +92,19 @@ function openQuestions(task) {
 
 function taskIsReconciliation(task) {
   if (openQuestions(task).length || readyPrUrl(task) || list(task.dependencies).some((row) => row.blocking) || taskIsHistory(task)) return false;
+  if (["session-turn-ended", "validation-complete"].includes(task.completion?.kind)) return true;
   const forge = forgeObservation(task);
-  if (forge && (!forgeMatchesRevision(task, forge) || forge.state === "unknown")) return true;
+  if (forge && (!forgeMatchesRevision(task, forge) || forge.state === "unknown" || forge.freshness !== "fresh")) return true;
   if (stateName(task) === "unknown") return true;
   return ["runnable", "running", "working"].includes(stateName(task))
-    && (["stale", "unknown"].includes(task.freshness?.status) || task.observation?.quality === "unknown");
+    && (["stale", "unknown"].includes(task.freshness?.status) || ["unknown", "historical"].includes(task.observation?.quality));
 }
 
 function taskIsHistory(task) {
   if (openQuestions(task).length || readyPrUrl(task)) return false;
   if (list(task.dependencies).some((row) => row.blocking)) return false;
   const forge = forgeObservation(task);
-  if (forge && (!forgeMatchesRevision(task, forge) || forge.state === "unknown")) return false;
+  if (forge && (!forgeMatchesRevision(task, forge) || forge.state === "unknown" || forge.freshness !== "fresh")) return false;
   const review = deliveryStatus(task);
   if (["merged", "closed"].includes(review)) return true;
   if (["needs-checks", "blocked-by-dependencies", "review-findings", "publication-failed", "stale-revision"].includes(review)) return false;
@@ -123,9 +124,15 @@ function primaryTaskStatus(task) {
   if (openQuestions(task).length) return "Answer needed";
   if (readyPrUrl(task)) return "Review PR";
   if (list(task.dependencies).some((row) => row.blocking)) return "Blocked";
-  if (["merged", "closed"].includes(deliveryStatus(task)) && forgeMatchesRevision(task, forgeObservation(task))) return titleCase(deliveryStatus(task));
+  if (["merged", "closed"].includes(deliveryStatus(task)) && (!forgeObservation(task) || forgeObservation(task).freshness === "fresh") && forgeMatchesRevision(task, forgeObservation(task))) return titleCase(deliveryStatus(task));
   if (task.completion?.kind === "worker-reported-done") return "Awaiting parent verification";
   if (taskIsReconciliation(task)) return "Needs reconciliation";
+  if (task.observation?.quality === "current" && !taskIsHistory(task)) {
+    const observed = String(task.observation.state || "").toLowerCase();
+    if (["working", "running"].includes(observed)) return "In progress";
+    if (observed === "done") return "Needs reconciliation";
+    if (observed === "blocked") return "Blocked";
+  }
   if (task.completion?.kind === "implementation-complete") return "Implementation complete";
   const delivery = deliveryStatus(task);
   const deliveryLabels = { "needs-checks": "Checks needed", "blocked-by-dependencies": "Blocked", "review-findings": "Review findings", "publication-failed": "Publication failed", "stale-revision": "Revision needs review" };
@@ -414,7 +421,7 @@ function renderWorkflow(task) {
 }
 
 function renderDecisions(task) {
-  const decisions = list(task.decisions).filter((decision) => !decision.answer && decision.state !== "resolved");
+  const decisions = openQuestions(task);
   if (!decisions.length) return null;
   const section = detailSection("Pending decisions", "decision-detail");
   for (const decision of decisions) {
@@ -465,7 +472,7 @@ function taskDetails(task) {
   const body = el("div", "task-details");
   const overview = detailSection("Assignment");
   overview.append(factGrid([["Task status", primaryTaskStatus(task)], ["Recorded state", stateName(task)],
-    ["Observation", task.observation?.quality || task.freshness?.status || "unknown"], ["Agent availability", task.observation?.agent_alive === true ? "Process observed" : task.observation?.agent_alive === false ? "No process observed" : "Unknown"], ["Completion evidence", task.completion?.kind], ["Role", titleCase(taskRole(task))]]));
+    ["Observation", task.observation?.quality || task.freshness?.status || "unknown"], ["Observed activity", task.observation?.state], ["Agent availability", [true, "alive"].includes(task.observation?.agent_alive) ? "Process observed" : [false, "dead", "missing"].includes(task.observation?.agent_alive) ? "No process observed" : "Unknown"], ["Completion evidence", task.completion?.kind], ["Role", titleCase(taskRole(task))]]));
   const description = task.description || task.summary || task.brief?.scope;
   if (description) overview.append(el("p", "task-description", description));
   body.append(overview);
@@ -633,7 +640,7 @@ function deliveryStatus(task) {
 }
 
 function displayTaskTitle(task) {
-  const usable = (value) => value && value.length <= 100 && !/[\r\n]|\S{70}|^You are\b|current worker assignment|#\s*(Task|Charter|Definition of done)\b/i.test(value) && !/^[A-Z\d]+(?:_[A-Z\d]+){2,}$/.test(value);
+  const usable = (value) => value && Array.from(value).length <= 100 && !/[\r\n]|\S{70}|^You are\b|current worker assignment|#\s*(Task|Charter|Definition of done)\b/i.test(value) && !/^[A-Z\d]+(?:_[A-Z\d]+){2,}$/.test(value);
   const title = String(task.display_title || task.title || "").trim();
   if (usable(title)) return title;
   for (const source of [title, String(task.brief?.outcome || ""), String(task.brief?.scope || ""), String(task.summary || "")]) {
@@ -646,7 +653,7 @@ function displayTaskTitle(task) {
   const description = [task.brief?.outcome, task.brief?.scope, task.summary, title].find((value) => typeof value === "string" && value.trim() && !/^You are\b/i.test(value) && !/^[A-Z\d]+(?:_[A-Z\d]+){2,}$/.test(value));
   if (description) {
     const sentence = description.replace(/\s+/g, " ").split(/(?<=[.!?])\s/)[0];
-    return sentence.length <= 100 ? sentence : `${sentence.slice(0, 97).replace(/\s+\S*$/, "")}…`;
+    return Array.from(sentence).length <= 100 ? sentence : `${Array.from(sentence).slice(0, 97).join("").replace(/\s+\S*$/, "")}…`;
   }
   return titleCase(String(task.id || "Untitled assignment").replace(/[_-]\d{4,}$/, ""));
 }
@@ -671,7 +678,7 @@ function renderAttention() {
   ]));
   const items = [];
   for (const task of normalizedTasks(portfolio)) {
-    for (const decision of list(task.decisions).filter((row) => !row.answer && row.state !== "resolved" && String(row.question || row.summary || "").trim())) items.push({ task, decision });
+    for (const decision of openQuestions(task)) items.push({ task, decision });
     const prUrl = readyPrUrl(task);
     if (prUrl) items.push({ task, prUrl });
   }
