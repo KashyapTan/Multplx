@@ -892,7 +892,9 @@ impl ServerContext {
                     cache,
                     cache_state: CacheState::Stale,
                     refresh_state: "in-flight",
-                    refresh_error: None,
+                    // Retain the last failure while retrying. A normal poll may
+                    // always initiate the retry and never see its idle failure.
+                    refresh_error: runtime.last_refresh_error.clone(),
                 });
             }
             let refresh_error = runtime.last_refresh_error.clone();
@@ -1994,6 +1996,60 @@ mod tests {
         fs::write(&invalid, [0xff]).expect("invalid");
         assert!(response_file(&invalid, Some(&|value| value)).is_err());
         assert!(response_file(temp.path(), None).is_err());
+    }
+
+    #[test]
+    fn retry_start_preserves_failed_refresh_header_until_success() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let command = temp.path().join("reader.sh");
+        script(&command, "printf '%s\\n' '{\"portfolio\":{\"tasks\":[]}}'");
+        let context = context(temp.path().to_owned(), command.clone());
+        let first = context.handle(request("GET", "/api/state"));
+        assert_eq!(first.status, 200);
+        let etag = header(&first, "ETag").expect("etag").to_owned();
+        context.finish_refresh(
+            Instant::now(),
+            &Err(super::ServiceError::new("fixture refresh failed")),
+        );
+        {
+            let mut runtime = context.runtime.lock().expect("runtime");
+            runtime.cache.as_mut().expect("cache").refreshed_at =
+                Instant::now() - Duration::from_secs(61);
+            runtime.last_refresh_attempt = Some(Instant::now() - Duration::from_secs(61));
+        }
+        let release = temp.path().join("release-reader");
+        script(
+            &command,
+            &format!(
+                "while [ ! -e '{}' ]; do sleep 0.01; done; printf '%s\\n' '{{\"portfolio\":{{\"tasks\":[]}}}}'",
+                release.display()
+            ),
+        );
+        let mut retry = request("GET", "/api/state");
+        retry.headers.insert("if-none-match".into(), etag);
+        let during = context.handle(retry);
+        fs::write(&release, "ready").expect("release reader");
+        assert_eq!(during.status, 304);
+        assert_eq!(header(&during, "X-Multplx-Refresh"), Some("in-flight"));
+        assert_eq!(
+            header(&during, "X-Multplx-Refresh-Error"),
+            Some("fixture refresh failed")
+        );
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while context.runtime.lock().expect("runtime").refresh_in_flight {
+            assert!(Instant::now() < deadline, "released refresh did not finish");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(
+            context
+                .runtime
+                .lock()
+                .expect("runtime")
+                .last_refresh_error
+                .is_none()
+        );
+        let recovered = context.handle(request("GET", "/api/state"));
+        assert_eq!(header(&recovered, "X-Multplx-Refresh-Error"), None);
     }
 
     #[test]

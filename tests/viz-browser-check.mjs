@@ -285,10 +285,10 @@ while (Date.now() < failureDeadline) {
     error: response.headers.get("x-multplx-refresh-error"),
   };
   await response.arrayBuffer();
-  if (failedRefresh.cache === "stale" && failedRefresh.refresh === "failed" && failedRefresh.error) break;
+  if (failedRefresh.cache === "stale" && ["failed", "in-flight"].includes(failedRefresh.refresh) && failedRefresh.error) break;
   await sleep(250);
 }
-if (failedRefresh?.cache !== "stale" || failedRefresh?.refresh !== "failed" || !failedRefresh?.error) {
+if (failedRefresh?.cache !== "stale" || !["failed", "in-flight"].includes(failedRefresh?.refresh) || !failedRefresh?.error) {
   throw new Error(`refresh failure did not remain visible: ${JSON.stringify(failedRefresh)}`);
 }
 results.failed_refresh = {

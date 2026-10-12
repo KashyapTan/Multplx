@@ -62,5 +62,15 @@ vm.runInContext(source.slice(source.indexOf("const list ="), source.indexOf("con
   assert.equal(evaluate("primaryTaskStatus", state), "Review findings");
   state.decisions = [{ question: "A real unresolved question", state: "open" }];
   assert.equal(evaluate("taskIsHistory", state), false);
+  state.evidence = {};
+  state.decisions = [{ question: "Parent status prose is not a current question", source: "status-event" }];
+  assert.equal(evaluate("openQuestions", state).length, 0);
+  state.brief = { revision: 2 };
+  state.decisions = [{ question: "Old accepted revision", source: "coordination", brief_revision: 1 }];
+  assert.equal(evaluate("openQuestions", state).length, 0);
+  state.decisions = [{ question: "Current accepted revision", source: "coordination", brief_revision: 2 }];
+  assert.equal(evaluate("openQuestions", state).length, 1);
+  state.decisions = [{ question: "Old brief question", state: "superseded" }];
+  assert.equal(evaluate("taskIsHistory", state), true, "superseded brief questions never request a new human answer");
   console.log("dashboard selectors: active/history, uncertainty, completion evidence, reopened/merged PRs, titles and blockers passed");
 })().catch((error) => { console.error(error); process.exitCode = 1; });

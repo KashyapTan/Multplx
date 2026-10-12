@@ -86,7 +86,7 @@ function stateName(task) {
 }
 
 function openQuestions(task) {
-  return list(task.decisions).filter((row) => !row.answer && !["resolved", "answered", "cancelled", "superseded"].includes(row.state)
+  return list(task.decisions).filter((row) => row.source !== "status-event" && (row.source !== "coordination" || (Number.isInteger(row.brief_revision) && row.brief_revision === task.brief?.revision)) && !row.answer && !["resolved", "answered", "cancelled", "superseded"].includes(row.state)
     && String(row.question || row.summary || "").trim());
 }
 
@@ -424,8 +424,8 @@ function renderWorkflow(task) {
 
 function renderDecisions(task) {
   const decisions = openQuestions(task);
-  if (!decisions.length) return null;
-  const section = detailSection("Pending decisions", "decision-detail");
+  if (!list(task.decisions).length) return null;
+  const section = detailSection(decisions.length ? "Pending questions" : "Previous questions", "decision-detail");
   for (const decision of decisions) {
     const card = el("article", "decision-card");
     card.append(el("strong", "", decision.question || decision.summary || decision.id || "Decision required"));
@@ -435,6 +435,18 @@ function renderDecisions(task) {
     ]));
     card.append(el("span", "readonly-note", "Viewer only · Answer this question in the main orchestrator chat."));
     section.append(card);
+  }
+  const previous = list(task.decisions).filter((decision) => !decisions.includes(decision));
+  if (previous.length) {
+    const history = el("details", "attention-details");
+    history.append(el("summary", "", `Previous questions · ${previous.length}`));
+    const content = el("div", "attention-detail-body");
+    for (const decision of previous) {
+      content.append(el("strong", "", decision.question || decision.summary || decision.id),
+        el("p", "", decision.answer ? `Answered: ${decision.answer}` : `${titleCase(decision.state || "historical")} · brief revision ${valueOr(decision.brief_revision)}`));
+    }
+    history.append(content);
+    section.append(history);
   }
   return section;
 }
