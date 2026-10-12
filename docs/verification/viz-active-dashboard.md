@@ -2,7 +2,7 @@
 
 The October 2026 repair addresses completed work mixed with active assignments, machine IDs and full worker prompts as titles, competing status badges, stale ready-PR receipts, and missing ordinary worker descendants.
 The source observations were human screenshots and supplied transcripts; private task IDs, paths and transcript contents are not reproduced here.
-All retained browser examples use the synthetic `tests/fixtures/viz/dashboard.mjs` portfolio.
+All retained browser examples use synthetic portfolios, including an owned canonical fixture read by the real Rust service.
 
 ## Presentation contract
 
@@ -57,6 +57,13 @@ The existing `tests/viz-browser-check.mjs` remains the service-backed scale, pol
 
 `tests/viz-dashboard-service-browser-check.mjs` additionally creates an owned canonical fixture home and standing worker child, invokes the actual release Rust service and system-snapshot collector, and uses a temporary read-only forge command fixture.
 It verifies the emitted observation and completion schema, actual merged-PR history, current canonical questions, retained worker reports, exact descendant lineage and two observed native child sessions on desktop and mobile.
+The retained [actual-service result](viz-active-dashboard-service-results.json) records both layouts.
+
+![Actual service Tasks, desktop](../images/viz-active-dashboard/service-dashboard-desktop.png)
+![Actual service Agents, desktop](../images/viz-active-dashboard/service-agents-desktop.png)
+![Actual service Tasks, mobile](../images/viz-active-dashboard/service-dashboard-mobile.png)
+![Actual service Agents, mobile](../images/viz-active-dashboard/service-agents-mobile.png)
+
 The native graph distinguishes observed sessions from assignments and marks activity unknown; retained and opaque session evidence does not create extra accepted tasks.
 The service-backed scale runner also verifies that repeated failed refreshes remain visible through retry-start responses, including conditional `304` responses.
 A service unit regression proves that only a successful refresh clears the retained error.
@@ -76,3 +83,10 @@ The error body was not retained, so its cause remains unproven; an unchanged tra
 A separate repeatable browser failure exposed a service defect: a retry-start response discarded the previous refresh error while serving the last good snapshot.
 The repair preserves that error through the in-flight retry instead of weakening the browser failure-banner assertion.
 Final broad gates run in a coordinated host window to avoid interpreting contention between independent full suites and coverage runs as a product timing diagnosis.
+
+## Final gate progress
+
+At source commit `d0983fd`, formatting, the release workspace build, all five focused Viz/snapshot/forge/reconciliation scripts, the synthetic desktop/mobile browser runner, the actual Rust-service browser runner, and the existing service-backed scale/polling/artifact runner passed. The scale runner measured 20 render samples (p95 20.258 ms).
+The full behavior suite and unchanged 93% Rust line-coverage gate are pending in the serialized final validation window.
+
+The earlier broad diagnostic run counted 134 scripts, two failures and eight gate skips. Its landed-bounds failure was fixed by rejecting duplicate legacy status-event questions in canonical catchup. Its local Herdr 0.9.3 presentation negative control could not reproduce the old focus-steal bug; the unchanged CI lane uses the required 0.7.4 pin. Both failures remain recorded rather than skipped or relaxed.

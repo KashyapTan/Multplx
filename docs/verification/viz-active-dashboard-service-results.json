@@ -1,0 +1,26 @@
+{
+  "schema": "mx-viz-service-browser-results.v1",
+  "source": "actual Rust service and system-snapshot; synthetic home and forge command",
+  "layouts": {
+    "desktop": {
+      "actual_rust_schema": true,
+      "merged_history": true,
+      "worker_report_active": true,
+      "historical_reconciliation": true,
+      "nested_human_question": true,
+      "exact_descendant_graph": true,
+      "observed_native_sessions": 2,
+      "native_graph_without_activity_claim": true
+    },
+    "mobile": {
+      "actual_rust_schema": true,
+      "merged_history": true,
+      "worker_report_active": true,
+      "historical_reconciliation": true,
+      "nested_human_question": true,
+      "exact_descendant_graph": true,
+      "observed_native_sessions": 2,
+      "native_graph_without_activity_claim": true
+    }
+  }
+}
