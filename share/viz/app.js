@@ -72,13 +72,25 @@ function announce(message) {
 
 function projectRecord(task) {
   const raw = task.project;
-  if (typeof raw === "string") return { id: raw, display: raw, path: raw };
-  const project = object(raw);
+  const project = typeof raw === "string" ? { id: raw, path: raw } : object(raw);
+  const path = String(project.path || project.checkout || project.checkout_path || "");
+  const name = String(project.display_name || project.display || project.name || "");
+  const label = name || path || String(project.id || "");
   return {
     id: String(project.id || project.project_id || project.path || "unassigned"),
-    display: project.display_name || project.display || project.name || project.id || project.path || "Unassigned",
-    path: project.path || project.checkout || project.checkout_path || "",
+    display: label.includes("/") || label.includes("\\") ? titleCase(label.split(/[\\/]/).filter(Boolean).at(-1) || "Project") : label || "Unassigned",
+    path,
   };
+}
+
+function projectDisplay(project) {
+  const projects = new Map(list(portfolio?.tasks).map((task) => { const row = projectRecord(task); return [row.id, row]; }));
+  const peers = [...projects.values()].filter((row) => row.display === project.display).sort((a, b) => a.id.localeCompare(b.id));
+  if (peers.length < 2) return project.display;
+  const parent = (row) => row.path.split(/[\\/]/).filter(Boolean).at(-2) || "Checkout";
+  const label = parent(project);
+  const siblings = peers.filter((row) => parent(row) === label);
+  return `${project.display} · ${titleCase(label)}${siblings.length > 1 ? ` ${siblings.findIndex((row) => row.id === project.id) + 1}` : ""}`;
 }
 
 function stateName(task) {
@@ -263,9 +275,7 @@ function updateSelect(select, values, label, display = titleCase) {
 function updateFilterOptions(tasks) {
   const projects = new Map(tasks.map((task) => { const project = projectRecord(task); return [project.id, project]; }));
   updateSelect(document.querySelector("#project-filter"), new Set(projects.keys()), "All projects", (id) => {
-    const project = projects.get(id);
-    const duplicate = [...projects.values()].filter((row) => row.display === project.display).length > 1;
-    return duplicate ? `${project.display} · ${project.path || id}` : project.display;
+    return projectDisplay(projects.get(id));
   });
   updateSelect(document.querySelector("#status-filter"), new Set(tasks.map(stateName)), "All states");
   updateSelect(document.querySelector("#role-filter"), new Set(tasks.map(taskRole)), "All roles");
@@ -565,7 +575,7 @@ function taskRow(task) {
   const left = el("div", "task-main");
   const title = el("div", "task-title-line");
   title.append(el("strong", "task-title", displayTaskTitle(task)));
-  const identity = el("div", "task-identity", `${project.display} · ${titleCase(taskRole(task))}`);
+  const identity = el("div", "task-identity", `${projectDisplay(project)} · ${titleCase(taskRole(task))}`);
   left.append(title, identity);
   const right = el("div", "task-signals");
   const taskStatus = chip(primaryTaskStatus(task), taskStatusTone(task));
@@ -596,7 +606,7 @@ function renderTaskGroups(target, tasks) {
   for (const { project, tasks: rows } of grouped.values()) {
     const group = el("section", "project-group");
     const heading = el("div", "project-heading");
-    heading.append(el("h3", "", project.display), el("span", "section-meta", `${rows.length} assignments`));
+    heading.append(el("h3", "", projectDisplay(project)), el("span", "section-meta", `${rows.length} assignments`));
     group.append(heading, ...rows.map(taskRow));
     target.append(group);
   }

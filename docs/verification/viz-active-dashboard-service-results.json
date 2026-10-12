@@ -4,6 +4,8 @@
   "layouts": {
     "desktop": {
       "actual_rust_schema": true,
+      "concise_project_fallback": true,
+      "checkout_in_details_only": true,
       "merged_history": true,
       "worker_report_active": true,
       "historical_reconciliation": true,
@@ -14,6 +16,8 @@
     },
     "mobile": {
       "actual_rust_schema": true,
+      "concise_project_fallback": true,
+      "checkout_in_details_only": true,
       "merged_history": true,
       "worker_report_active": true,
       "historical_reconciliation": true,

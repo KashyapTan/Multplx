@@ -12,13 +12,21 @@ const extract = (name) => {
 };
 const context = vm.createContext({ URL, URLSearchParams });
 vm.runInContext(source.slice(source.indexOf("const list ="), source.indexOf("const connectionNote =")) +
-  "\nlet currentPayload=null;\n" + ["titleCase", "stateName", "openQuestions", "taskIsHistory", "taskIsReconciliation", "primaryTaskStatus", "forgeMatchesRevision", "forgeObservation", "deliveryStatus", "displayTaskTitle", "readyPrUrl"].map(extract).join("\n"), context);
+  "\nlet currentPayload=null; let portfolio=null;\n" + ["titleCase", "projectRecord", "projectDisplay", "stateName", "openQuestions", "taskIsHistory", "taskIsReconciliation", "primaryTaskStatus", "forgeMatchesRevision", "forgeObservation", "deliveryStatus", "displayTaskTitle", "readyPrUrl"].map(extract).join("\n"), context);
 (async () => {
   const { dashboardFixture } = await import("./dashboard.mjs");
   context.input = dashboardFixture();
   vm.runInContext("currentPayload=input;", context);
   const tasks = context.input.snapshot.portfolio.tasks;
   const evaluate = (name, task) => { context.task = task; return vm.runInContext(`${name}(task)`, context); };
+  const missingName = { project: { id: "/private/fixture/home", path: "/private/fixture/home" } };
+  assert.equal(evaluate("projectRecord", missingName).display, "Home");
+  const sameName = [{ project: "/private/first/app" }, { project: "/private/second/app" }, { project: { id: "another", path: "/private/second/app" } }];
+  context.projects = sameName;
+  vm.runInContext("portfolio={tasks:projects};", context);
+  const labels = sameName.map((task) => evaluate("projectDisplay", evaluate("projectRecord", task)));
+  assert.equal(new Set(labels).size, 3, "duplicate basenames remain distinguishable");
+  assert.ok(labels.every((label) => !label.includes("/")), "project labels do not expose full paths");
   assert.equal(tasks.filter((task) => !evaluate("taskIsHistory", task) && !evaluate("taskIsReconciliation", task)).length, 7);
   assert.equal(tasks.filter((task) => evaluate("taskIsHistory", task)).length, 2);
   assert.equal(tasks.filter((task) => evaluate("taskIsReconciliation", task)).length, 2);

@@ -93,6 +93,14 @@ try {
     assert.equal(await page.locator('#task-history-list [data-task-id$="task:merged"]').count(), 1);
     assert.match(await page.locator('#task-list [data-task-id$="task:reported"]').textContent(), /Awaiting parent verification/);
     assert.equal(await page.locator('#task-reconciliation-list [data-task-id$="task:historical"]').count(), 1);
+    const projectSummaries = await page.locator('.project-heading, .task-identity, #project-filter option').allTextContents();
+    assert.ok(projectSummaries.every((text) => !text.includes(home) && !text.includes(child) && !text.includes('/private/') && !text.includes('/var/')), 'collapsed project headings, rows and filters do not expose full checkout paths');
+    assert.ok(projectSummaries.some((text) => text.includes('Child')), 'missing project names use their checkout basename');
+    const reported = page.locator('#task-list [data-task-id$="task:reported"]');
+    await reported.locator(':scope > summary').click();
+    await reported.locator('.technical-details > summary').click();
+    assert.ok((await reported.textContent()).includes(home), 'full checkout stays accessible in assignment details');
+    await reported.locator(':scope > summary').click();
     await page.locator("#agents-view-button").click();
     assert.equal(await page.locator('#agents-tree [data-agent-card-key$="task:parent"]').count(), 1);
     assert.equal(await page.locator('#agents-tree [data-agent-card-key$="task:nested"]').count(), 1);
@@ -103,7 +111,7 @@ try {
     await page.locator("#tasks-view-button").click();
     await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo({ top: 0, behavior: "instant" }); });
     await page.screenshot({ path: path.join(output, `service-dashboard-${layout}.png`), fullPage: true });
-    results.layouts[layout] = { actual_rust_schema: true, merged_history: true, worker_report_active: true, historical_reconciliation: true, nested_human_question: true, exact_descendant_graph: true, observed_native_sessions: 2, native_graph_without_activity_claim: true };
+    results.layouts[layout] = { actual_rust_schema: true, concise_project_fallback: true, checkout_in_details_only: true, merged_history: true, worker_report_active: true, historical_reconciliation: true, nested_human_question: true, exact_descendant_graph: true, observed_native_sessions: 2, native_graph_without_activity_claim: true };
     await page.close();
   }
   assert.deepEqual(errors, []);

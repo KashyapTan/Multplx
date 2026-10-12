@@ -19,7 +19,7 @@ Human Attention remains visible on both tabs.
 A question names the requested answer and the main orchestrator chat as its reply destination.
 A PR card exposes its actual repository and PR-number link immediately.
 Descriptions and complete legacy task text remain available in bounded disclosures, rendered as literal text.
-Project selectors retain stable IDs internally and display project names, with checkout paths only to distinguish duplicate names.
+Project headings, collapsed rows and selectors display project names or concise checkout basenames. Duplicate names use parent-folder labels and stable numbering; full checkout paths are accessible only in assignment details.
 
 Forge observations supersede stored ready receipts.
 Merged and closed observations require an exact published-head match before moving the current task revision into history.
@@ -87,6 +87,7 @@ Final broad gates run in a coordinated host window to avoid interpreting content
 ## Final gate progress
 
 At source commit `d0983fd`, formatting, the release workspace build, all five focused Viz/snapshot/forge/reconciliation scripts, the synthetic desktop/mobile browser runner, the actual Rust-service browser runner, and the existing service-backed scale/polling/artifact runner passed. The scale runner measured 20 render samples (p95 20.258 ms).
-The full behavior suite and unchanged 93% Rust line-coverage gate are pending in the serialized final validation window.
+A subsequent frontend-only correction removed absolute paths from missing-project-name fallbacks. The selector regressions and both desktop/mobile dashboard browser runners passed again, including an actual-service assertion that full checkout paths appear only in expanded technical details.
+The final local full run was deliberately interrupted (exit 130) on that review finding; its 12 started scripts included five interruptions, so it does not establish a final suite result. Final complete behavior lanes and the unchanged 93% Rust line-coverage gate are provided by exact-head remote CI; no equivalent expensive local gate is claimed.
 
 The earlier broad diagnostic run counted 134 scripts, two failures and eight gate skips. Its landed-bounds failure was fixed by rejecting duplicate legacy status-event questions in canonical catchup. Its local Herdr 0.9.3 presentation negative control could not reproduce the old focus-steal bug; the unchanged CI lane uses the required 0.7.4 pin. Both failures remain recorded rather than skipped or relaxed.
