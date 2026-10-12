@@ -12,7 +12,7 @@ RUNTIME="$TMP_ROOT/runtime"
 mkdir -p "$RUNTIME/bin" "$RUNTIME/.agents/skills" "$RUNTIME/share/shell/shims" \
   "$RUNTIME/config" "$RUNTIME/data" "$RUNTIME/projects" "$RUNTIME/state" "$RUNTIME/target/release"
 for file in mx-launcher.sh mx-launch-harness.sh mx-rust-runtime.sh mx-lock.sh mx-session-lock-lib.sh \
-  mx-maintainer-override-lib.sh mx-override-bindings.sh mx-wake-lib.sh mx-native-observe.sh mx-subagent-pretool-check.sh; do
+  mx-maintainer-override-lib.sh mx-override-bindings.sh mx-wake-lib.sh mx-native-observe.sh mx-subagent-pretool-check.sh mx-codex-idle.sh mx-turnend-guard.sh; do
   cp "$ROOT/bin/$file" "$RUNTIME/bin/$file"
 done
 cp "$RUST_BINARY" "$RUNTIME/target/release/mx"

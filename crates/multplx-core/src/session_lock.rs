@@ -22,6 +22,51 @@ pub fn harness_regex() -> Regex {
     Regex::new(r"claude|codex|cursor-agent|^pi$").expect("static harness regex")
 }
 
+/// Match the executable or an interpreter's executed script, never argument
+/// payloads or a directory whose spelling happens to contain a harness name.
+pub fn harness_command_matches(command: &str, arguments: &str, matcher: &Regex) -> bool {
+    let basename = Path::new(command)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(command);
+    if matcher.is_match(basename) {
+        return true;
+    }
+    let interpreter = basename.to_ascii_lowercase();
+    if !interpreter.starts_with("node") && !interpreter.starts_with("python") {
+        return false;
+    }
+    let mut words = arguments.split_whitespace().skip(1);
+    let script = loop {
+        let Some(word) = words.next() else {
+            return false;
+        };
+        if matches!(
+            word,
+            "-c" | "-m" | "-e" | "--eval" | "--module" | "-r" | "--require" | "--import"
+        ) {
+            return false;
+        }
+        if matches!(
+            word,
+            "-u" | "-B" | "-E" | "-I" | "-O" | "-OO" | "--no-warnings" | "--enable-source-maps"
+        ) {
+            continue;
+        }
+        if word.starts_with('-') {
+            return false;
+        }
+        break word;
+    };
+    let script_name = Path::new(script)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    matcher.is_match(script_name)
+        || script.ends_with("/@anthropic-ai/claude-code/cli.js") && matcher.is_match("claude")
+        || script.ends_with("/@mariozechner/pi-coding-agent/dist/cli.js") && matcher.is_match("pi")
+}
+
 /// Resolve the first verified harness in a bounded ancestry walk.
 pub fn harness_ancestry_pid(
     start_pid: u32,
@@ -31,19 +76,7 @@ pub fn harness_ancestry_pid(
     let mut pid = start_pid;
     for _ in 0..MAX_ANCESTRY_HOPS {
         let row = processes.ancestry_row(pid)?;
-        let basename = Path::new(&row.command)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(&row.command);
-        let interpreter = format!(
-            "{} {}",
-            row.command,
-            row.arguments.split_whitespace().next().unwrap_or_default()
-        )
-        .to_ascii_lowercase();
-        let interpreter_match = (interpreter.contains("node") || interpreter.contains("python"))
-            && matcher.is_match(&row.arguments);
-        if matcher.is_match(basename) || interpreter_match {
+        if harness_command_matches(&row.command, &row.arguments, matcher) {
             return Ok(pid);
         }
         if row.parent_pid <= 1 {
@@ -62,13 +95,9 @@ pub fn harness_pid_alive(pid: u32, processes: &impl ProcessProbe, matcher: &Rege
     if !processes.is_alive(pid) {
         return false;
     }
-    processes.ancestry_row(pid).is_ok_and(|row| {
-        let basename = Path::new(&row.command)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(&row.command);
-        matcher.is_match(&format!("{basename} {}", row.arguments))
-    })
+    processes
+        .ancestry_row(pid)
+        .is_ok_and(|row| harness_command_matches(&row.command, &row.arguments, matcher))
 }
 
 /// Observable status for `mx-lock status`.
@@ -353,6 +382,51 @@ mod tests {
 
         fn wait_gone(&mut self, _process: &ProcessIdentity, _timeout: Duration) -> bool {
             self.wait_result
+        }
+    }
+
+    #[test]
+    fn interpreter_identity_ignores_parent_directory_and_payload_names() {
+        let matcher = harness_regex();
+        for (command, args) in [
+            ("/usr/bin/python3", "python3 /tmp/mx-codex-proof/handle.py"),
+            ("/usr/bin/python3", "python3 /tmp/handle.py codex"),
+            ("/usr/bin/python3", "python3 -c codex"),
+            ("/usr/bin/python3", "python3 -X codex /tmp/handle.py"),
+            ("/usr/bin/node", "node --conditions codex /tmp/handle.js"),
+            ("/usr/bin/node", "node /tmp/handle.js --description claude"),
+            ("/bin/zsh", "zsh -c codex"),
+        ] {
+            assert!(
+                !super::harness_command_matches(command, args, &matcher),
+                "{args}"
+            );
+        }
+        for (command, args) in [
+            ("/bin/codex", "codex app-server"),
+            (
+                "/usr/bin/node",
+                "node /usr/lib/node_modules/@openai/codex/bin/codex.js",
+            ),
+            (
+                "/usr/bin/node",
+                "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+            ),
+            (
+                "/usr/bin/node",
+                "node /usr/lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js",
+            ),
+            ("/usr/bin/python3", "python3 -u /tmp/codex_fixture.py"),
+            ("/usr/bin/node", "node cursor-agent"),
+            (
+                "/Library/Frameworks/Python.framework/Python",
+                "python3 /tmp/codex.py",
+            ),
+        ] {
+            assert!(
+                super::harness_command_matches(command, args, &matcher),
+                "{args}"
+            );
         }
     }
 

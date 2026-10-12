@@ -6,9 +6,11 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-const SCRIPTS: [&str; 2] = [
+const SCRIPTS: [&str; 4] = [
     "bin/mx-native-observe.sh",
     "bin/mx-subagent-pretool-check.sh",
+    "bin/mx-codex-idle.sh",
+    "bin/mx-turnend-guard.sh",
 ];
 
 /// Resolve the executable that the compatibility scripts actually execute.
@@ -108,32 +110,40 @@ pub fn arguments(root: &Path, binary: &Path) -> Result<Vec<OsString>, String> {
     }
     let fingerprint = format!("{:x}", hash.finalize());
     let prefix = format!(
-        "[ -n \"${{MX_TASK_ID:-}}\" ] || exit 0; export MX_CODEX_HOOK_BUNDLE={fingerprint} MX_RUST_BIN={}; ",
-        path_word(&binary)?
+        "export MX_CODEX_HOOK_BUNDLE={fingerprint} MX_RUST_BIN={} MX_RUST_SOURCE_ROOT={}; ",
+        path_word(&binary)?,
+        path_word(&root)?
     );
     let observer = path_word(&root.join(SCRIPTS[0]))?;
     let merge = path_word(&root.join(SCRIPTS[1]))?;
+    let idle = path_word(&root.join(SCRIPTS[2]))?;
+    let stop = path_word(&root.join(SCRIPTS[3]))?;
+    let worker = "[ -n \"${MX_TASK_ID:-}\" ] || exit 0; ";
     let mut args = Vec::new();
     for (event, handler, matcher, timeout) in [
         (
             "SessionStart",
-            format!("{observer} --provider codex --event reconcile || true"),
+            format!(
+                "payload=$(cat); printf '%s' \"$payload\" | {idle} --register; {worker}printf '%s' \"$payload\" | {observer} --provider codex --event reconcile || true"
+            ),
             None,
             5,
         ),
         (
             "SubagentStart",
-            format!("{observer} --provider codex --event start || true"),
+            format!("{worker}{observer} --provider codex --event start || true"),
             None,
             5,
         ),
         (
             "SubagentStop",
-            format!("{observer} --provider codex --event result || true"),
+            format!("{worker}{observer} --provider codex --event result || true"),
             None,
             5,
         ),
-        ("PreToolUse", merge, Some("Bash"), 10),
+        ("PreToolUse", format!("{worker}{merge}"), Some("Bash"), 10),
+        ("Stop", stop, None, 30),
+        ("SessionEnd", format!("{idle} --end"), None, 3),
     ] {
         let command = format!("{prefix}{handler}");
         let matcher = matcher.map_or(String::new(), |value| format!("matcher=\"{value}\","));
@@ -175,6 +185,8 @@ pub fn validate_cli_overrides(args: &[OsString]) -> Result<(), String> {
                     "SubagentStart",
                     "SubagentStop",
                     "PreToolUse",
+                    "Stop",
+                    "SessionEnd",
                 ]
                 .iter()
                 .any(|event| {
@@ -215,7 +227,7 @@ mod tests {
         fs::write(&binary, "binary-v2").unwrap();
         assert_ne!(first, arguments(root, &binary).unwrap());
         for definition in first.iter().skip(1).step_by(2) {
-            assert!(definition.to_str().unwrap().contains("MX_TASK_ID"));
+            assert!(definition.to_str().unwrap().contains("MX_RUST_SOURCE_ROOT"));
             assert!(
                 definition
                     .to_str()
@@ -248,32 +260,34 @@ mod tests {
         );
     }
     #[test]
-    fn shared_and_owned_project_handlers_execute_exactly_once_in_primary_and_worker() {
+    fn shared_primary_and_worker_handlers_are_anchored_and_execute_once() {
+        use std::os::unix::fs::PermissionsExt;
         use std::process::{Command, Stdio};
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path();
-        fs::create_dir(root.join("bin")).unwrap();
+        let root = temp.path().join("runtime with spaces");
+        let cwd = temp.path().join("unrelated cwd");
+        fs::create_dir_all(root.join("bin")).unwrap();
+        fs::create_dir(&cwd).unwrap();
         fs::write(root.join("AGENTS.md"), "fixture").unwrap();
         for script in SCRIPTS {
             let path = root.join(script);
             fs::write(
                 &path,
-                "#!/bin/sh\n[ \"$(cat)\" = '{}' ] || exit 1\nprintf 'called\\n' >> \"$MX_TEST_CALLS\"\n",
+                format!(
+                    "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{script}' >> \"$MX_TEST_CALLS\"\n"
+                ),
             )
             .unwrap();
-            use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
         }
         let binary = root.join("mx");
         fs::write(&binary, "fixture executable").unwrap();
-        let marker = root.join("calls");
-        // Guarded no-op hooks may exit without reading stdin. Populate input
-        // before launch so their early exit cannot race a parent pipe write.
-        let input = root.join("hook-input.json");
+        let marker = temp.path().join("calls");
+        let input = temp.path().join("hook-input.json");
         fs::write(&input, b"{}").unwrap();
         let project: serde_json::Value =
             serde_json::from_str(include_str!("../../../.codex/hooks.json")).unwrap();
-        for definition in arguments(root, &binary).unwrap().iter().skip(1).step_by(2) {
+        for definition in arguments(&root, &binary).unwrap().iter().skip(1).step_by(2) {
             let definition = definition.to_str().unwrap();
             let event = definition
                 .strip_prefix("hooks.")
@@ -289,24 +303,21 @@ mod tests {
                 .unwrap()
                 .0;
             let command: String = serde_json::from_str(encoded).unwrap();
-            let project_handlers = project["hooks"][event]
-                .as_array()
-                .unwrap()
-                .iter()
-                .flat_map(|group| group["hooks"].as_array().unwrap())
-                .filter_map(|hook| hook["command"].as_str())
-                .filter(|command| {
-                    command.contains("mx-native-observe.sh")
-                        || command.contains("mx-subagent-pretool-check.sh")
-                })
-                .collect::<Vec<_>>();
-            assert_eq!(project_handlers.len(), 1);
             for worker in [false, true] {
-                for command in [&command[..], project_handlers[0]] {
+                let handlers = std::iter::once(command.as_str()).chain(
+                    project["hooks"][event]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .flat_map(|group| group["hooks"].as_array().unwrap())
+                        .filter_map(|hook| hook["command"].as_str()),
+                );
+                for handler in handlers {
                     let mut process = Command::new("/bin/sh");
                     process
-                        .args(["-c", command])
-                        .env("MX_RUST_SOURCE_ROOT", root)
+                        .args(["-c", handler])
+                        .current_dir(&cwd)
+                        .env("MX_RUST_SOURCE_ROOT", &root)
                         .env("MX_TEST_CALLS", &marker)
                         .env("MX_CODEX_SHARED_WORKER_HOOKS", "1")
                         .env_remove("MX_TASK_ID")
@@ -314,42 +325,35 @@ mod tests {
                     if worker {
                         process.env("MX_TASK_ID", "owned-fixture-worker");
                     }
-                    let mut child = process.spawn().unwrap();
-                    assert!(child.wait().unwrap().success());
+                    assert!(
+                        process.status().unwrap().success(),
+                        "{event} worker={worker}"
+                    );
                 }
-                assert_eq!(
-                    fs::read_to_string(&marker).unwrap(),
-                    "called\n",
-                    "{event} worker={worker}"
-                );
-                fs::remove_file(&marker).unwrap();
+                let actual = fs::read_to_string(&marker).unwrap_or_default();
+                let expected = match event {
+                    "SessionStart" if worker => "bin/mx-codex-idle.sh\nbin/mx-native-observe.sh\n",
+                    "SessionStart" => "bin/mx-codex-idle.sh\nbin/mx-native-observe.sh\n",
+                    "SessionEnd" => "bin/mx-codex-idle.sh\n",
+                    "Stop" => "bin/mx-turnend-guard.sh\n",
+                    "SubagentStart" | "SubagentStop" => "bin/mx-native-observe.sh\n",
+                    "PreToolUse" => "bin/mx-subagent-pretool-check.sh\n",
+                    _ => "",
+                };
+                assert_eq!(actual, expected, "{event} worker={worker}");
+                let _ = fs::remove_file(&marker);
             }
-            // Direct Codex launch retains its owned project handler.
-            let mut child = Command::new("/bin/sh")
-                .args(["-c", project_handlers[0]])
-                .env("MX_TASK_ID", "direct-worker")
-                .env_remove("MX_CODEX_SHARED_WORKER_HOOKS")
-                .env("MX_RUST_SOURCE_ROOT", root)
-                .env("MX_TEST_CALLS", &marker)
-                .stdin(Stdio::from(fs::File::open(&input).unwrap()))
-                .spawn()
-                .unwrap();
-            assert!(child.wait().unwrap().success());
-            assert_eq!(fs::read_to_string(&marker).unwrap(), "called\n");
-            fs::remove_file(&marker).unwrap();
         }
     }
     #[test]
     fn preserves_native_disable_controls_and_refuses_custom_array_collisions() {
-        for value in [
-            "hooks.enabled=false",
-            "hooks.Stop=[]",
-            "model=\"custom-model\"",
-        ] {
+        for value in ["hooks.enabled=false", "model=\"custom-model\""] {
             validate_cli_overrides(&["-c".into(), value.into()]).unwrap();
         }
         for args in [
             vec!["-c", "hooks.SessionStart=[]"],
+            vec!["-c", "hooks.Stop=[]"],
+            vec!["-c", "hooks.SessionEnd=[]"],
             vec!["--config=hooks.PreToolUse=[]"],
             vec!["-chooks={}"],
             vec!["--config", "hooks.SubagentStart.0={}"],

@@ -91,7 +91,7 @@ impl CommandResult {
     }
 }
 
-const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report [--id <task-id>] --state <state> --message <one-line-message> [--key <slug>] [--workflow-revision <id>]\n  mx-report --list-states [--id <task-id>]\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command. Canonical needs-decision reports require --key and record the message as a revision-bound human question.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). --id defaults to MX_TASK_ID. Success prints a JSON acceptance receipt; completion_proven is separate from status acceptance. Reply to each marked parent request with its explicit --correlation-id TOKEN (MCP correlation_id); corr= in --message is not a binding. Multiple outstanding requests require separate reports. Explicit --reply-disposition acknowledged|answered with --state working and --correlation-id records a request acknowledgement or answer without changing task completion or waits; acknowledgement does not settle the request. Omission retains ordinary lifecycle behavior. Keep the one-line summary within 300 characters for MCP and attach longer result evidence. Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected. A done status is implementation completion only when current typed delivery evidence matches the bound checkout HEAD, or a report/coordination assignment supplies an existing regular-file --artifact. An ordinary current non-done report or unproven done withdraws prior completion and closes dependency gates. Status prose alone does not release dependencies; checks, review, PR readiness and human merge remain separate. First current starts, requested replies, lifecycle changes and artifacts notify the parent; repeated unrequested working progress stays durable without an automatic wake.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
+const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report [--id <task-id>] --state <state> --message <one-line-message> [--key <slug>] [--workflow-revision <id>]\n  mx-report --list-states [--id <task-id>]\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command. Canonical needs-decision reports require --key and record the message as a revision-bound human question.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). --id defaults to MX_TASK_ID. Success prints a JSON acceptance receipt; completion_proven is separate from status acceptance. Receipts expose pending_human_decisions and decision_owner_state. A worker resolved report or request reply does not record a canonical human answer; the parent records the exact current task/question/brief with mx parent-channel answer in the owning home before conveying the choice. Reply to each marked parent request with its explicit --correlation-id TOKEN (MCP correlation_id); corr= in --message is not a binding. Multiple outstanding requests require separate reports. Explicit --reply-disposition acknowledged|answered with --state working and --correlation-id records a request acknowledgement or answer without changing task completion or waits; acknowledgement does not settle the request. Omission retains ordinary lifecycle behavior. Keep the one-line summary within 300 characters for MCP and attach longer result evidence. Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected. A done status is implementation completion only when current typed delivery evidence matches the bound checkout HEAD, or a report/coordination assignment supplies an existing regular-file --artifact. An ordinary current non-done report or unproven done withdraws prior completion and closes dependency gates. Status prose alone does not release dependencies; checks, review, PR readiness and human merge remain separate. First current starts, requested replies, lifecycle changes and artifacts notify the parent; repeated unrequested working progress stays durable without an automatic wake.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
 
 #[derive(Default)]
 struct ReportOptions {
@@ -323,6 +323,43 @@ fn publish_report_wake(
     .map(|_| ())
 }
 
+/// Frozen canonical identity and whether its existing wake still needs delivery.
+#[derive(Clone, Copy, Debug)]
+pub struct StatusReportNotification {
+    pub current: bool,
+    pub pending: bool,
+}
+
+fn pending_wake_keys(state: &Path) -> Result<std::collections::BTreeSet<String>, String> {
+    let items = multplx_core::wake::WakeQueue::new(state)
+        .observe_inbox_items()
+        .map_err(|error| error.to_string())?;
+    let known = items
+        .iter()
+        .map(|item| item.record.sequence)
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut keys = items
+        .into_iter()
+        .filter(|item| item.acknowledged_at.is_none())
+        .map(|item| item.record.key)
+        .collect::<std::collections::BTreeSet<_>>();
+    let path = state.join(".wake-queue");
+    if !path.exists() {
+        return Ok(keys);
+    }
+    let bytes = multplx_core::filesystem::read_bounded_regular(path, 16 * 1024 * 1024)
+        .map_err(|error| error.to_string())?;
+    let rows = std::str::from_utf8(&bytes).map_err(|error| error.to_string())?;
+    for row in rows.lines().filter(|row| !row.is_empty()) {
+        let record =
+            multplx_core::wake::WakeRecord::parse(row).map_err(|error| error.to_string())?;
+        if !known.contains(&record.sequence) {
+            keys.insert(record.key);
+        }
+    }
+    Ok(keys)
+}
+
 /// Index retained canonical status endpoints once for each watcher status scan.
 /// Canonical publication owns the notification identity for these exact lines.
 /// Values distinguish current identity from retained historical publication.
@@ -330,8 +367,9 @@ fn publish_report_wake(
 pub fn status_report_notifications(
     state: &Path,
     task: &str,
-) -> std::collections::BTreeMap<(u64, String), bool> {
+) -> std::collections::BTreeMap<(u64, String), StatusReportNotification> {
     let mut notifications = std::collections::BTreeMap::new();
+    let pending = pending_wake_keys(state).ok();
     let current = multplx_core::filesystem::read_bounded_regular(
         state.join(format!("{task}.meta")),
         crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
@@ -365,13 +403,20 @@ pub fn status_report_notifications(
         {
             notifications.insert(
                 (end, line.to_owned()),
-                current.as_ref().is_some_and(|record| {
-                    value["envelope"]["attempt"]
-                        == serde_json::to_value(&record.attempt).expect("attempt JSON")
-                        && value["envelope"]["brief_revision"]
-                            == serde_json::to_value(record.accepted_brief_revision)
-                                .expect("revision JSON")
-                }),
+                StatusReportNotification {
+                    current: current.as_ref().is_some_and(|record| {
+                        value["envelope"]["attempt"]
+                            == serde_json::to_value(&record.attempt).expect("attempt JSON")
+                            && value["envelope"]["brief_revision"]
+                                == serde_json::to_value(record.accepted_brief_revision)
+                                    .expect("revision JSON")
+                    }),
+                    pending: value["envelope"]["message_id"].as_str().is_some_and(|id| {
+                        pending
+                            .as_ref()
+                            .is_none_or(|keys| keys.contains(&format!("message-{id}")))
+                    }),
+                },
             );
         }
     }
@@ -593,6 +638,7 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
     let mut implementation_completed = false;
     let mut outstanding_requests = Vec::new();
     let mut reply_reconciliation_error: Option<String> = None;
+    let mut pending_human_decisions = Vec::new();
     let meta_path = state.join(format!("{}.meta", task.as_str()));
     // One scoped lock serializes report acceptance with explicit brief changes.
     let _binding_lock = match multplx_core::locks::DirectoryLock::acquire_wait(
@@ -867,6 +913,16 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         } else {
             None
         };
+        pending_human_decisions = record
+            .schedule
+            .decisions
+            .iter()
+            .filter(|decision| {
+                Some(decision.brief_revision) == record.accepted_brief_revision
+                    && decision.answer.is_none()
+            })
+            .cloned()
+            .collect::<Vec<_>>();
         let mut evidence = json!({"envelope":envelope,"accepted":validation.is_ok(),"rejection":validation.as_ref().err(),"decision":decision,"completion_proven":completion_evidence,"status_line":line,
             "status_end":fs::metadata(state.join(format!("{}.status", task.as_str()))).map(|m| m.len()).unwrap_or(0) + line.len() as u64 + 1});
         if let Some(disposition) = &parsed.reply_disposition {
@@ -976,6 +1032,8 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
                             "accepted_completion_proven": old["completion_proven"].as_bool().unwrap_or(false),
                             "outstanding_requests": outstanding_requests,
                             "reply_reconciliation_error": reply_reconciliation_error,
+                            "pending_human_decisions": pending_human_decisions,
+                            "decision_owner_state": state,
                         })
                     ));
                 }
@@ -1108,6 +1166,9 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             "accepted report retained; exact reply reconciliation needs repair: {error}\n"
         ));
     }
+    if state_name == "resolved" && !pending_human_decisions.is_empty() {
+        stderr.push_str("resolved status recorded; canonical human questions remain unanswered. The owning parent must record each exact revision with mx parent-channel answer before sending implementation direction; a correlated request reply or worker resolved report does not record a human decision.\n");
+    }
     if state_name == "done" && !implementation_completed {
         stderr.push_str("done status recorded; implementation completion was not proven, so dependency gates remain closed. Record current revision-bound task-model evidence whose commit matches the bound checkout HEAD, or attach a result artifact for a report assignment.\n");
     }
@@ -1121,6 +1182,8 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
                 "correlation_id": identity_detail.get("correlation_id"),
                 "completion_proven": implementation_completed, "outstanding_requests": outstanding_requests,
                 "reply_reconciliation_error": reply_reconciliation_error,
+                            "pending_human_decisions": pending_human_decisions,
+                            "decision_owner_state": state,
             })
         ),
         stderr,

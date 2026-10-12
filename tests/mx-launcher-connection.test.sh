@@ -19,7 +19,7 @@ mkdir -p "$RUNTIME/bin" "$RUNTIME/.agents/skills" "$RUNTIME/share/shell/shims" \
 printf '# fixture\n' >"$RUNTIME/AGENTS.md"
 cp "$ROOT/bin/mx-launcher.sh" "$RUNTIME/bin/mx-launcher.sh"
 cp "$ROOT/bin/mx-lock.sh" "$RUNTIME/bin/mx-lock.sh"
-cp "$ROOT/bin/mx-native-observe.sh" "$ROOT/bin/mx-subagent-pretool-check.sh" "$RUNTIME/bin/"
+cp "$ROOT/bin/mx-native-observe.sh" "$ROOT/bin/mx-subagent-pretool-check.sh" "$ROOT/bin/mx-codex-idle.sh" "$ROOT/bin/mx-turnend-guard.sh" "$RUNTIME/bin/"
 chmod +x "$RUNTIME/bin/mx-launcher.sh" "$RUNTIME/bin/mx-lock.sh"
 git -C "$RUNTIME" init -q
 git -C "$RUNTIME" add -A

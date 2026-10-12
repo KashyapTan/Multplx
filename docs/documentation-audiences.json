@@ -551,6 +551,10 @@
     {
       "path": "plans/actionable-wake-supervision.md",
       "audience": "maintainer-architecture"
+    },
+    {
+      "path": "TRANSCRIPT_ISSUES_2026-10-12.md",
+      "audience": "maintainer-verification"
     }
   ]
 }

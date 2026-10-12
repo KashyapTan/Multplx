@@ -36,7 +36,7 @@ fn installed_idle_wrapper_uses_canonical_binary_without_release_tree() {
 fn codex_idle_runtime_two_cycles_identity_retry_and_cleanup() {
     let _fixture = EXECUTABLE_FIXTURE.lock().unwrap();
     let fixture = tempfile::tempdir().unwrap();
-    let script = fixture.path().join("codex_fixture.py");
+    let script = fixture.path().join("codex.py");
     fs::write(&script, r#"
 import atexit, json, os, pathlib, subprocess, sys, time
 root = pathlib.Path(sys.argv[2]); mx = sys.argv[1]
@@ -105,9 +105,9 @@ assert str(root/'home') in sends()[0] and '--thread '+thread in sends()[0]
 assert 'MULTPLX_OP:' in sends()[0] and (state/'.wake-queue').exists()
 assert 'already bound' in call(payload={'session_id':'123e4567-e89b-12d3-a456-426614174001'})
 assert not (state/'.codex-idle-failure').exists(), 'other thread poisoned owner'
-# A new report wakes after watcher completion; hook owns the subsequent cycle.
+# A new durable report reaches the bridge while the watcher stays parked.
+# No synthetic watcher trigger or repeated Stop may be needed for delivery.
 append(2)
-(state/'trigger').touch()
 wait(lambda:len(sends())==2)
 assert json.loads((state/'.codex-idle-process.json').read_text())==first
 assert call().strip() == '{}'

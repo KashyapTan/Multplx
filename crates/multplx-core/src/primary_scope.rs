@@ -62,13 +62,24 @@ fn exact_path_file(path: &Path) -> Option<PathBuf> {
 }
 
 fn installed_primary_matches(root: &Path, state: &Path, executable: &Path) -> bool {
-    if executable.file_name().and_then(|value| value.to_str()) != Some("multplx") {
-        return false;
-    }
-    let Some(bin_dir) = executable.parent() else {
+    let pointer = if executable.file_name().and_then(|value| value.to_str()) == Some("multplx") {
+        let Some(bin_dir) = executable.parent() else {
+            return false;
+        };
+        bin_dir.join(".multplx-config")
+    } else if fs::canonicalize(executable)
+        .ok()
+        .zip(fs::canonicalize(root.join("target/release/mx")).ok())
+        .is_some_and(|(actual, packaged)| actual == packaged)
+    {
+        // Installed hook adapters execute the packaged multicall binary rather
+        // than the public launcher copy. Its exact package path owns the same
+        // installer-written binding; environment overrides confer no authority.
+        root.join(".multplx-config")
+    } else {
         return false;
     };
-    let Some(config) = exact_path_file(&bin_dir.join(".multplx-config")) else {
+    let Some(config) = exact_path_file(&pointer) else {
         return false;
     };
     let Ok(config) = fs::canonicalize(config) else {
@@ -176,6 +187,78 @@ mod tests {
         symlink(&outside, root.join(".mx-daemon-home")).expect("marker link");
         assert!(!is_daemon_home(&root));
         assert!(!matches(&root, &state));
+    }
+
+    #[test]
+    fn packaged_hook_binary_requires_exact_owned_layout_and_home() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("runtime");
+        let state = temp.path().join("home/state");
+        let config = temp.path().join("config");
+        let binary = root.join("target/release/mx");
+        fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        fs::create_dir_all(root.join("bin")).unwrap();
+        fs::create_dir_all(&state).unwrap();
+        fs::create_dir(&config).unwrap();
+        fs::write(&binary, b"fixture").unwrap();
+        fs::write(root.join("AGENTS.md"), b"contract").unwrap();
+        fs::write(
+            root.join(".multplx-release"),
+            concat!(env!("CARGO_PKG_VERSION"), "\n"),
+        )
+        .unwrap();
+        fs::write(
+            root.join(".multplx-config"),
+            format!("{}\n", config.display()),
+        )
+        .unwrap();
+        fs::write(config.join("root"), format!("{}\n", root.display())).unwrap();
+        fs::write(
+            config.join("home"),
+            format!("{}\n", state.parent().unwrap().display()),
+        )
+        .unwrap();
+        assert!(matches_with_context(
+            &root,
+            &state,
+            Some(&binary),
+            false,
+            false
+        ));
+        assert!(!matches_with_context(
+            &root,
+            &state,
+            Some(&binary),
+            true,
+            false
+        ));
+        let outsider = temp.path().join("mx");
+        fs::copy(&binary, &outsider).unwrap();
+        assert!(!matches_with_context(
+            &root,
+            &state,
+            Some(&outsider),
+            false,
+            false
+        ));
+        let other_state = temp.path().join("other-state");
+        fs::create_dir(&other_state).unwrap();
+        assert!(!matches_with_context(
+            &root,
+            &other_state,
+            Some(&binary),
+            false,
+            false
+        ));
+        fs::remove_file(root.join(".multplx-config")).unwrap();
+        symlink(config.join("root"), root.join(".multplx-config")).unwrap();
+        assert!(!matches_with_context(
+            &root,
+            &state,
+            Some(&binary),
+            false,
+            false
+        ));
     }
 
     #[test]

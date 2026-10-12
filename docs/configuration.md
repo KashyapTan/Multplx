@@ -242,11 +242,13 @@ A direct terminal CLI launch requires explicit `MX_CODEX_IDLE_CLI=1 codex` opt-i
 Codex Desktop event delivery is unverified and is not automatically activated by this CLI integration.
 Queue activation also requires the tracked native SessionStart `--register` handshake to publish a readiness receipt matching the exact thread, `CODEX_HOME` and live session-lock owner.
 Complete the provider's native one-time hook trust review when prompted; skipped review or disabled hooks retain bounded foreground supervision, and the integration does not override disabled hooks or change private trust state.
-Managed primary and worker Codex launches use one canonical CLI worker-hook bundle, guarded by `MX_TASK_ID` so an unbound primary does not run worker handlers twice.
-The first primary native review includes that bundle alongside the tracked primary project hooks; standing and nested workers using the same installed runtime reuse its native session-flag identity across working directories.
-The bundle hashes the actual observer script, merge-check script and executed Rust binary bytes into every command definition, so owned runtime changes require native review again.
+Managed primary and worker Codex launches use one canonical CLI hook bundle covering primary registration, Stop delivery, SessionEnd cleanup and task-guarded worker handlers.
+The first primary native review includes that bundle alongside any separately loaded project hooks; standing and nested workers using the same installed runtime reuse its native session-flag identity across working directories.
+The bundle hashes the actual observer, merge-check, idle bridge and turn-end wrapper scripts plus executed Rust binary bytes into every command definition, so owned runtime changes require native review again.
 Byte-identical public launcher and packaged runtime copies select the same stable package executable for hook identity; genuinely different explicit executable overrides keep separate identities.
 Tracked Multplx observer and merge hooks skip their duplicate worker call only when both task identity and the shared bundle activation flag are present; direct Codex launches retain their original project handlers.
+Tracked primary registration, Stop and SessionEnd hooks skip duplicate calls under the shared bundle flag; their direct-launch project handlers remain available.
+The installed primary predicate verifies the exact packaged `target/release/mx` executable against the installer-owned package/root/home binding, as well as the public launcher entry.
 Native disabled choices remain authoritative; Multplx never writes the provider trust store, bypasses hook trust or supplies managed policy.
 Custom CLI overrides of the same hook event arrays fail with a setup diagnostic rather than being silently overwritten; project and user hook files retain native review independently.
 A historical worker home with `.codex` files or a fresh Multplx development worktree containing tracked `.codex/hooks.json` can still require project-source review; the shared CLI bundle does not transfer that separate approval.

@@ -46,6 +46,9 @@ Use `mx wake list --unfinished` and `mx wake pending` to inspect outstanding obl
 [Durable coordination](../../../docs/durable-coordination.md) owns dispositions, receipt identity and request handling.
 
 Keep human questions durable and revision-bound through the task reporter's keyed `needs-decision` state.
+Before sending the answer to the worker, record it in the owning home with `mx parent-channel answer --task TASK --question KEY --brief-revision N --answer-id STABLE_ID --answer 'ANSWER'`, adding the recorded workflow revision when applicable.
+A worker resolved report or informational request reply does not answer a canonical human question; inspect `pending_human_decisions` in its acceptance receipt.
+[Scoped coordinator decision routing](../../../docs/scoped-coordinators.md) owns the exact parent-channel contract.
 Inspect evidence, route genuinely missing input and continue unrelated tasks while dependent work remains gated.
 Do not take over a blocked worker's deliverable; preserve its work and accepted scope.
 Use [subagent-recovery](../subagent-recovery/SKILL.md) for missing endpoints or uncertain ownership and [harness-adapters](../harness-adapters/SKILL.md) for targeted controls.

@@ -107,6 +107,9 @@ Dependent work remains queued until a fresh valid completion report; unrelated t
 A current `working` or `resolved` report clears a failure, block or pause wait created by a prior report without restoring completion; human and lifecycle-owned waits retain their own resolution paths.
 Rejected stale-attempt or stale-brief reports and retries of an already committed report do not change the current completion state.
 
+A worker `resolved` status does not record a human answer.
+Report receipts expose `pending_human_decisions` and `decision_owner_state`; an unresolved keyed resolution also prints the required parent action.
+The parent records the exact task/question/brief answer with `mx parent-channel answer` in that owning home before conveying the choice to the worker; see [scoped coordinator decision routing](scoped-coordinators.md#durable-communication).
 Request answers have a separate explicit disposition.
 For an informational request, use `--state working --correlation-id TOKEN --reply-disposition answered`, or `state: "working"`, `correlation_id` and `reply_disposition: "answered"` in `report_status`.
 `acknowledged` confirms receipt and keeps the request outstanding; omitting the disposition preserves ordinary status behavior.
