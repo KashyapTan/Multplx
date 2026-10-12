@@ -1005,6 +1005,8 @@ function renderAgents(snapshot) {
   const focusedCollapseKey = document.activeElement?.dataset?.agentCollapseKey || null;
   const focusedGeneralKey = stableFocusKey();
   const graph = agentsGraphApi.normalize({ ...object(snapshot), portfolio: portfolio || {} });
+  const query = document.querySelector("#agent-search").value.trim().toLowerCase();
+  const allSearchMatches = new Set(graph.nodes.filter((node) => agentSearchMatches(node, query)).map((node) => node.key));
   normalizedAgentGraph = graph;
   const activeKeys = new Set(graph.nodes.filter((node) => !agentNodeIsHistory(node) && !agentNodeIsReconciliation(node)).map((node) => node.key));
   const allByKey = new Map(graph.nodes.map((node) => [node.key, node]));
@@ -1019,19 +1021,19 @@ function renderAgents(snapshot) {
   }
   const historicalNodes = graph.nodes.filter(agentNodeIsHistory);
   const historyTarget = document.querySelector("#agent-history-list");
-  historyTarget.replaceChildren(...historicalNodes.map((node) => agentCard(node)));
+  const matchedHistory = query ? historicalNodes.filter((node) => allSearchMatches.has(node.key)) : historicalNodes;
+  historyTarget.replaceChildren(...matchedHistory.map((node) => agentCard(node)));
   const uncertainNodes = graph.nodes.filter(agentNodeIsReconciliation);
-  document.querySelector("#agent-reconciliation-list").replaceChildren(...uncertainNodes.map((node) => agentCard(node)));
+  document.querySelector("#agent-reconciliation-list").replaceChildren(...uncertainNodes.filter((node) => !query || allSearchMatches.has(node.key)).map((node) => agentCard(node)));
   document.querySelector("#agent-reconciliation-label").textContent = `Needs reconciliation · ${uncertainNodes.length} uncertain assignments`;
   document.querySelector("#agent-reconciliation").hidden = uncertainNodes.length === 0;
-  document.querySelector("#agent-history-label").textContent = `History · ${historicalNodes.length} records · completed assignments and retained sessions`;
+  document.querySelector("#agent-history-label").textContent = query ? `History · ${matchedHistory.length} matches of ${historicalNodes.length} retained records` : `History · ${historicalNodes.length} records · completed assignments and retained sessions`;
   const prune = (node) => { node.children = node.children.filter((child) => activeKeys.has(child.key)); node.children.forEach(prune); };
   prune(graph.root);
   graph.unresolved = graph.unresolved.filter((node) => activeKeys.has(node.key));
   graph.unresolved.forEach(prune);
   graph.nodes = graph.nodes.filter((node) => activeKeys.has(node.key));
   const layout = agentsGraphApi.layout(graph);
-  const query = document.querySelector("#agent-search").value.trim().toLowerCase();
   const searchChanged = query !== lastRenderedAgentSearch;
   lastRenderedAgentSearch = query;
   agentSearchValue = query;
@@ -1055,7 +1057,7 @@ function renderAgents(snapshot) {
   unresolvedPanel.hidden = graph.unresolved.length === 0;
   for (const node of graph.unresolved) unresolvedList.append(agentBranch(node, graph, matching, ancestors));
   const coordinators = graph.nodes.filter((node) => node.role === "sub-orchestrator" && !taskIsHistory(node.task)).length;
-  const searchSummary = query ? ` · ${matching.size} match${matching.size === 1 ? "" : "es"}${matching.size ? "" : " · no matching assignments"}` : "";
+  const searchSummary = query ? ` · ${allSearchMatches.size} match${allSearchMatches.size === 1 ? "" : "es"}${matchedHistory.length ? ` · ${matchedHistory.length} in History` : ""}${allSearchMatches.size ? "" : " · no matching assignments"}` : "";
   const assignmentCount = graph.truncated ? `${graph.nodes.length} of ${graph.total} assignments shown` : `${graph.nodes.filter((node) => node.kind === "task" && !agentNodeIsHistory(node) && !agentNodeIsReconciliation(node)).length} active assignments · ${graph.nativeCount || 0} observed native sessions · ${historicalNodes.length} in history`;
   const summary = `${assignmentCount} · ${coordinators} coordinators · root ${graph.root.healthLabel}${graph.partial ? " · projection partial" : " · projection complete"}${searchSummary}`;
   document.querySelector("#agents-summary").textContent = summary;

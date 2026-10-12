@@ -299,7 +299,12 @@ results.failed_refresh = {
 };
 const failedPage = await browser.newPage({ viewport: { width: 1000, height: 700 } });
 await failedPage.goto(base, { waitUntil: "domcontentloaded" });
-await failedPage.locator("#state-banner").filter({ hasText: "Refresh failed. Showing the last good snapshot" }).waitFor();
+try {
+  await failedPage.locator("#state-banner").filter({ hasText: "Refresh failed. Showing the last good snapshot" }).waitFor();
+} catch (error) {
+  await failedPage.screenshot({ path: path.join(output, "failed-refresh-debug.png"), fullPage: true });
+  throw new Error(`failed-refresh browser banner: ${await failedPage.locator("#state-banner").textContent()}; ${error.message}`);
+}
 results.failed_refresh.browser_banner_visible = true;
 await failedPage.close();
 writeFileSync(`${fixtureFile}.new`, originalFixture);

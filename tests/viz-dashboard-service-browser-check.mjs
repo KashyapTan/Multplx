@@ -103,7 +103,7 @@ try {
     await page.locator("#tasks-view-button").click();
     await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo({ top: 0, behavior: "instant" }); });
     await page.screenshot({ path: path.join(output, `service-dashboard-${layout}.png`), fullPage: true });
-    results.layouts[layout] = { actual_rust_schema: true, merged_history: true, worker_report_active: true, historical_reconciliation: true, nested_human_question: true, exact_descendant_graph: true };
+    results.layouts[layout] = { actual_rust_schema: true, merged_history: true, worker_report_active: true, historical_reconciliation: true, nested_human_question: true, exact_descendant_graph: true, observed_native_sessions: 2, native_graph_without_activity_claim: true };
     await page.close();
   }
   assert.deepEqual(errors, []);

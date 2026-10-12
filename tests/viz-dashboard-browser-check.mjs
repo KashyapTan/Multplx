@@ -88,6 +88,10 @@ try {
       const card = node.getBoundingClientRect(); const view = document.querySelector("#agents-viewport").getBoundingClientRect();
       return card.bottom <= view.bottom + 1 && card.top >= view.top - 1;
     }), true);
+    await page.locator("#agent-search").fill("Delivered startup command");
+    assert.match(await page.locator("#agent-history-label").textContent(), /1 matches/);
+    assert.equal(await page.locator("#agent-history-list .agent-card").count(), 1);
+    await page.locator("#agent-search").fill("");
     await page.locator("#agent-history > summary").click();
     await page.locator("#agent-history [data-agent-card-key$='task:finished']").click();
     assert.equal(await page.locator("#task-history").getAttribute("open"), "");
@@ -102,7 +106,7 @@ try {
     assert.match(await page.locator(".attention-item").textContent(), /Should archived projects be included/);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
     assert.equal(overflow, false);
-    results[layout] = { active: 7, history: 2, uncertain: 2, nested_context: true, filters: true, disclosures: true, forge_refresh: true, status_separation: true, overflow: false };
+    results[layout] = { active: 7, history: 2, uncertain: 2, nested_context: true, filters: true, disclosures: true, forge_refresh: true, status_separation: true, native_graph: true, observed_native_sessions: 3, assignments_exclude_native: true, overflow: false };
     await page.close();
   }
   assert.deepEqual(errors, []);
