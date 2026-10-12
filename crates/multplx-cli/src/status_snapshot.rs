@@ -32,6 +32,10 @@ fn canonical_questions(root: &Value) -> Vec<Value> {
     for task in array(root.pointer("/portfolio/tasks")) {
         for decision in array(task.get("decisions")) {
             if decision["answer"].is_null()
+                && !matches!(
+                    decision["state"].as_str(),
+                    Some("superseded" | "cancelled" | "answered")
+                )
                 && decision["question"]
                     .as_str()
                     .is_some_and(|question| !question.trim().is_empty())
@@ -958,6 +962,9 @@ mod tests {
                 .unwrap()
                 .contains("parent records")
         );
+        root["portfolio"]["tasks"][0]["decisions"][0]["state"] = json!("superseded");
+        assert!(canonical_questions(&root).is_empty());
+        root["portfolio"]["tasks"][0]["decisions"][0]["state"] = json!("open");
         root["portfolio"]["tasks"][0]["decisions"][0]["answer"] = json!({"text":"cached"});
         assert!(canonical_questions(&root).is_empty());
     }

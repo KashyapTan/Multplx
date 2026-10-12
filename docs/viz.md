@@ -123,6 +123,7 @@ Task labels prefer the backlog title, then the task or charter section of the ac
 Human Attention contains explicit unanswered questions and published PRs that the canonical review queue records as ready with an actual HTTP(S) PR URL.
 Question cards display the actual unanswered question and “Answer question in main orchestrator chat”; PR cards display the verified PR title and actual PR link with “Review linked PR”.
 Unanswered questions stay visible even when implementation completion or a merged PR moves the assignment into history.
+Questions bound to superseded accepted brief revisions remain labeled superseded in task details and do not request an answer for the current assignment.
 Missing checks, blocking dependencies, review findings and unrecorded reviews stay in task details unless they carry an explicit human question.
 Attention cards bound title and question previews to readable lines and retain the complete original text in a keyboard-accessible disclosure with a bounded scroll region.
 Open attention disclosures, keyboard focus and scroll position survive snapshot updates by qualified task and decision identity.

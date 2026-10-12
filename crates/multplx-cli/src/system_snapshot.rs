@@ -1469,6 +1469,7 @@ fn portfolio(
                 decisions.iter().map(|decision| json!({
                     "id":decision["id"],"question":decision["question"],"brief_revision":decision["brief_revision"],
                     "workflow_revision":decision["workflow_revision"],"answer":decision["answer"],
+                    "state":if decision["brief_revision"].as_u64().zip(coordination.and_then(|row|row["accepted_brief_revision"].as_u64())).is_some_and(|(question,current)|question!=current){"superseded"}else if !decision["answer"].is_null(){"answered"}else{"open"},
                     "waiting_since":decision_waiting_since(&decision_evidence, id, decision),"source":"coordination"
                 })).collect::<Vec<_>>()
             })
@@ -3587,6 +3588,17 @@ mod tests {
                 .find(|task| task["id"] == "parent")
                 .unwrap()["completion"]["kind"],
             "worker-reported-done"
+        );
+        parent["coordination"]["schedule"]["decisions"][0]["brief_revision"] = json!(0);
+        let rows = project(&parent);
+        assert_eq!(
+            rows["tasks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|task| task["id"] == "parent")
+                .unwrap()["decisions"][0]["state"],
+            "superseded"
         );
         parent["current_state"]["source"] = json!("native-event");
         let rows = project(&parent);
