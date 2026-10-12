@@ -188,7 +188,11 @@ Older connection records without home/state bindings require a new managed prima
 The collector bounds this one owner probe to two seconds and 16 KiB, without scanning unrelated processes or exposing command lines, process identity markers, terminal routes or conversation text.
 Snapshot/cache freshness remains separate from primary health: fresh evidence can report an unavailable or stale primary, and a stale cached live observation is historical evidence.
 A worker's assignment state is separate from its observed sessions; a queued assignment, completed task or retained home is not presented as a currently running model.
-Opaque native observations do not become invented agent nodes.
+The additive `portfolio.native_children` projection exposes provider-supplied child session identities under their exact canonical task and attempt.
+A uniquely matched provider parent-session identity can connect an observed nested session to another observed session within that task and attempt.
+These observed native sessions are separate from canonical tasks and carry lifecycle evidence with unknown current activity; a result or interrupted event never completes the owning assignment.
+Historical attempts remain labeled historical, and session-bound recovery does not imply resumability.
+Opaque native observations without child identity or exact attempt remain explicit `opaque` records and task details, rather than invented agent nodes.
 
 Connections use home-qualified task identity and verified registered home ownership for every assignment role.
 The additive `descendants` projection traverses ordinary worker homes as well as coordinator homes, with one global record, depth and time budget.

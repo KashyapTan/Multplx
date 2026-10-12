@@ -1780,7 +1780,85 @@ fn portfolio(
         reasons.push("portfolio task record limit reached".into());
     }
     let partial = partial || record_total > record_shown;
-    json!({"schema":"mx-portfolio.v1","generated":generated,"observed_at":generated,"freshness":{"status":if partial{"partial"}else{"fresh"},"age_seconds":0,"partial":partial,"reasons":reasons},"counts":{"tasks":useful_tasks,"coordinators":coordinator_tasks,"records":record_total,"shown":record_shown,"truncated":record_total-record_shown,"sessions":sessions,"attempts":attempts,"projects":projects.len(),"domains":domains["total"]},"projects":projects,"tasks":projected})
+    let native_children = native_children(&projected);
+    json!({"schema":"mx-portfolio.v1","native_children":native_children,"generated":generated,"observed_at":generated,"freshness":{"status":if partial{"partial"}else{"fresh"},"age_seconds":0,"partial":partial,"reasons":reasons},"counts":{"tasks":useful_tasks,"coordinators":coordinator_tasks,"records":record_total,"shown":record_shown,"truncated":record_total-record_shown,"sessions":sessions,"attempts":attempts,"projects":projects.len(),"domains":domains["total"]},"projects":projects,"tasks":projected})
+}
+
+/// Provider identities describe observed sessions, never canonical assignments.
+/// Parent attempt bindings retain historical observations without claiming a
+/// current model is running, resumable or finished with its accepted task.
+fn native_children(tasks: &[Value]) -> Value {
+    use sha2::{Digest, Sha256};
+    let mut records = Vec::new();
+    let mut opaque = Vec::new();
+    for task in tasks {
+        let Some(parent_key) = task["key"].as_str() else {
+            continue;
+        };
+        let mut latest = BTreeMap::new();
+        for observation in array(task, "native_observations") {
+            let identity = observation["child_id"].as_str().filter(|id| !id.is_empty());
+            let provider = observation["provider"].as_str().filter(|id| !id.is_empty());
+            let attempt = &observation["parent_attempt"];
+            if identity.is_none()
+                || provider.is_none()
+                || attempt["id"].as_str().is_none()
+                || attempt["generation"].as_u64().is_none()
+                || attempt["brief_revision"].as_u64().is_none()
+            {
+                opaque.push(json!({"parent_task_key":parent_key,"observation_id":observation["observation_id"],"reason":"provider child identity or exact parent attempt unavailable"}));
+                continue;
+            }
+            let Some(timestamp) = observation["observed_at"].as_str().and_then(|timestamp| {
+                time::OffsetDateTime::parse(
+                    timestamp,
+                    &time::format_description::well_known::Rfc3339,
+                )
+                .ok()
+            }) else {
+                opaque.push(json!({"parent_task_key":parent_key,"observation_id":observation["observation_id"],"reason":"native observation time unavailable"}));
+                continue;
+            };
+            let identity_tuple = json!([parent_key, provider, identity, attempt]);
+            let key = format!(
+                "native-session:{:x}",
+                Sha256::digest(serde_json::to_vec(&identity_tuple).expect("identity JSON"))
+            );
+            if latest.get(&key).is_none_or(|(at, _)| timestamp >= *at) {
+                latest.insert(key, (timestamp, observation.clone()));
+            }
+        }
+        let owned = latest.iter().map(|(key,(_,observation))|json!({
+            "key":key,"parent_task_key":parent_key,"parent_native_key":Value::Null,
+            "provider":observation["provider"],"child_id":observation["child_id"],"parent_session_id":observation["parent_session_id"],
+            "state":observation["state"],"parent_attempt":observation["parent_attempt"],"current_attempt":observation["parent_attempt"]==task["attempt"],
+            "observed_at":observation["observed_at"],"recovery":observation["recovery"],"artifact":observation["artifact"],"observation_id":observation["observation_id"],"activity":"unknown","managed":false
+        })).collect::<Vec<_>>();
+        for mut child in owned.iter().cloned() {
+            if let Some(parent_session) = child["parent_session_id"].as_str() {
+                let candidates = owned
+                    .iter()
+                    .filter(|parent| {
+                        parent["provider"] == child["provider"]
+                            && parent["parent_attempt"] == child["parent_attempt"]
+                            && parent["child_id"].as_str() == Some(parent_session)
+                    })
+                    .collect::<Vec<_>>();
+                if candidates.len() == 1 {
+                    child["parent_native_key"] = candidates[0]["key"].clone();
+                } else if candidates.len() > 1 {
+                    child["reason"] = json!("native parent session identity is ambiguous");
+                }
+            }
+            records.push(child);
+        }
+    }
+    let limit = env_usize("MX_SNAPSHOT_NATIVE_CHILDREN", 100);
+    let truncated = records.len().saturating_sub(limit);
+    records.truncate(limit);
+    let opaque_truncated = opaque.len().saturating_sub(limit);
+    opaque.truncate(limit);
+    json!({"records":records,"opaque":opaque,"truncated":truncated,"opaque_truncated":opaque_truncated})
 }
 
 /// Retained report evidence is the durable owner of a question's creation
@@ -3543,6 +3621,52 @@ mod tests {
                 .unwrap()["completion"]["kind"],
             "human-merged"
         );
+    }
+
+    #[test]
+    fn native_session_projection_keeps_attempts_parents_and_task_completion_distinct() {
+        let attempt = json!({"id":"attempt-2","generation":2,"brief_revision":1});
+        let event = |id: &str,
+                     child: Option<&str>,
+                     parent: Option<&str>,
+                     state: &str,
+                     minute: u8,
+                     binding: &Value| json!({"observation_id":id,"provider":"codex","child_id":child,"parent_session_id":parent,"state":state,"observed_at":format!("2026-10-12T20:{minute:02}:00Z"),"parent_attempt":binding,"recovery":"session-bound","artifact":null});
+        let past = json!({"id":"attempt-1","generation":1,"brief_revision":1});
+        let tasks = vec![
+            json!({"key":"home#task:worker","state":"runnable","attempt":attempt,"native_observations":[
+                event("start",Some("child-a"),None,"started",1,&attempt),
+                event("result",Some("child-a"),None,"result",3,&attempt),
+                event("nested",Some("child-b"),Some("child-a"),"started",2,&attempt),
+                event("opaque",None,None,"started",4,&attempt),
+                event("historical",Some("child-a"),None,"interrupted",0,&past),
+                event("unbound",Some("child-x"),None,"started",4,&json!(null))
+            ]}),
+        ];
+        let projection = native_children(&tasks);
+        let records = projection["records"].as_array().unwrap();
+        assert_eq!(records.len(), 3);
+        assert_eq!(projection["opaque"].as_array().unwrap().len(), 2);
+        let parent = records
+            .iter()
+            .find(|record| record["child_id"] == "child-a" && record["current_attempt"] == true)
+            .unwrap();
+        let nested = records
+            .iter()
+            .find(|record| record["child_id"] == "child-b")
+            .unwrap();
+        assert_eq!(parent["state"], "result");
+        assert_eq!(parent["activity"], "unknown");
+        assert_eq!(parent["managed"], false);
+        assert_eq!(nested["parent_native_key"], parent["key"]);
+        assert_eq!(
+            records
+                .iter()
+                .filter(|record| record["current_attempt"] == false)
+                .count(),
+            1
+        );
+        assert_eq!(tasks[0]["state"], "runnable");
     }
 
     #[test]
