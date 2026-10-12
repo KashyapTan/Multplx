@@ -1582,7 +1582,7 @@ fn portfolio(
                 "collected_at":task.pointer("/current_state/observed_at"),"observed_at":Value::Null,"age_seconds":Value::Null,
                 "detail":task.pointer("/current_state/detail"),"endpoint_exists":task.pointer("/endpoint/exists"),"agent_alive":task.pointer("/endpoint/agent_alive")
             },
-            "completion":{"kind":if current_delivery.is_some_and(|evidence|evidence["outcome"]=="human-merged"){"human-merged"}else if coordination.is_some_and(|row|row.pointer("/schedule/state")==Some(&json!("completed"))){"implementation-complete"}else if task.pointer("/current_state/state")==Some(&json!("done")){"worker-reported-done"}else{"unproven"},"parent_verified":false},
+            "completion":{"kind":if current_delivery.is_some_and(|evidence|evidence["outcome"]=="human-merged"){"human-merged"}else if coordination.is_some_and(|row|row.pointer("/schedule/state")==Some(&json!("completed"))){"implementation-complete"}else if task.pointer("/current_state/state")==Some(&json!("done")) && observation_source==Some("status-log"){"worker-reported-done"}else if task.pointer("/current_state/state")==Some(&json!("done")) && observation_source==Some("native-event"){"session-turn-ended"}else if task.pointer("/current_state/state")==Some(&json!("done")) && observation_source==Some("run-step"){"validation-complete"}else{"unproven"},"parent_verified":false},
             "parent_id":parent_id,"root_id":root_id,"children":children,"project":project,
             "state":coordination.and_then(|row|row.pointer("/schedule/state")).unwrap_or(&task["current_state"]["state"]),
             "priority":coordination.and_then(|row|row.pointer("/schedule/priority")).and_then(Value::as_i64).or_else(||backlog.and_then(|row|row["priority"].as_str()).and_then(|value|value.parse().ok())).unwrap_or(0),
@@ -3507,6 +3507,28 @@ mod tests {
                 .find(|task| task["id"] == "parent")
                 .unwrap()["completion"]["kind"],
             "worker-reported-done"
+        );
+        parent["current_state"]["source"] = json!("native-event");
+        let rows = project(&parent);
+        assert_eq!(
+            rows["tasks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|task| task["id"] == "parent")
+                .unwrap()["completion"]["kind"],
+            "session-turn-ended"
+        );
+        parent["current_state"]["source"] = json!("run-step");
+        let rows = project(&parent);
+        assert_eq!(
+            rows["tasks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|task| task["id"] == "parent")
+                .unwrap()["completion"]["kind"],
+            "validation-complete"
         );
         parent["coordination"]["delivery"] = json!({"current_commit":"a","history":[{"commit":"a","attempt_id":"attempt-1","attempt_generation":1,"brief_revision":1,"outcome":"human-merged"}]});
         let rows = project(&parent);

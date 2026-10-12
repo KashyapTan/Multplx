@@ -101,6 +101,8 @@ Unresolved or historical execution observations remain discoverable in a separat
 Tasks are grouped by stable project identity and ordered by numeric priority, while task, session and attempt counts remain distinct.
 Each assignment has one plain primary status; runtime observation quality, scheduling facts, worker availability and retained session evidence appear in details.
 A worker done report establishes a reported outcome, and the canonical completed schedule establishes implementation completion; neither proves that the parent validated and delivered its complete job.
+A provider turn ending and a local validation run finishing remain separate `session-turn-ended` and `validation-complete` observations.
+Neither supplies a worker delivery report or parent verification.
 A standing worker can remain available after its assignment finishes.
 The task projection preserves `observation` and `completion` separately from schedule state and snapshot collection freshness.
 `observation.collected_at` is the collector time, while an unrecorded underlying event time and age stay null.
