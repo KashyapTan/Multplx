@@ -577,6 +577,21 @@ fn collect_cached_artifacts(
                 );
             }
         }
+        for (index, observation) in task["native_observations"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            if let Some(path) = observation["artifact"].as_str() {
+                add(
+                    &allowed_roots,
+                    path,
+                    format!("{id}/native-observation-{}", index + 1),
+                    "native-artifact",
+                );
+            }
+        }
         let report = task.pointer("/evidence/report");
         let report_path = report.and_then(Value::as_str).or_else(|| {
             report
@@ -1744,6 +1759,7 @@ mod tests {
         let child_report = child.join("data/task/report.md");
         let nested_report = nested.join("data/task/report.md");
         let cross_report = child.join("data/task/cross.md");
+        let native_artifact = home.join("data/task/native-result.md");
         let outside = temp.path().join("outside.md");
         for path in [
             &brief,
@@ -1752,6 +1768,7 @@ mod tests {
             &nested_report,
             &cross_report,
             &outside,
+            &native_artifact,
         ] {
             fs::write(path, path.display().to_string()).expect("artifact");
         }
@@ -1759,7 +1776,7 @@ mod tests {
             "roots":{"data":home.join("data")},
             "tasks":[],"scout_reports":[],
             "portfolio":{"tasks":[
-                {"id":"task","owner":{"home":home},"brief":{"path":brief,"research":[outside]},"evidence":{"report":{"path":report}}},
+                {"id":"task","owner":{"home":home},"native_observations":[{"artifact":native_artifact},{"artifact":outside},{"artifact":cross_report}],"brief":{"path":brief,"research":[outside]},"evidence":{"report":{"path":report}}},
                 {"id":"child","owner":{"home":child},"brief":{"path":Value::Null,"research":[]},"evidence":{"report":{"path":child_report}}},
                 {"id":"cross-owner","owner":{"home":home},"brief":{"path":Value::Null,"research":[]},"evidence":{"report":{"path":cross_report}}}
             ]},
@@ -1774,8 +1791,14 @@ mod tests {
             &home.join("state"),
             &snapshot,
         );
-        assert_eq!(entries.len(), 4);
-        assert_eq!(references.len(), 4);
+        assert_eq!(entries.len(), 5);
+        assert_eq!(references.len(), 5);
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry["source_path"] == json!(native_artifact)
+                    && entry["kind"] == "native-artifact")
+        );
         assert!(entries.iter().all(|entry| entry["root"] == "ref"));
         assert!(entries.iter().all(|entry| {
             entry["url"]

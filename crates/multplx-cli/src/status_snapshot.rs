@@ -26,6 +26,27 @@ fn current_standing_assignment(task: &Value) -> bool {
         )
 }
 
+fn canonical_questions(root: &Value) -> Vec<Value> {
+    let mut seen = BTreeSet::new();
+    let mut questions = Vec::new();
+    for task in array(root.pointer("/portfolio/tasks")) {
+        for decision in array(task.get("decisions")) {
+            if decision["answer"].is_null()
+                && decision["question"]
+                    .as_str()
+                    .is_some_and(|question| !question.trim().is_empty())
+            {
+                let task_key = nonnull_str(task.get("key"));
+                let decision_id = nonnull_str(decision.get("id"));
+                if seen.insert((task_key.clone(), decision_id.clone())) {
+                    questions.push(json!({"id":task["id"],"task_key":task_key,"key":decision_id,"verb":"needs-decision","question":decision["question"],"summary":truncate(&nonnull_str(decision.get("question")),90),"owner":task.pointer("/owner/home"),"brief_revision":decision["brief_revision"],"waiting_since":decision["waiting_since"],"answer_via":"Reply in main orchestrator chat; the parent records the answer through this task's owning decision channel"}));
+                }
+            }
+        }
+    }
+    questions
+}
+
 pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, String, String) {
     let mut json_output = false;
     let mut include_prs = false;
@@ -197,6 +218,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
             }
         }
     }
+    decisions.extend(canonical_questions(&root));
     let mut gates = Vec::new();
     if root
         .pointer("/main_inventory/valid")
@@ -364,7 +386,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
             "native_children":portfolio["native_children"],
             "tasks":portfolio["tasks"].as_array().map(|tasks| tasks.iter().map(|task| json!({
                 "key":task["key"],"id":task["id"],"title":task["title"],"state":task["state"],
-                "observation":task["observation"],"completion":task["completion"],
+                "observation":task["observation"],"completion":task["completion"],"waiting_condition":task["waiting_condition"],
                 "project":task.pointer("/project/id"),"role":task["role"],"attempt":task["attempt"],
                 "workflow":{"id":task.pointer("/workflow/id"),"current_stage":task.pointer("/workflow/current_stage")},
                 "dependencies":task["dependencies"],"decisions":task["decisions"],
@@ -922,6 +944,24 @@ fn usage() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn canonical_questions_survive_finished_or_unavailable_sessions_until_answered() {
+        let mut root = json!({"portfolio":{"tasks":[{"key":"home#task:worker","id":"worker","state":"completed","owner":{"home":"home"},"observation":{"quality":"unknown"},"decisions":[{"id":"choice","question":"Use cached or live data?","answer":null,"brief_revision":2}]}]}});
+        let questions = canonical_questions(&root);
+        assert_eq!(questions.len(), 1);
+        assert_eq!(questions[0]["question"], "Use cached or live data?");
+        assert_eq!(questions[0]["task_key"], "home#task:worker");
+        assert_eq!(questions[0]["brief_revision"], 2);
+        assert!(
+            questions[0]["answer_via"]
+                .as_str()
+                .unwrap()
+                .contains("parent records")
+        );
+        root["portfolio"]["tasks"][0]["decisions"][0]["answer"] = json!({"text":"cached"});
+        assert!(canonical_questions(&root).is_empty());
+    }
+
     #[test]
     fn standing_workers_own_assignment_activity_is_not_their_child_home_queue() {
         let mut task = json!({"kind":"daemon","coordination":{"role":"implementer","schedule":{"state":"runnable"}},"current_state":{"state":"working","source":"native-event"}});

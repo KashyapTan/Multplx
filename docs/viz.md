@@ -105,6 +105,7 @@ A provider turn ending and a local validation run finishing remain separate `ses
 Neither supplies a worker delivery report or parent verification.
 A standing worker can remain available after its assignment finishes.
 The catchup projection reports a standing worker’s currently observed own assignment separately from its private home’s child-work queue, so an empty child queue does not erase an active worker.
+Its `decisions_open` list retains canonical unanswered portfolio questions, their qualified task identity and parent answer route independently of runtime activity or implementation completion.
 The task projection preserves `observation` and `completion` separately from schedule state and snapshot collection freshness.
 `observation.collected_at` is the collector time, while an unrecorded underlying event time and age stay null.
 Historical status and run-step observations do not become proof of a currently working model.
@@ -213,7 +214,8 @@ There are no spawn, nudge, stop, approve, drain, or other mutation endpoints.
 The only filesystem mutation is the dashboard's private lifecycle record under `state/.viz/`.
 
 Artifact browsing is limited to regular files whose canonical paths remain inside the repository's `data/` or `docs/` directory, the configured home's `data/` or `state/brief-revisions/` directory, or those same directories in a currently validated direct or nested coordinator home.
-Portfolio brief, research and report pointers receive opaque, exact-file browser routes only when the task's owning home and canonical file pass those containment checks.
+Portfolio brief, research, report and native provider artifact pointers receive opaque, exact-file browser routes only when the task's owning home and canonical file pass those containment checks.
+An external provider transcript path remains visible as its original pointer and receives no browser route when it falls outside the owned allowlist.
 The response envelope preserves each artifact's original snapshot `source_path` and supplies its opaque `url` so the client can enrich the matching canonical pointer without changing the shared projection; the server retains the validated canonical path internally.
 Nested homes receive routes only when the canonical projection publishes `coordinator.validated_home` or a verified `descendants.records[].validated_home`; invalid, unknown and external owner paths remain visible as snapshot pointers and never become file-serving routes.
 Traversal segments, malformed escapes, absolute-path attempts, missing files, and symlinks that escape an allowed root are refused.
