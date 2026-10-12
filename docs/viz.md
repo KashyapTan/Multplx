@@ -118,16 +118,19 @@ Focus, expanded rows and filter values survive meaningful snapshot updates.
 Up and Down move between task summaries, Enter or Space expands the focused task, `/` focuses search, and Escape clears an active search.
 Narrow layouts collapse detail and side panels to one column without hiding role or freshness labels.
 Loading, empty, unavailable, partial, stale and refresh-error states are shown explicitly.
+A failed refresh remains reported while a retry is in flight; only a successful refresh clears its error.
 Decision and delivery items link to their task without exposing approve, defer, merge or write actions.
 Task labels prefer the backlog title, then the task or charter section of the accepted brief; the complete scope remains available through the brief evidence.
 Human Attention contains explicit unanswered questions and published PRs that the canonical review queue records as ready with an actual HTTP(S) PR URL.
 Question cards display the actual unanswered question and “Answer question in main orchestrator chat”; PR cards display the verified PR title and actual PR link with “Review linked PR”.
-Unanswered questions stay visible even when implementation completion or a merged PR moves the assignment into history.
+A current unanswered canonical question keeps its assignment active even when implementation is complete or its PR is merged.
 Questions bound to superseded accepted brief revisions remain labeled superseded in task details and do not request an answer for the current assignment.
-Missing checks, blocking dependencies, review findings and unrecorded reviews stay in task details unless they carry an explicit human question.
+Missing checks, blocking dependencies and review findings appear as task status labels.
+Only a current canonical question or a verified ready PR advertises a human action.
 Attention cards bound title and question previews to readable lines and retain the complete original text in a keyboard-accessible disclosure with a bounded scroll region.
 Open attention disclosures, keyboard focus and scroll position survive snapshot updates by qualified task and decision identity.
-The client extracts a useful task or charter label from historical multiline or flattened briefs and falls back to the task ID when only instruction text is available.
+The client extracts a useful task or charter label from historical multiline or flattened briefs and uses a readable identity when only instruction text is available.
+Full assignment descriptions remain available in a bounded disclosure.
 Original task text remains accessible in task details even when the task has no human action.
 Untrusted titles, questions and details remain literal text.
 Displayed timestamps use the browser's local time zone, a 12-hour clock, and omit the year.

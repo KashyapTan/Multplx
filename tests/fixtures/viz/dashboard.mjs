@@ -15,7 +15,7 @@ export function dashboardFixture() {
     task("old-parent", "Completed feature coordinator", "completed", { role: "sub-orchestrator", children: [`${home}#task:active-child`] }),
     task("active-child", "Repair the current schedule", "running", { parent_id: `${home}#task:old-parent`, owner: { home, parent_id: `${home}#task:old-parent` } }),
     task("finished", "Delivered startup command", "completed", { sessions: [{ session_id: "retained-1", current: false }, { session_id: "retained-2", current: false }], evidence: review("https://example.invalid/pull/2") }),
-    task("question", "Choose rollout scope", "completed", { decisions: [{ id: "scope", question: "Should archived projects be included?" }], evidence: review("https://example.invalid/pull/3") }),
+    task("question", "Choose rollout scope", "completed", { brief: { revision: 1 }, decisions: [{ id: "scope", source: "coordination", brief_revision: 1, question: "Should archived projects be included?" }], evidence: review("https://example.invalid/pull/3") }),
     task("uncertain", "Earlier attempt needs observation", "runnable", { freshness: { status: "unknown" }, observation: { state: "unknown", quality: "unknown" } }),
     task("reported", "Validate player comparisons", "done", { completion: { kind: "worker-reported-done", parent_verified: false } }),
     task("mismatch", "Implement team box scores", "running", { observation: { state: "idle", quality: "current", agent_alive: false } }),

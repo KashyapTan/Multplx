@@ -239,6 +239,16 @@
       node.parentKey = parent.key;
     }
 
+    for (const node of nodes.filter((candidate) => candidate.kind === "native")) {
+      if (node.native.parent_native_key) {
+        const parent = byKey.get(node.native.parent_native_key);
+        if (parent?.kind !== "native" || parent.native.parent_task_key !== node.native.parent_task_key) {
+          node.parentKey = null;
+          node.unresolved = "recorded native parent is unavailable or conflicts with owner assignment";
+        }
+      }
+    }
+
     const visiting = new Map();
     const visited = new Set();
     const cycleKeys = new Set();

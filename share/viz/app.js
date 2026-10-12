@@ -138,7 +138,7 @@ function primaryTaskStatus(task) {
     if (observed === "blocked") return "Blocked";
   }
   if (task.completion?.kind === "implementation-complete") return "Implementation complete";
-  const labels = { done: "Completed", complete: "Completed", completed: "Completed", running: "In progress", working: "In progress", runnable: "Ready to start", "queued-request": "Queued", "accepted-request": "Accepted", "waiting-external": "Waiting", unknown: "Status unknown" };
+  const labels = { done: "Completed", complete: "Completed", completed: "Completed", running: "In progress", working: "In progress", runnable: "Ready to start", "queued-request": "Queued", "accepted-request": "Accepted", "waiting-external": "Waiting", "waiting-human": "Waiting for answer", "waiting-dependency": "Waiting for dependency", unknown: "Status unknown" };
   return labels[stateName(task)] || titleCase(stateName(task));
 }
 
@@ -486,9 +486,14 @@ function taskDetails(task) {
   const body = el("div", "task-details");
   const overview = detailSection("Assignment");
   overview.append(factGrid([["Task status", primaryTaskStatus(task)], ["Recorded state", stateName(task)],
-    ["Observation", task.observation?.quality || task.freshness?.status || "unknown"], ["Observed activity", task.observation?.state], ["Agent availability", [true, "alive"].includes(task.observation?.agent_alive) ? "Process observed" : [false, "dead", "missing"].includes(task.observation?.agent_alive) ? "No process observed" : "Unknown"], ["Completion evidence", task.completion?.kind], ["Role", titleCase(taskRole(task))]]));
+    ["Observation", task.observation?.quality || task.freshness?.status || "unknown"], ["Observed activity", task.observation?.state], ["Agent availability", [true, "alive"].includes(task.observation?.agent_alive) ? "Process observed" : [false, "dead", "missing"].includes(task.observation?.agent_alive) ? "No process observed" : "Unknown"], ["Completion evidence", task.completion?.kind], ["Waiting for", task.waiting_condition], ["Role", titleCase(taskRole(task))]]));
   const description = task.description || task.summary || task.brief?.scope;
   if (description) overview.append(el("p", "task-description", description));
+  if (task.brief?.scope && task.brief.scope !== description) {
+    const scope = el("details", "attention-details");
+    scope.append(el("summary", "", "Full assignment description"), el("div", "attention-detail-body", task.brief.scope));
+    overview.append(scope);
+  }
   body.append(overview);
   const technical = el("details", "technical-details");
   technical.append(el("summary", "", "Execution, sessions and technical details"));

@@ -50,11 +50,27 @@ node tests/viz-dashboard-browser-check.mjs
 
 The ordinary `tests/mx-viz.test.sh` gate runs the real client selectors, attention renderer and graph normalization tests without an installed browser.
 The additional graph fixture verifies two levels of registered standing-worker homes and rejects an unvalidated parent route.
-The selector fixture verifies that an old merged head cannot complete a newer delivery revision.
+The selector fixture verifies that an old merged head or stale forge result cannot complete a newer delivery revision.
+Canonical question authority requires the accepted brief revision; superseded and parent-status-only questions remain historical.
+Provider turn end and completed validation remain separate from worker delivery reports.
 The existing `tests/viz-browser-check.mjs` remains the service-backed scale, polling and artifact acceptance runner.
+
+`tests/viz-dashboard-service-browser-check.mjs` additionally creates an owned canonical fixture home and standing worker child, invokes the actual release Rust service and system-snapshot collector, and uses a temporary read-only forge command fixture.
+It verifies the emitted observation and completion schema, actual merged-PR history, current canonical questions, retained worker reports, exact descendant lineage and two observed native child sessions on desktop and mobile.
+The native graph distinguishes observed sessions from assignments and marks activity unknown; retained and opaque session evidence does not create extra accepted tasks.
+The service-backed scale runner also verifies that repeated failed refreshes remain visible through retry-start responses, including conditional `304` responses.
+A service unit regression proves that only a successful refresh clears the retained error.
 
 ## Validation boundary
 
 The evidence above proves fixture-based browser behavior, not a live private portfolio or provider session.
 Programmatic forge state and nested-home reading are separately covered by the backend's deterministic domain and service tests.
 No private runtime migration, installation refresh, operational task mutation or PR merge is included in this repair.
+
+## Preliminary failures retained
+
+A preliminary focused Viz run returned HTTP 503 while loading its synthetic nested-home fixture during concurrent compilation.
+The error body was not retained, so its cause remains unproven; an unchanged traced rerun and the later combined focused run passed with the original two-second fixture command budget.
+A separate repeatable browser failure exposed a service defect: a retry-start response discarded the previous refresh error while serving the last good snapshot.
+The repair preserves that error through the in-flight retry instead of weakening the browser failure-banner assertion.
+Final broad gates run in a coordinated host window to avoid interpreting contention between independent full suites and coverage runs as a product timing diagnosis.
