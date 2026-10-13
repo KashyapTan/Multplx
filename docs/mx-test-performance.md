@@ -162,3 +162,9 @@ Its resource manifest SHA-256 is `02854fc2822f06e8fd1193f8fdcda2f96a1e2b62012f08
 
 CI evidence cannot be manufactured locally.
 The three-main-branch-run critical-path target is evaluated after merge from uploaded timing artifacts.
+
+The 2026-10-13 Codex wake fix exposed stale weights in the macOS production-boundary lane: `mx-release-package.test.sh` had no explicit estimate and defaulted to 1,000 ms, while the two deep-review scripts retained estimates of 626 and 7,441 ms.
+Passing script timings in [CI run 38416704499](https://github.com/KashyapTan/Multplx/actions/runs/38416704499) measured 161,936, 89,741 and 77,605 ms respectively, even though the overall macOS job reached its unchanged 15-minute deadline.
+Those three scheduler weights are calibrated to the measured costs so the existing resource-aware scheduler can start slow work earlier.
+Sequential same-host 54-script family runs measured 209,384 ms before calibration and 183,569 ms afterward, with exact parity across 497 assertions and the same one existing gate skip.
+Archived serial measurements, test selection, assertions, resource conflicts, timeouts, gate skips and coverage thresholds remain unchanged; this calibration does not establish a new three-run performance baseline.

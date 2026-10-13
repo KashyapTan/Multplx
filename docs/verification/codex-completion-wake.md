@@ -42,3 +42,9 @@ The disposable lab's `verified/evidence` directory retains both complete JSONL r
 The final primary is `01a135ae-1cc8-7702-9e0d-3fe6ec23c329`, and the worker is `01a135af-a9a6-7922-b640-2274f2a976f2`.
 The canonical provider-session receipt identifies the worker UUID; the task runtime's separate `session_id` remains null, so this evidence does not establish native resume support.
 The earlier trial that invoked a global runtime through reordered shell `PATH`, and the later queued-start failure, remain separately retained as diagnostic evidence.
+
+The first final-head coverage run stopped in an existing installed-runtime fixture with Linux `ExecutableFileBusy` before producing a coverage percentage.
+The fixture copied its executable inside the parallel test process; a sibling fork retaining the writable descriptor is a plausible cause consistent with the [Linux execve error contract](https://man7.org/linux/man-pages/man2/execve.2.html), but that runner's descriptor state was not captured.
+The fixture now copies in a separate waited child process and preserves the executable mode, removing the parent writer-inheritance window without retries or time-limit changes.
+A controlled inherited-writer probe on the Darwin host did not reproduce Linux's error and is retained with that limitation.
+The focused ten-test runtime suite passes; CI still owns the Linux instrumented validation and the unchanged 93% line-coverage gate.
