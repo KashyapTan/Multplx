@@ -338,6 +338,68 @@ fn herdr_repository_launch_preserves_real_allocation_and_nested_owner_routes() {
     let child_live = live(&private);
     assert!(child_live.contains(&field(&nested_text, "herdr_task_label=")));
     assert!(!child_live.contains(&field(&first, "herdr_task_label=")));
+
+    // Automatic cleanup cannot erase a human's restored active shell. Only
+    // canonical explicit teardown may close its own active endpoint, and must
+    // preserve every sibling and private-home endpoint in the shared workspace.
+    let tab = field(&first, "herdr_tab_id=");
+    let pane = field(&first, "herdr_pane_id=");
+    let mut active = inventory.clone();
+    for space in active["workspaces"].as_array_mut().unwrap() {
+        space["focused"] = (space["workspace_id"] == workspace).into();
+        if space["workspace_id"] == workspace {
+            space["active_tab_id"] = tab.clone().into();
+        }
+    }
+    for item in active["tabs"].as_array_mut().unwrap() {
+        item["focused"] = (item["tab_id"] == tab).into();
+    }
+    fs::write(&state, serde_json::to_vec(&active).unwrap()).unwrap();
+    let cli = |args: &[&str]| {
+        let base = command("task", &f.project, &[]);
+        let mut cli = Command::new(base.get_program());
+        cli.current_dir(&f.home);
+        for (name, value) in base.get_envs() {
+            if let Some(value) = value {
+                cli.env(name, value);
+            } else {
+                cli.env_remove(name);
+            }
+        }
+        cli.args(args);
+        cli
+    };
+    success(&mut cli(&["herdr", "kill", &field(&first, "window=")]));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&fs::read(&state).unwrap()).unwrap(),
+        active
+    );
+    assert!(f.home.join("state/task.meta").exists());
+    success(&mut cli(&["teardown", "task"]));
+    assert!(!f.home.join("state/task.meta").exists());
+    let after: serde_json::Value = serde_json::from_slice(&fs::read(&state).unwrap()).unwrap();
+    assert_eq!(after["workspaces"], active["workspaces"]);
+    assert_eq!(after["panes"].as_array().unwrap().len(), 3);
+    assert!(
+        !after["panes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["pane_id"] == pane)
+    );
+    for retained in [
+        "human:p".to_owned(),
+        field(&parent_text, "herdr_pane_id="),
+        field(&nested_text, "herdr_pane_id="),
+    ] {
+        assert!(
+            after["panes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["pane_id"] == retained)
+        );
+    }
 }
 
 fn evidence_request(record: &TaskRecord, commit: &str, evidence_id: &str) -> serde_json::Value {
