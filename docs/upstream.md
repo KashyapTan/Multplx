@@ -160,3 +160,10 @@ The authorized public Firstmate review used commit `e31bc6e620ca532c2e0e0b72f3fd
 Its [Cursor stop hook](https://github.com/kunchenguid/firstmate/blob/e31bc6e620ca532c2e0e0b72f3fd7c0869a12270/bin/fm-turnend-guard-cursor.sh) and [Cursor protocol](https://github.com/kunchenguid/firstmate/blob/e31bc6e620ca532c2e0e0b72f3fd7c0869a12270/docs/supervision-protocols/cursor.md) supplied the native stop-park comparison.
 The review read public documentation before code in a temporary public checkout; the local reference directory was not inspected.
 [The audit finding](verification/postmerge-audit-issues.md#aud-009-cursor-model-owned-wait-loop) records the scoped Multplx repair and validation.
+
+## Codex continuity comparison
+
+The requested upstream Firstmate comparison used public commit `6407052f4c521e39401ce2305dfa45d201249827`, without loading the private local `firstmate/` directory.
+Its [watcher loop](https://github.com/kunchenguid/firstmate/blob/6407052f4c521e39401ce2305dfa45d201249827/bin/fm-watch.sh#L2681-L2717) remains armed until home teardown or singleton supersession, and [publishes a durable wake before advancing its seen marker](https://github.com/kunchenguid/firstmate/blob/6407052f4c521e39401ce2305dfa45d201249827/bin/fm-watch.sh#L2983-L3005).
+Those continuity and durable-publication principles support retaining the small existing exact-session bridge through the publication gap.
+Its [Codex protocol](https://github.com/kunchenguid/firstmate/blob/6407052f4c521e39401ce2305dfa45d201249827/docs/supervision-protocols/codex.md#L1-L16) uses foreground checkpoints, so it does not supply a proven Codex background queue transport to transplant.

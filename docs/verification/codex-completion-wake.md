@@ -17,7 +17,4 @@ The fix retains the already activated exact-session bridge while no work exists,
 The bridge remains bound to the same process lifetime, thread, and Codex home, and retires on verified ownership loss, away mode, or explicit session end.
 It sends no model input for an idle home and does not change completion evidence, task closure, wake disposition, acknowledgement, or uncertain delivery rules.
 
-The requested upstream Firstmate comparison used public commit `6407052f4c521e39401ce2305dfa45d201249827`, without loading the private local `firstmate/` directory.
-Its [watcher loop](https://github.com/kunchenguid/firstmate/blob/6407052f4c521e39401ce2305dfa45d201249827/bin/fm-watch.sh#L2681-L2717) remains armed until home teardown or singleton supersession, and [publishes a durable wake before advancing its seen marker](https://github.com/kunchenguid/firstmate/blob/6407052f4c521e39401ce2305dfa45d201249827/bin/fm-watch.sh#L2983-L3005).
-Those continuity and durable-publication principles support retaining the small existing exact-session bridge through the publication gap.
-Its [Codex protocol](https://github.com/kunchenguid/firstmate/blob/6407052f4c521e39401ce2305dfa45d201249827/docs/supervision-protocols/codex.md#L1-L16) uses foreground checkpoints, so it does not supply a proven Codex background queue transport to transplant.
+The public upstream continuity comparison is recorded in [upstream provenance](../upstream.md#codex-continuity-comparison).
