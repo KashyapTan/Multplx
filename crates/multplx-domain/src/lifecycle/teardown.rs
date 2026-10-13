@@ -1445,6 +1445,15 @@ fn upgrade_reconciliation_name(task: &str, endpoint: &str) -> String {
     format!(".upgrade-reconcile.{task}.{}.json", &key[..16])
 }
 
+fn same_upgrade_attempt(
+    current: &super::subagent_model::Attempt,
+    historical: &super::subagent_model::Attempt,
+) -> bool {
+    current.id == historical.id
+        && current.generation == historical.generation
+        && current.brief_revision >= historical.brief_revision
+}
+
 /// Historical receipts stay intact. A typed, revision-bound reconciliation
 /// proves why the old execution must never be probed or stopped again.
 pub fn inspect_reconciled_upgrade_launch(
@@ -1497,9 +1506,15 @@ pub fn inspect_reconciled_upgrade_launch(
     if current.owner_home != original.owner_home
         || current.owner_state != original.owner_state
         || current.root_id != original.root_id
-        || !(current.attempt.as_ref() == Some(&receipt.attempt)
+        || !(current
+            .attempt
+            .as_ref()
+            .is_some_and(|attempt| same_upgrade_attempt(attempt, &receipt.attempt))
             && current.runtime.endpoint.is_none()
-            || current.prior_attempts.contains(&receipt.attempt))
+            || current
+                .prior_attempts
+                .iter()
+                .any(|attempt| same_upgrade_attempt(attempt, &receipt.attempt)))
     {
         return Err("reconciled task changed its exact execution ownership; retained".into());
     }
@@ -4580,6 +4595,34 @@ esac
                 .count(),
             1
         );
+        // Explicit scope revision and later replacement do not make this
+        // original exact receipt current again or invalidate historical proof.
+        let mut later = actual.clone();
+        later
+            .revise_assignment(
+                1,
+                later.role,
+                "explicit later scope".into(),
+                vec![],
+                vec![],
+                "human follow-up".into(),
+            )
+            .unwrap();
+        fs::write(
+            state.join("unfinished.meta"),
+            write_meta(&updated, &later).unwrap(),
+        )
+        .unwrap();
+        assert!(super::inspect_reconciled_upgrade_launch(&state, &action, &action_bytes).unwrap());
+        later
+            .replace_attempt(&later.attempt.as_ref().unwrap().id.clone(), true)
+            .unwrap();
+        fs::write(
+            state.join("unfinished.meta"),
+            write_meta(&updated, &later).unwrap(),
+        )
+        .unwrap();
+        assert!(super::inspect_reconciled_upgrade_launch(&state, &action, &action_bytes).unwrap());
     }
 
     #[test]
