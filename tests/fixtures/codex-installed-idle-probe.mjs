@@ -8,7 +8,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import readline from 'node:readline';
 const [mx, repo, exporter] = process.argv.slice(2);
 assert([mx,repo,exporter].every(path => path?.startsWith('/')));
-const lab = fs.mkdtempSync('/tmp/mx-codex-installed-idle.');
+const lab = fs.realpathSync(fs.mkdtempSync('/tmp/mx-codex-installed-idle-工具 space.'));
 console.log(`fixture ${lab}`);
 const pkg = `${lab}/runtime`, home = `${lab}/operational`, provider = `${lab}/provider`, state = `${home}/state`, config = `${lab}/config`;
 for (const path of [pkg,home,provider,state,config,`${pkg}/target/release`,`${home}/data`,`${home}/config`,`${home}/projects`]) fs.mkdirSync(path,{recursive:true});

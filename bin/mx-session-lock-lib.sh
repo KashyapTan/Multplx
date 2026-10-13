@@ -9,7 +9,7 @@
 # This file is sourced by scripts and has no side effects on source.
 
 # Known harness command names; extend when a new adapter is verified.
-MX_HARNESS_RE='claude|codex|cursor-agent|^pi$'
+MX_HARNESS_RE='^(claude|codex|codex-cli|cursor-agent|pi)(\.(js|py))?$'
 
 # Match a command or an interpreter's script basename, not directory names
 # or arbitrary tool payloads. Keep this sourced ABI aligned with the Rust owner.

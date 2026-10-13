@@ -36,8 +36,7 @@ fn mx(home: &Path) -> Command {
 }
 
 fn owned_mx(home: &Path) -> Command {
-    let fixture =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/codex-wake-owner.py");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/codex.py");
     let mut command = Command::new("python3");
     command
         .arg(fixture)
@@ -49,8 +48,7 @@ fn owned_mx(home: &Path) -> Command {
 }
 
 fn owned_command(home: &Path, program: &Path) -> Command {
-    let fixture =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/codex-wake-owner.py");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/codex.py");
     let mut command = Command::new("python3");
     command
         .arg(fixture)

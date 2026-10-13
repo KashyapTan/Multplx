@@ -159,8 +159,7 @@ fn complete_requests(home: &Path, requests: &[(&str, &Path)]) {
     }
     fs::write(&script, text).unwrap();
     fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
-    let owner =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/codex-wake-owner.py");
+    let owner = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/codex.py");
     success(
         Command::new("python3")
             .arg(owner)

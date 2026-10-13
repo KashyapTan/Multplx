@@ -1129,7 +1129,7 @@ EOF
   # Codex-named fixture owner; both subprocesses must resolve the same owner.
   out=$(env -u CLAUDECODE -u PI_CODING_AGENT BASH_ENV="$mask" \
     MX_HOME="$home" MX_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
-    python3 "$ROOT/tests/fixtures/codex-wake-owner.py" "$home/state" retain \
+    python3 "$ROOT/tests/fixtures/codex.py" "$home/state" retain \
     "$SESSION_START")
 
   # mx-lock.sh's own exact success text.

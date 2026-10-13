@@ -19,7 +19,8 @@ const MAX_ANCESTRY_HOPS: usize = 8;
 
 /// Current verified harness command-name matcher.
 pub fn harness_regex() -> Regex {
-    Regex::new(r"claude|codex|cursor-agent|^pi$").expect("static harness regex")
+    Regex::new(r"^(claude|codex|codex-cli|cursor-agent|pi)(\.(js|py))?$")
+        .expect("static harness regex")
 }
 
 /// Match the executable or an interpreter's executed script, never argument
@@ -419,6 +420,13 @@ mod tests {
         };
         for (command, args) in [
             ("/usr/bin/sleep", "codex 30"),
+            ("/tmp/notcodex", "notcodex"),
+            ("/tmp/codex-helper", "codex-helper"),
+            ("/usr/bin/python3", "python3 /tmp/notcodex.py"),
+            ("/usr/bin/python3", "python3 /tmp/codex-helper.py"),
+            ("/usr/bin/node", "node /tmp/notcodex.js"),
+            ("/usr/bin/node", "node /tmp/codex-helper.js"),
+            ("/usr/bin/python3", "python3 /tmp/path with space/codex.py"),
             ("/usr/bin/python3", "python3 /tmp/mx-codex-proof/handle.py"),
             ("/usr/bin/python3", "python3 /tmp/handle.py codex"),
             ("/usr/bin/python3", "python3 -c codex"),
@@ -443,6 +451,7 @@ mod tests {
         }
         for (command, args) in [
             ("/bin/codex", "codex app-server"),
+            ("/tmp/工具 space/codex", "/tmp/工具 space/codex app-server"),
             ("/bin/bash", "bash /tmp/codex --config arbitrary-payload"),
             ("/bin/zsh", "zsh /tmp/codex-cli"),
             ("/bin/sh", "sh /tmp/claude"),
@@ -460,7 +469,7 @@ mod tests {
                 "/usr/bin/node",
                 "node /usr/lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js",
             ),
-            ("/usr/bin/python3", "python3 -u /tmp/codex_fixture.py"),
+            ("/usr/bin/python3", "python3 -u /tmp/工具/codex.py"),
             ("/usr/bin/node", "node cursor-agent"),
             (
                 "/Library/Frameworks/Python.framework/Python",
@@ -472,6 +481,17 @@ mod tests {
                 "{args}"
             );
             assert!(sourced_match(command, args), "sourced ABI: {args}");
+        }
+        let codex_only = regex::Regex::new(r"^(codex|codex-cli|codex\.js|codex\.py)$").unwrap();
+        for (command, args) in [
+            ("claude", "claude"),
+            ("node", "node /tmp/claude.js"),
+            ("sh", "sh /tmp/claude"),
+        ] {
+            assert!(
+                !super::harness_command_matches(command, args, &codex_only),
+                "{args}"
+            );
         }
     }
 
