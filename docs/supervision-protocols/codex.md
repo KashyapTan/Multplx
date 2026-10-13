@@ -22,7 +22,9 @@ When this session owns supervision and away mode is not active:
    The bridge owns subsequent watcher cycles; never start a foreground checkpoint or manual arm after an ordinary wake.
 4. Human input remains available while generation is idle.
    A notification accepted while the thread is busy is handled after its current turn.
-5. Away mode, lost session-lock identity, or no remaining supervision need stops the bridge and its tracked watcher.
+5. Away mode, lost session-lock identity, or explicit session end stops the bridge and its tracked watcher.
+   With no remaining supervision need, the watcher stops and the session-owned bridge parks until canonical work arrives.
+   Accepted dispatch-queue entries keep supervision needed even before task metadata exists, so the watcher can admit queued workers.
    A queue transport receipt is separate from disposition or acknowledgement, so pending work stays durable until handled.
 6. On a failure warning, inspect `state/.codex-idle-failure` and any uncertain submission before recovery.
    `bin/mx-codex-idle.sh --retry` requires the same live lock-owning session and its exact `CODEX_THREAD_ID`; use the recorded thread binding, never a guessed ID.

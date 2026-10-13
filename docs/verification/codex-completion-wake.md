@@ -29,3 +29,16 @@ A bounded private watcher health record publishes one durable failure incident u
 Interrupted observations do not establish repair.
 The native runtime regression uses the actual queue owner to accept the request and drain it from an owned background watcher after a capacity marker changes, with a fixture spawn endpoint and transport.
 It fails with the prior supervision predicate and passes with queued-work supervision, proving startup before any task metadata and once-only dispatch and wake delivery.
+
+The final authenticated native CLI 0.162.1 run tested implementation commit `86ac1e58d5874b0cdedf3caf878c7fa0b4bbb9a0` through an isolated canonical package install.
+Both primary and worker used `gpt-6-luna` with medium reasoning effort and the same isolated `CODEX_HOME`.
+The fresh primary retained the previously accepted queued attempt, ended its initial turn, and let its Stop-owned watcher admit exactly one standing worker without manual admission, wake injection, foreground checkpoints, or model polling.
+The primary handled and acknowledged the genuine progress wake, ended that turn, then automatically handled and acknowledged the completion wake 31.832 seconds after the background observer saw completion.
+Each of the two wake sequences has one durable handled disposition and acknowledgement, and the task has one attempt with no prior attempts.
+The worker's original command-completion event records one `time.sleep(120)` lasting 120.003134792 seconds; its report records a longer 134.121445458-second span because the model reconstructed its end timestamp after the original command completed.
+The original report and full event stream remain retained rather than being rewritten to hide that distinction.
+
+The disposable lab's `verified/evidence` directory retains both complete JSONL rollouts and readable message/tool timelines, the final native-ready receipt, accepted dispatch request, generated worker launch, canonical task and wake snapshots, original sleep output, and bounded background observer results.
+The final primary is `01a135ae-1cc8-7702-9e0d-3fe6ec23c329`, and the worker is `01a135af-a9a6-7922-b640-2274f2a976f2`.
+The canonical provider-session receipt identifies the worker UUID; the task runtime's separate `session_id` remains null, so this evidence does not establish native resume support.
+The earlier trial that invoked a global runtime through reordered shell `PATH`, and the later queued-start failure, remain separately retained as diagnostic evidence.
