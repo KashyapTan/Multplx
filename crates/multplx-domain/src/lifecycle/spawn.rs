@@ -1624,7 +1624,8 @@ pub fn reserve_action(
 }
 
 /// Read-only proof for an unsubmitted replacement reservation. This recognizes
-/// only a single successor of the exact still-current Running action; the
+/// only a single successor of the exact still-current Running action, optionally
+/// with its matching preallocation Reserved receipt; the
 /// caller must hold its lifecycle lock and freshly prove endpoint absence.
 /// No reservation, receipt, attempt or completion state is changed.
 pub fn inspect_unsubmitted_replacement_intent(
@@ -1668,6 +1669,18 @@ pub fn inspect_unsubmitted_replacement_intent(
                 && action.backend == current.runtime.provider
         })
         .ok_or("unsubmitted replacement lacks its exact current Running predecessor receipt")?;
+    if actions
+        .iter()
+        .any(|action| action.binding.attempt.as_ref() == Some(successor))
+    {
+        let mut expected = current.clone();
+        expected.replace_attempt(&current_attempt.id, true)?;
+        expected.attempt = reserved.attempt.clone();
+        expected.runtime.provider = reserved.runtime.provider.clone();
+        if expected != reserved {
+            return Err("reserved receipt is not the exact current successor; pending scope, decisions and delivery are retained".into());
+        }
+    }
     let original = &predecessor.binding;
     let previous = original
         .attempt
@@ -1707,10 +1720,30 @@ pub fn inspect_unsubmitted_replacement_intent(
                 || retained.runtime.session_id != current.runtime.session_id
                 || retained.allocation != current.allocation
         })
+        || actions
+            .iter()
+            .filter(|action| {
+                action.binding.attempt.as_ref().is_some_and(|attempt| {
+                    attempt.id == successor.id && attempt.generation == successor.generation
+                })
+            })
+            .count()
+            > 1
         || actions.iter().any(|action| {
             action.binding.attempt.as_ref().is_some_and(|attempt| {
                 attempt.id == successor.id && attempt.generation == successor.generation
-            })
+            }) && (action.stage != LaunchStage::Reserved
+                || action.binding != reserved
+                || action.backend != reserved.runtime.provider
+                || action.endpoint.is_some()
+                || action.worktree.is_some())
+        })
+        || actions.iter().any(|action| {
+            action.task_id == current.task_id
+                && action.binding.attempt.as_ref().is_some_and(|attempt| {
+                    (attempt.generation > current_attempt.generation || attempt.id == successor.id)
+                        && attempt != successor
+                })
         })
         || !reserved.native_observations.is_empty()
         || current.allocation != original.allocation
@@ -2897,6 +2930,64 @@ mod tests {
             Some(bytes.clone())
         );
         assert_eq!(fs::read(&path).unwrap(), bytes);
+        // Custom request IDs are unrelated to the task filename. A reservation
+        // is inert only while its complete binding matches the owner intent.
+        let reserved_action = LaunchAction {
+            version: 1,
+            request_id: "custom-successor-retry".into(),
+            task_id: current.task_id.clone(),
+            binding: successor.clone(),
+            backend: successor.runtime.provider.clone(),
+            worktree: None,
+            endpoint: None,
+            stage: LaunchStage::Reserved,
+            detail: None,
+        };
+        let with_reservation = vec![action.clone(), reserved_action.clone()];
+        assert_eq!(
+            inspect_unsubmitted_replacement_intent(&context, &current, &with_reservation).unwrap(),
+            Some(bytes.clone())
+        );
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        for mutation in [
+            "endpoint",
+            "worktree",
+            "stage",
+            "revision",
+            "duplicate",
+            "provider",
+        ] {
+            let mut candidate = reserved_action.clone();
+            match mutation {
+                "endpoint" => candidate.endpoint = Some("uncertain-external-result".into()),
+                "worktree" => candidate.worktree = Some("/allocated".into()),
+                "stage" => candidate.stage = LaunchStage::EndpointCreated,
+                "revision" => {
+                    candidate
+                        .binding
+                        .revise_assignment(
+                            1,
+                            candidate.binding.role,
+                            "new scope".into(),
+                            vec![],
+                            vec![],
+                            "new".into(),
+                        )
+                        .unwrap();
+                }
+                "provider" => candidate.backend = "tmux".into(),
+                "duplicate" => {}
+                _ => unreachable!(),
+            }
+            let mut conflicts = vec![action.clone(), candidate];
+            if mutation == "duplicate" {
+                conflicts.push(reserved_action.clone());
+            }
+            assert!(
+                inspect_unsubmitted_replacement_intent(&context, &current, &conflicts).is_err(),
+                "{mutation}"
+            );
+        }
         let mut later_brief = current.clone();
         later_brief
             .revise_assignment(

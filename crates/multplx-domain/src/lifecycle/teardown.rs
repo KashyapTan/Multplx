@@ -1428,6 +1428,238 @@ fn publish(path: &Path, journal: &Journal) -> Result<(), String> {
     atomic_replace(path, &bytes, 0o600).map_err(|error_value| error_value.to_string())
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpgradeReconciliation {
+    schema: String,
+    task: String,
+    endpoint: String,
+    attempt: super::subagent_model::Attempt,
+    execution_fingerprint: String,
+    original_meta: Vec<u8>,
+    launch_receipts: BTreeMap<String, String>,
+}
+
+fn upgrade_reconciliation_name(task: &str, endpoint: &str) -> String {
+    let key = format!("{:x}", Sha256::digest(endpoint.as_bytes()));
+    format!(".upgrade-reconcile.{task}.{}.json", &key[..16])
+}
+
+/// Historical receipts stay intact. A typed, revision-bound reconciliation
+/// proves why the old execution must never be probed or stopped again.
+pub fn inspect_reconciled_upgrade_launch(
+    state: &Path,
+    action: &super::spawn::LaunchAction,
+    action_bytes: &[u8],
+) -> Result<bool, String> {
+    let Some(endpoint) = &action.endpoint else {
+        return Ok(false);
+    };
+    let path = state.join(upgrade_reconciliation_name(&action.task_id, endpoint));
+    if !path.exists() {
+        return Ok(false);
+    }
+    let receipt: UpgradeReconciliation =
+        serde_json::from_slice(&read_regular(&path, "upgrade reconciliation")?)
+            .map_err(|e| e.to_string())?;
+    let original = super::subagent_model::read_meta(
+        &action.task_id,
+        std::str::from_utf8(&receipt.original_meta).map_err(|e| e.to_string())?,
+    )?;
+    if receipt.schema != "mx-upgrade-reconcile.v1"
+        || receipt.task != action.task_id
+        || receipt.endpoint != *endpoint
+        || original.attempt.as_ref() != Some(&receipt.attempt)
+        || action.binding.attempt.as_ref() != Some(&receipt.attempt)
+        || receipt.launch_receipts.get(&action.request_id)
+            != Some(&format!("{:x}", Sha256::digest(action_bytes)))
+        || original.runtime.endpoint.as_deref() != Some(endpoint)
+        || original.runtime.provider != action.backend
+        || receipt.execution_fingerprint.len() != 64
+    {
+        return Err(
+            "historical upgrade reconciliation does not match its exact launch; retained".into(),
+        );
+    }
+    let current_bytes = read_regular(
+        &state.join(format!("{}.meta", action.task_id)),
+        "reconciled task metadata",
+    )?;
+    let current = super::subagent_model::read_meta(
+        &action.task_id,
+        std::str::from_utf8(&current_bytes).map_err(|e| e.to_string())?,
+    )?;
+    // A crash before the canonical metadata acceptance point leaves its old
+    // execution attached. Rebuild the same preview and recover only after consent.
+    if current == original {
+        return Ok(false);
+    }
+    if current.owner_home != original.owner_home
+        || current.owner_state != original.owner_state
+        || current.root_id != original.root_id
+        || !(current.attempt.as_ref() == Some(&receipt.attempt)
+            && current.runtime.endpoint.is_none()
+            || current.prior_attempts.contains(&receipt.attempt))
+    {
+        return Err("reconciled task changed its exact execution ownership; retained".into());
+    }
+    Ok(true)
+}
+
+/// Installer-only lifecycle transition after exact released-admission and
+/// current-other-owner proof. The caller holds lifecycle locks and consent.
+/// Durable before bytes provide recoverable, compare-and-replace backup.
+pub fn interrupt_reused_execution_for_upgrade(
+    state: &Path,
+    task: &str,
+    expected: &[u8],
+    endpoint: &str,
+    execution_fingerprint: &str,
+    launches: &BTreeMap<String, Vec<u8>>,
+) -> Result<(), String> {
+    use super::subagent_model::{WorkState, read_meta, write_meta};
+    use multplx_core::filesystem::{TransitionWrite, recoverable_transition};
+    TaskId::parse(task).map_err(|e| e.to_string())?;
+    let _identity = DirectoryLock::try_acquire(
+        state.join(format!(".{task}.identity.lock")),
+        &SystemProcessProbe::default(),
+    )
+    .map_err(|e| e.to_string())?;
+    let meta_path = state.join(format!("{task}.meta"));
+    if read_regular(&meta_path, "interrupted task metadata")? != expected {
+        return Err("interrupted task changed after upgrade consent; retained".into());
+    }
+    let text = std::str::from_utf8(expected).map_err(|e| e.to_string())?;
+    let mut record = read_meta(task, text)?;
+    if record.runtime.endpoint.as_deref() != Some(endpoint)
+        || record.schedule.state == WorkState::Completed
+        || !record.retained_executions.is_empty()
+        || launches.is_empty()
+        || execution_fingerprint.len() != 64
+    {
+        return Err("interrupted upgrade execution has an unsupported binding; retained".into());
+    }
+    let attempt = record
+        .attempt
+        .clone()
+        .ok_or("interrupted task attempt missing")?;
+    let mut hashes = BTreeMap::new();
+    for (request, bytes) in launches {
+        let action = super::spawn::read_action(
+            &super::spawn::Context {
+                root: state.to_path_buf(),
+                home: state.parent().ok_or("state home missing")?.to_path_buf(),
+                state: state.to_path_buf(),
+                data: state.to_path_buf(),
+                projects: state.to_path_buf(),
+            },
+            request,
+        )?
+        .ok_or("interrupted launch receipt disappeared")?;
+        if read_regular(
+            &state.join(".spawn-actions").join(format!("{request}.json")),
+            "interrupted launch",
+        )? != *bytes
+            || action.task_id != task
+            || action.binding.attempt.as_ref() != Some(&attempt)
+            || action.endpoint.as_deref() != Some(endpoint)
+            || action.backend != record.runtime.provider
+            || action.stage != super::spawn::LaunchStage::Running
+        {
+            return Err("interrupted launch receipt changed; retained".into());
+        }
+        hashes.insert(request.clone(), format!("{:x}", Sha256::digest(bytes)));
+    }
+    let operation = format!(
+        "upgrade-interrupt-{task}-{}",
+        &format!("{:x}", Sha256::digest(expected))[..16]
+    );
+    if state
+        .join(".transitions")
+        .join(format!("{operation}.json"))
+        .exists()
+    {
+        let writes = multplx_core::filesystem::read_transition_writes(state, &operation)
+            .map_err(|e| e.to_string())?;
+        if !writes.iter().any(|write| {
+            write.path == Path::new(&format!("{task}.meta"))
+                && write.before.as_deref() == Some(expected)
+        }) {
+            return Err(
+                "interrupted upgrade recovery has a changed task snapshot; retained".into(),
+            );
+        }
+        return multplx_core::filesystem::recover_transition(state, &operation)
+            .map_err(|e| e.to_string());
+    }
+    let receipt = UpgradeReconciliation {
+        schema: "mx-upgrade-reconcile.v1".into(),
+        task: task.into(),
+        endpoint: endpoint.into(),
+        attempt,
+        execution_fingerprint: execution_fingerprint.into(),
+        original_meta: expected.to_vec(),
+        launch_receipts: hashes,
+    };
+    record.runtime.endpoint = None;
+    record.runtime.session_id = None;
+    if let Some(question) = record
+        .schedule
+        .decisions
+        .iter()
+        .find(|q| q.answer.is_none())
+    {
+        record.schedule.state = WorkState::WaitingHuman;
+        record.schedule.waiting_condition = Some(question.id.clone());
+    } else {
+        record.schedule.state = WorkState::WaitingExternal;
+        record.schedule.waiting_condition = Some("upgrade-interrupted: released execution endpoint was reused; explicit recovery required".into());
+    }
+    let projection = text
+        .lines()
+        .filter(|line| {
+            ![
+                "window=",
+                "session_id=",
+                "herdr_session=",
+                "herdr_workspace_id=",
+                "herdr_tab_id=",
+                "herdr_pane_id=",
+            ]
+            .iter()
+            .any(|key| line.starts_with(key))
+        })
+        .map(|line| format!("{line}\n"))
+        .collect::<String>();
+    let status_path = state.join(format!("{task}.status"));
+    let status_before = if status_path.exists() {
+        Some(read_regular(&status_path, "interrupted task status")?)
+    } else {
+        None
+    };
+    let mut status_after = status_before.clone().unwrap_or_default();
+    status_after.extend_from_slice(b"failed: upgrade reconciled an interrupted released execution; work retained for explicit recovery\n");
+    let relative = upgrade_reconciliation_name(task, endpoint);
+    let writes = vec![
+        TransitionWrite {
+            path: relative.into(),
+            before: None,
+            after: serde_json::to_vec(&receipt).map_err(|e| e.to_string())?,
+        },
+        TransitionWrite {
+            path: format!("{task}.status").into(),
+            before: status_before,
+            after: status_after,
+        },
+        TransitionWrite {
+            path: format!("{task}.meta").into(),
+            before: Some(expected.to_vec()),
+            after: write_meta(&projection, &record)?.into_bytes(),
+        },
+    ];
+    recoverable_transition(state, &operation, &writes, None).map_err(|e| e.to_string())
+}
+
 /// Retain durable upgrade-stop evidence without retiring a task, home or outcome.
 /// The installer holds the task and launch locks and supplies a backend ownership
 /// proof. Snapshot equality is checked again before the irreversible stop callback.
@@ -4195,6 +4427,159 @@ esac
         });
         assert_eq!(foreign.status, 1);
         assert!(foreign.stderr.contains("owned by another state directory"));
+    }
+
+    #[test]
+    fn upgrade_interruption_preserves_scope_and_decisions_and_retains_history() {
+        use super::super::subagent_model::{
+            ArtifactKind, AssignmentRole, HumanDecision, TaskRecord, WorkState, read_meta,
+            write_meta,
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let state = temp.path().join("state");
+        fs::create_dir_all(state.join(".spawn-actions")).unwrap();
+        let mut record = TaskRecord::new(
+            "unfinished".into(),
+            AssignmentRole::Researcher,
+            ArtifactKind::Report,
+            false,
+            "parent".into(),
+            "root-home:/fixture".into(),
+            temp.path().to_string_lossy().into_owned(),
+        );
+        record.runtime.provider = "herdr".into();
+        record.runtime.endpoint = Some("lab:reused:p1".into());
+        record.schedule.state = WorkState::Running;
+        record.schedule.decisions.push(HumanDecision {
+            id: "pending-choice".into(),
+            task_id: record.task_id.clone(),
+            brief_revision: 1,
+            question: "retain pending question".into(),
+            workflow_revision: None,
+            answer: None,
+        });
+        let original = write_meta(
+            "backend=herdr\nwindow=lab:reused:p1\nherdr_pane_id=reused:p1\n",
+            &record,
+        )
+        .unwrap()
+        .into_bytes();
+        fs::write(state.join("unfinished.meta"), &original).unwrap();
+        fs::write(state.join("unfinished.status"), b"running: old execution\n").unwrap();
+        let action = super::super::spawn::LaunchAction {
+            version: 1,
+            request_id: "custom-request".into(),
+            task_id: record.task_id.clone(),
+            binding: record.clone(),
+            backend: "herdr".into(),
+            endpoint: record.runtime.endpoint.clone(),
+            worktree: None,
+            stage: super::super::spawn::LaunchStage::Running,
+            detail: None,
+        };
+        let action_bytes = serde_json::to_vec(&action).unwrap();
+        fs::write(
+            state.join(".spawn-actions/custom-request.json"),
+            &action_bytes,
+        )
+        .unwrap();
+        let launches = BTreeMap::from([("custom-request".into(), action_bytes.clone())]);
+        let proof = "a".repeat(64);
+        assert!(!super::inspect_reconciled_upgrade_launch(&state, &action, &action_bytes).unwrap());
+        assert!(
+            super::interrupt_reused_execution_for_upgrade(
+                &state,
+                "unfinished",
+                b"changed",
+                "lab:reused:p1",
+                &proof,
+                &launches
+            )
+            .is_err()
+        );
+        super::interrupt_reused_execution_for_upgrade(
+            &state,
+            "unfinished",
+            &original,
+            "lab:reused:p1",
+            &proof,
+            &launches,
+        )
+        .unwrap();
+        let updated = fs::read_to_string(state.join("unfinished.meta")).unwrap();
+        let actual = read_meta("unfinished", &updated).unwrap();
+        assert_eq!(actual.schedule.state, WorkState::WaitingHuman);
+        assert_eq!(
+            actual.schedule.waiting_condition.as_deref(),
+            Some("pending-choice")
+        );
+        assert_eq!(actual.schedule.decisions, record.schedule.decisions);
+        assert_eq!(actual.attempt, record.attempt);
+        assert_eq!(actual.briefs, record.briefs);
+        assert_eq!(actual.delivery, record.delivery);
+        assert_eq!(actual.allocation, record.allocation);
+        assert!(actual.runtime.endpoint.is_none());
+        assert!(!updated.contains("window="));
+        assert!(!updated.contains("herdr_pane_id="));
+        assert_eq!(
+            fs::read(state.join(".spawn-actions/custom-request.json")).unwrap(),
+            action_bytes
+        );
+        assert!(
+            fs::read_to_string(state.join("unfinished.status"))
+                .unwrap()
+                .contains("failed: upgrade")
+        );
+        assert!(super::inspect_reconciled_upgrade_launch(&state, &action, &action_bytes).unwrap());
+        let operation = format!(
+            "upgrade-interrupt-unfinished-{}",
+            &format!("{:x}", Sha256::digest(&original))[..16]
+        );
+        let writes = multplx_core::filesystem::read_transition_writes(&state, &operation).unwrap();
+        assert_eq!(writes.last().unwrap().before.as_ref(), Some(&original));
+        assert_eq!(
+            writes[1].before.as_deref(),
+            Some(b"running: old execution\n".as_slice())
+        );
+        let mut altered = action.clone();
+        altered.request_id = "foreign-request".into();
+        assert!(
+            super::inspect_reconciled_upgrade_launch(
+                &state,
+                &altered,
+                &serde_json::to_vec(&altered).unwrap()
+            )
+            .is_err()
+        );
+        // Reconstruct a crash after evidence/status but before metadata acceptance.
+        fs::write(state.join("unfinished.meta"), &original).unwrap();
+        let transition_path = state.join(".transitions").join(format!("{operation}.json"));
+        let mut transition: serde_json::Value =
+            serde_json::from_slice(&fs::read(&transition_path).unwrap()).unwrap();
+        transition["committed"] = false.into();
+        transition["progress"] = 2.into();
+        fs::write(&transition_path, serde_json::to_vec(&transition).unwrap()).unwrap();
+        assert!(!super::inspect_reconciled_upgrade_launch(&state, &action, &action_bytes).unwrap());
+        super::interrupt_reused_execution_for_upgrade(
+            &state,
+            "unfinished",
+            &original,
+            "lab:reused:p1",
+            &proof,
+            &launches,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(state.join("unfinished.meta")).unwrap(),
+            updated
+        );
+        assert_eq!(
+            fs::read_to_string(state.join("unfinished.status"))
+                .unwrap()
+                .matches("failed: upgrade")
+                .count(),
+            1
+        );
     }
 
     #[test]

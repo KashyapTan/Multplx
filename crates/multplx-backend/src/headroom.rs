@@ -2135,7 +2135,9 @@ fn admission_reconcile_inactive_with_probe(
     Ok(released)
 }
 
-fn admission_owner_is_authoritatively_gone(owner: &ProcessIdentity) -> bool {
+/// Prove creator lifetime absence or exact PID reuse using the system owner probe.
+/// Unavailable process readers and unreadable live identities remain uncertain.
+pub fn admission_owner_is_authoritatively_gone(owner: &ProcessIdentity) -> bool {
     #[cfg(target_os = "linux")]
     {
         let proc = PathBuf::from(format!("/proc/{}", owner.pid));
