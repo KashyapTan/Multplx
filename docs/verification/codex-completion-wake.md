@@ -18,3 +18,14 @@ The bridge remains bound to the same process lifetime, thread, and Codex home, a
 It sends no model input for an idle home and does not change completion evidence, task closure, wake disposition, acknowledgement, or uncertain delivery rules.
 
 The public upstream continuity comparison is recorded in [upstream provenance](../upstream.md#codex-continuity-comparison).
+
+A second native run exposed the initial queued-start gap after using the package's absolute CLI paths.
+The accepted root-owned dispatch request retained its attempt, brief, parent route, and provider home, but no task metadata existed until dispatch.
+The shared supervision predicate observed only task metadata, durable wakes, and explicit checks, so the initial Stop hook did not start a watcher for that queued request.
+The existing watcher is the background owner that invokes admission queue draining.
+Supervision now treats retained local dispatch-queue entries as an obligation without parsing, claiming, or executing their records; the admission owner continues to validate identity and capacity.
+Unreadable or unsafe queue directories remain visible and are rejected by that owner.
+A bounded private watcher health record publishes one durable failure incident until the owner observes repair, rather than repeatedly waking the model for the same malformed queue.
+Interrupted observations do not establish repair.
+The native runtime regression uses the actual queue owner to accept the request and drain it from an owned background watcher after a capacity marker changes, with a fixture spawn endpoint and transport.
+It fails with the prior supervision predicate and passes with queued-work supervision, proving startup before any task metadata and once-only dispatch and wake delivery.

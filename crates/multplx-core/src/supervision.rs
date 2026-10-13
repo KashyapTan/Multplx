@@ -109,12 +109,28 @@ fn completed_assignment_record(path: &Path) -> bool {
             == Some("completed")
 }
 
+/// Shared location of the root-owned admission queue.
+pub const DISPATCH_QUEUE_DIRECTORY: &str = ".dispatch-queue";
+
+// Presence is an obligation, not validation or dispatch authority. The queue
+// owner interprets records and rejects malformed/foreign bindings. Do not read
+// record contents or follow a directory symlink merely to decide supervision.
+fn dispatch_pending(state: &Path) -> bool {
+    let path = state.join(DISPATCH_QUEUE_DIRECTORY);
+    match fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(_) => true,
+        Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => true,
+        Ok(_) => fs::read_dir(path).map_or(true, |mut entries| entries.next().is_some()),
+    }
+}
+
 /// One deterministic supervision observation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SupervisionStatus {
     /// Count of active, legacy, or otherwise unclassified task records.
     pub in_flight: usize,
-    /// Whether active work, queued wakes, or explicit checks need a watcher.
+    /// Whether active/queued work, durable wakes, or explicit checks need a watcher.
     pub needed: bool,
     /// Whether the watcher beacon is younger than the grace interval.
     pub watcher_fresh: bool,
@@ -122,6 +138,8 @@ pub struct SupervisionStatus {
     pub beacon_description: String,
     /// Whether the durable wake queue has unread bytes.
     pub queue_pending: bool,
+    /// Whether this state owns retained or unreadable dispatch-queue entries.
+    pub dispatch_pending: bool,
 }
 
 impl SupervisionStatus {
@@ -169,12 +187,14 @@ pub fn inspect(state: impl AsRef<Path>, grace: Duration, now: SystemTime) -> Sup
                 .is_some_and(|name| name.ends_with(".check.sh"))
         })
     });
+    let dispatch_pending = dispatch_pending(state);
     SupervisionStatus {
         in_flight,
-        needed: in_flight > 0 || queue_pending || explicit_checks,
+        needed: in_flight > 0 || queue_pending || dispatch_pending || explicit_checks,
         watcher_fresh,
         beacon_description,
         queue_pending,
+        dispatch_pending,
     }
 }
 
@@ -184,6 +204,40 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use super::inspect;
+
+    #[test]
+    fn queued_dispatch_needs_supervision_without_task_metadata_and_stays_local() {
+        let root = tempfile::tempdir().unwrap();
+        let child = root.path().join("child/state");
+        fs::create_dir_all(&child).unwrap();
+        let queue = root.path().join(super::DISPATCH_QUEUE_DIRECTORY);
+        fs::create_dir(&queue).unwrap();
+        let observe =
+            |state: &std::path::Path| inspect(state, Duration::from_secs(300), SystemTime::now());
+        assert!(!observe(root.path()).needed);
+        let request = queue.join("nested.request");
+        // Malformed retained bytes remain an obligation for the admission owner;
+        // supervision must not parse, claim, repair, or overwrite their binding.
+        fs::write(&request, "owner_state=child/state\nmalformed\n").unwrap();
+        let status = observe(root.path());
+        assert!(status.needed && status.dispatch_pending && status.unhealthy());
+        assert_eq!(status.in_flight, 0);
+        assert!(!status.queue_pending);
+        assert!(!observe(&child).needed);
+        assert_eq!(
+            fs::read_to_string(&request).unwrap(),
+            "owner_state=child/state\nmalformed\n"
+        );
+        fs::remove_file(request).unwrap();
+        assert!(!observe(root.path()).needed);
+        fs::remove_dir(&queue).unwrap();
+        fs::write(&queue, "invalid queue directory").unwrap();
+        assert!(observe(root.path()).dispatch_pending);
+        fs::remove_file(&queue).unwrap();
+        std::os::unix::fs::symlink(&child, &queue).unwrap();
+        assert!(observe(root.path()).dispatch_pending);
+        assert!(fs::read_dir(&child).unwrap().next().is_none());
+    }
 
     #[test]
     fn in_flight_without_beacon_is_unhealthy() {

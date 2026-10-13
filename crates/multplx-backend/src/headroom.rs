@@ -84,7 +84,8 @@ impl HeadroomPaths {
     }
 
     fn queue_dir(&self) -> PathBuf {
-        self.state.join(".dispatch-queue")
+        self.state
+            .join(multplx_core::supervision::DISPATCH_QUEUE_DIRECTORY)
     }
     fn queue_lock(&self) -> PathBuf {
         self.state.join(".dispatch-queue.lock")
@@ -2461,8 +2462,13 @@ fn queue_drain_with_headroom(
     observe_headroom: &dyn Fn(&HeadroomPaths) -> Result<Headroom>,
 ) -> Result<String> {
     admission_reconcile_inactive_with_probe(paths, endpoint_exists)?;
-    if !paths.queue_dir().is_dir() {
-        return Ok(String::new());
+    match fs::symlink_metadata(paths.queue_dir()) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(String::new()),
+        Err(error) => return Err(error.into()),
+        Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => {
+            return Err(message("dispatch queue is not a real directory; retained"));
+        }
+        Ok(_) => {}
     }
     recover_unstarted_dispatches(paths)?;
     let headroom = observe_headroom(paths)?;
@@ -4244,6 +4250,35 @@ mod tests {
         assert_eq!(final_receipt.state, AdmissionState::Active);
         assert_eq!(final_receipt.attempt_id, "attempt-1");
         assert_eq!(queue_list(&paths).expect("queue"), "");
+    }
+
+    #[test]
+    fn queue_drain_rejects_non_directory_and_symlink_without_following() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = paths(&temp);
+        let queue = paths.queue_dir();
+        std::fs::write(&queue, "invalid queue directory").unwrap();
+        assert!(
+            queue_drain_with(&paths, None, &|_, _| Some(false))
+                .unwrap_err()
+                .to_string()
+                .contains("not a real directory")
+        );
+        assert_eq!(
+            std::fs::read_to_string(&queue).unwrap(),
+            "invalid queue directory"
+        );
+        std::fs::remove_file(&queue).unwrap();
+        let foreign = temp.path().join("foreign");
+        std::fs::create_dir(&foreign).unwrap();
+        symlink(&foreign, &queue).unwrap();
+        assert!(
+            queue_drain_with(&paths, None, &|_, _| Some(false))
+                .unwrap_err()
+                .to_string()
+                .contains("not a real directory")
+        );
+        assert!(std::fs::read_dir(foreign).unwrap().next().is_none());
     }
 
     #[test]

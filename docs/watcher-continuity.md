@@ -36,6 +36,8 @@ The shared watcher closes on a new current canonical report whose existing wake 
 An uncertain queue result retains a failure and requires explicit same-session recovery with `--retry`; recovery may duplicate an already accepted input, so wake handling stays idempotent.
 Away mode, ownership loss, or exact-session end retires the bridge and its tracked watcher.
 When no supervision work remains, the activated bridge stops its watcher child and waits without model input, retaining its exact-session binding through the task-completion to wake-publication window.
+Retained requests in the local root-owned dispatch queue require supervision before task metadata exists; the background watcher invokes the admission owner when capacity or dependencies permit dispatch.
+Repeated failures of the same dispatch observation retain one durable incident until the owner observes repair, while the watcher continues its normal interval.
 
 ## Actionable wake ordering
 
