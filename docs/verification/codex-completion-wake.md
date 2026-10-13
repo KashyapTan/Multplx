@@ -1,6 +1,6 @@
 # Codex completion publication race investigation
 
-The authenticated Codex CLI 0.162.1 smoke run retained at `/Users/kash/Documents/Multplx-live-smoke.aYO147/evidence/live-smoke-results.md` ended its main turn after handling a genuine progress report, but its later completion wake remained unacknowledged for more than 90 seconds.
+The authenticated Codex CLI 0.162.1 smoke run retained at the original disposable lab’s `evidence/live-smoke-results.md` ended its main turn after handling a genuine progress report, but its later completion wake remained unacknowledged for more than 90 seconds.
 The exact main rollout is `instance5-main-rollout-01a1355a-d3a7-73d1-969b-9251efdde2ae.jsonl`, and the worker rollout is `instance5-worker-rollout-01a1355d-62c3-7c41-b87e-5d71bea582ad.jsonl` in that evidence directory.
 The first watcher input appears as an actual user message at 13:04:46.409Z, proving that the queue transport delivered it.
 Empty transport receipts after its acknowledgement are expected pruning, rather than proof that transport never ran.
