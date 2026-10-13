@@ -23,6 +23,17 @@ pub fn harness_regex() -> Regex {
         .expect("static harness regex")
 }
 
+fn supported_harness_name(name: &str) -> bool {
+    let base = name
+        .strip_suffix(".js")
+        .or_else(|| name.strip_suffix(".py"))
+        .unwrap_or(name);
+    matches!(
+        base,
+        "claude" | "codex" | "codex-cli" | "cursor-agent" | "pi"
+    )
+}
+
 /// Match the executable or an interpreter's executed script, never argument
 /// payloads or a directory whose spelling happens to contain a harness name.
 pub fn harness_command_matches(command: &str, arguments: &str, matcher: &Regex) -> bool {
@@ -30,12 +41,19 @@ pub fn harness_command_matches(command: &str, arguments: &str, matcher: &Regex) 
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or(command);
-    if matcher.is_match(basename) {
+    if supported_harness_name(basename) && matcher.is_match(basename) {
         return true;
     }
     let interpreter = basename.to_ascii_lowercase();
     let shell = matches!(interpreter.as_str(), "sh" | "bash" | "zsh" | "dash" | "ksh");
-    if !shell && !interpreter.starts_with("node") && !interpreter.starts_with("python") {
+    let python = interpreter == "python"
+        || interpreter.strip_prefix("python").is_some_and(|version| {
+            let mut parts = version.split('.');
+            matches!(parts.next(), Some("2" | "3"))
+                && parts
+                    .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+        });
+    if !shell && !matches!(interpreter.as_str(), "node" | "nodejs") && !python {
         return false;
     }
     let mut words = arguments.split_whitespace().skip(1);
@@ -53,10 +71,10 @@ pub fn harness_command_matches(command: &str, arguments: &str, matcher: &Regex) 
         ) {
             return false;
         }
-        if matches!(
-            word,
-            "-u" | "-B" | "-E" | "-I" | "-O" | "-OO" | "--no-warnings" | "--enable-source-maps"
-        ) {
+        if python && matches!(word, "-u" | "-B" | "-E" | "-I" | "-O" | "-OO")
+            || matches!(interpreter.as_str(), "node" | "nodejs")
+                && matches!(word, "--no-warnings" | "--enable-source-maps")
+        {
             continue;
         }
         if word.starts_with('-') {
@@ -76,7 +94,7 @@ pub fn harness_command_matches(command: &str, arguments: &str, matcher: &Regex) 
     {
         return false;
     }
-    matcher.is_match(script_name)
+    supported_harness_name(script_name) && matcher.is_match(script_name)
         || script.ends_with("/@anthropic-ai/claude-code/cli.js") && matcher.is_match("claude")
         || script.ends_with("/@mariozechner/pi-coding-agent/dist/cli.js") && matcher.is_match("pi")
 }
@@ -402,18 +420,18 @@ mod tests {
     #[test]
     fn interpreter_identity_ignores_parent_directory_and_payload_names() {
         let matcher = harness_regex();
-        let sourced_match = |command: &str, arguments: &str| {
+        let sourced_match = |command: &str, arguments: &str, pattern: &str| {
             std::process::Command::new("bash")
                 .args([
                     "-c",
-                    ". \"$1\"; mx_harness_command_matches \"$2\" \"$3\"",
+                    ". \"$1\"; MX_HARNESS_RE=$4; mx_harness_command_matches \"$2\" \"$3\"",
                     "fixture",
                 ])
                 .arg(
                     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                         .join("../../bin/mx-session-lock-lib.sh"),
                 )
-                .args([command, arguments])
+                .args([command, arguments, pattern])
                 .status()
                 .unwrap()
                 .success()
@@ -426,6 +444,11 @@ mod tests {
             ("/usr/bin/python3", "python3 /tmp/codex-helper.py"),
             ("/usr/bin/node", "node /tmp/notcodex.js"),
             ("/usr/bin/node", "node /tmp/codex-helper.js"),
+            ("/tmp/node-helper", "node-helper /tmp/codex.js"),
+            ("/tmp/python-helper", "python-helper /tmp/codex.py"),
+            ("/tmp/python3evil", "python3evil /tmp/codex.py"),
+            ("/usr/bin/node", "node -u /tmp/codex.js"),
+            ("/usr/bin/python3", "python3 --no-warnings /tmp/codex.py"),
             ("/usr/bin/python3", "python3 /tmp/path with space/codex.py"),
             ("/usr/bin/python3", "python3 /tmp/mx-codex-proof/handle.py"),
             ("/usr/bin/python3", "python3 /tmp/handle.py codex"),
@@ -447,7 +470,10 @@ mod tests {
                 !super::harness_command_matches(command, args, &matcher),
                 "{args}"
             );
-            assert!(!sourced_match(command, args), "sourced ABI: {args}");
+            assert!(
+                !sourced_match(command, args, matcher.as_str()),
+                "sourced ABI: {args}"
+            );
         }
         for (command, args) in [
             ("/bin/codex", "codex app-server"),
@@ -470,6 +496,12 @@ mod tests {
                 "node /usr/lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js",
             ),
             ("/usr/bin/python3", "python3 -u /tmp/工具/codex.py"),
+            ("/usr/bin/python3.14", "python3.14 -u /tmp/codex.py"),
+            ("/usr/bin/nodejs", "nodejs /tmp/codex.js"),
+            (
+                "/usr/bin/node",
+                "node --no-warnings --enable-source-maps /tmp/codex.js",
+            ),
             ("/usr/bin/node", "node cursor-agent"),
             (
                 "/Library/Frameworks/Python.framework/Python",
@@ -480,7 +512,10 @@ mod tests {
                 super::harness_command_matches(command, args, &matcher),
                 "{args}"
             );
-            assert!(sourced_match(command, args), "sourced ABI: {args}");
+            assert!(
+                sourced_match(command, args, matcher.as_str()),
+                "sourced ABI: {args}"
+            );
         }
         let codex_only = regex::Regex::new(r"^(codex|codex-cli|codex\.js|codex\.py)$").unwrap();
         for (command, args) in [
@@ -492,7 +527,16 @@ mod tests {
                 !super::harness_command_matches(command, args, &codex_only),
                 "{args}"
             );
+            assert!(
+                !sourced_match(command, args, codex_only.as_str()),
+                "sourced caller intersection: {args}"
+            );
         }
+        let broad = regex::Regex::new(".*").unwrap();
+        assert!(!super::harness_command_matches(
+            "notcodex", "notcodex", &broad
+        ));
+        assert!(!sourced_match("notcodex", "notcodex", broad.as_str()));
     }
 
     #[test]

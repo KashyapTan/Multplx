@@ -2012,6 +2012,8 @@ mod tests {
             ("codex-helper", "codex-helper", "stale"),
             ("python3", "python3 /tmp/notcodex.py", "stale"),
             ("node", "node /tmp/codex-helper.js", "stale"),
+            ("node-helper", "node-helper /tmp/codex.js", "stale"),
+            ("python-helper", "python-helper /tmp/codex.py", "stale"),
             ("bash", "bash /tmp/handle.sh --description codex", "stale"),
             ("bash", "bash -c /tmp/codex", "stale"),
             ("bash", "bash -s /tmp/codex", "stale"),

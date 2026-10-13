@@ -14,19 +14,25 @@ MX_HARNESS_RE='^(claude|codex|codex-cli|cursor-agent|pi)(\.(js|py))?$'
 # Match a command or an interpreter's script basename, not directory names
 # or arbitrary tool payloads. Keep this sourced ABI aligned with the Rust owner.
 mx_harness_command_matches() {
-  local comm=$1 args=$2 script word interpreter
+  local comm=$1 args=$2 script word interpreter known_re='^(claude|codex|codex-cli|cursor-agent|pi)(\.(js|py))?$'
   local -a mx_harness_words
   comm=$(basename "$comm")
-  printf '%s' "$comm" | grep -qE "$MX_HARNESS_RE" && return 0
+  if printf '%s' "$comm" | grep -qE "$known_re" && printf '%s' "$comm" | grep -qE "$MX_HARNESS_RE"; then return 0; fi
   interpreter=$(printf '%s' "$comm" | tr '[:upper:]' '[:lower:]')
-  case "$interpreter" in node*|python*|sh|bash|zsh|dash|ksh) ;; *) return 1 ;; esac
+  case "$interpreter" in
+    node|nodejs|sh|bash|zsh|dash|ksh) ;;
+    *) printf '%s' "$interpreter" | grep -qE '^python([23](\.[0-9]+)*)?$' || return 1 ;;
+  esac
   read -r -a mx_harness_words <<< "$args"
   script=
   for word in "${mx_harness_words[@]:1}"; do
     case "$interpreter:$word" in sh:-*|bash:-*|zsh:-*|dash:-*|ksh:-*) return 1 ;; esac
+    case "$interpreter" in
+      node|nodejs) case "$word" in --no-warnings|--enable-source-maps) continue ;; esac ;;
+      python*) case "$word" in -u|-B|-E|-I|-O|-OO) continue ;; esac ;;
+    esac
     case "$word" in
       -c|-m|-e|--eval|--module|-r|--require|--import) return 1 ;;
-      -u|-B|-E|-I|-O|-OO|--no-warnings|--enable-source-maps) continue ;;
       -*) return 1 ;;
       *) script=$word; break ;;
     esac
@@ -36,7 +42,7 @@ mx_harness_command_matches() {
     sh|bash|zsh|dash|ksh)
       case "$(basename "$script")" in codex|codex-cli|claude|cursor-agent|pi) ;; *) return 1 ;; esac ;;
   esac
-  printf '%s' "$(basename "$script")" | grep -qE "$MX_HARNESS_RE" && return 0
+  if printf '%s' "$(basename "$script")" | grep -qE "$known_re" && printf '%s' "$(basename "$script")" | grep -qE "$MX_HARNESS_RE"; then return 0; fi
   case "$script" in
     */@anthropic-ai/claude-code/cli.js) printf '%s' claude | grep -qE "$MX_HARNESS_RE" ;;
     */@mariozechner/pi-coding-agent/dist/cli.js) printf '%s' pi | grep -qE "$MX_HARNESS_RE" ;;
