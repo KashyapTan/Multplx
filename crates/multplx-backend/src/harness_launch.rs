@@ -12,7 +12,9 @@ use std::time::{Duration, Instant};
 use multplx_core::filesystem::{atomic_replace, read_bounded_regular};
 use multplx_core::locks::DirectoryLock;
 use multplx_core::process::{ProcessIdentity, ProcessProbe, SystemProcessProbe};
-use multplx_core::session_lock::{SessionLockStatus, harness_regex, status};
+use multplx_core::session_lock::{
+    SessionLockStatus, harness_command_matches, harness_regex, status,
+};
 use rustix::fs::OFlags;
 use serde::{Deserialize, Serialize};
 
@@ -948,11 +950,7 @@ fn observe_primary(home: &Path, state: &Path, processes: &impl ProcessProbe) -> 
             Some(&record.harness),
         );
     };
-    let basename = Path::new(&row.command)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("");
-    if !harness_regex().is_match(&format!("{basename} {}", row.arguments)) {
+    if !harness_command_matches(&row.command, &row.arguments, &harness_regex()) {
         return result(
             "stale",
             "Recorded process is no longer a supported harness.",
@@ -1935,6 +1933,7 @@ mod tests {
     struct PrimaryProbe {
         alive: bool,
         identity: CoreResult<ProcessIdentity>,
+        row: Option<AncestryRow>,
     }
     impl ProcessProbe for PrimaryProbe {
         fn is_alive(&self, _: u32) -> bool {
@@ -1950,11 +1949,11 @@ mod tests {
                 })
         }
         fn ancestry_row(&self, _: u32) -> CoreResult<AncestryRow> {
-            Ok(AncestryRow {
+            Ok(self.row.clone().unwrap_or(AncestryRow {
                 parent_pid: 1,
                 command: "codex".into(),
                 arguments: String::new(),
-            })
+            }))
         }
     }
 
@@ -1967,6 +1966,7 @@ mod tests {
         let marker = "Mon Oct 01 01:02:03 2026 codex";
         let probe = PrimaryProbe {
             alive: true,
+            row: None,
             identity: Ok(ProcessIdentity {
                 pid: 42,
                 marker: marker.into(),
@@ -2004,6 +2004,32 @@ mod tests {
             super::observe_primary(&home, &state, &probe)["status"],
             "live"
         );
+        for (command, arguments, expected) in [
+            ("bash", "bash /tmp/codex", "live"),
+            ("bash", "bash /tmp/handle.sh --description codex", "stale"),
+            ("bash", "bash -c /tmp/codex", "stale"),
+            ("bash", "bash -s /tmp/codex", "stale"),
+            ("python3", "python3 /tmp/handle.py /tmp/codex", "stale"),
+            ("node", "node --conditions codex /tmp/handle.js", "stale"),
+        ] {
+            let shaped = PrimaryProbe {
+                alive: true,
+                identity: Ok(ProcessIdentity {
+                    pid: 42,
+                    marker: marker.into(),
+                }),
+                row: Some(AncestryRow {
+                    parent_pid: 1,
+                    command: command.into(),
+                    arguments: arguments.into(),
+                }),
+            };
+            assert_eq!(
+                super::observe_primary(&home, &state, &shaped)["status"],
+                expected,
+                "{arguments}"
+            );
+        }
         let alias = home.join("alias-home");
         std::os::unix::fs::symlink(&home, &alias).unwrap();
         assert_eq!(
@@ -2044,6 +2070,7 @@ mod tests {
         fs::write(state.join(".lock"), "42\n").unwrap();
         let failed = PrimaryProbe {
             alive: false,
+            row: None,
             identity: Err(CoreError::InvalidIdentifier {
                 kind: "PID",
                 value: "42".into(),

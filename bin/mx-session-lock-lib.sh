@@ -19,10 +19,11 @@ mx_harness_command_matches() {
   comm=$(basename "$comm")
   printf '%s' "$comm" | grep -qE "$MX_HARNESS_RE" && return 0
   interpreter=$(printf '%s' "$comm" | tr '[:upper:]' '[:lower:]')
-  case "$interpreter" in node*|python*) ;; *) return 1 ;; esac
+  case "$interpreter" in node*|python*|sh|bash|zsh|dash|ksh) ;; *) return 1 ;; esac
   read -r -a mx_harness_words <<< "$args"
   script=
   for word in "${mx_harness_words[@]:1}"; do
+    case "$interpreter:$word" in sh:-*|bash:-*|zsh:-*|dash:-*|ksh:-*) return 1 ;; esac
     case "$word" in
       -c|-m|-e|--eval|--module|-r|--require|--import) return 1 ;;
       -u|-B|-E|-I|-O|-OO|--no-warnings|--enable-source-maps) continue ;;

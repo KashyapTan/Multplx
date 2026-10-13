@@ -33,7 +33,8 @@ pub fn harness_command_matches(command: &str, arguments: &str, matcher: &Regex) 
         return true;
     }
     let interpreter = basename.to_ascii_lowercase();
-    if !interpreter.starts_with("node") && !interpreter.starts_with("python") {
+    let shell = matches!(interpreter.as_str(), "sh" | "bash" | "zsh" | "dash" | "ksh");
+    if !shell && !interpreter.starts_with("node") && !interpreter.starts_with("python") {
         return false;
     }
     let mut words = arguments.split_whitespace().skip(1);
@@ -41,6 +42,10 @@ pub fn harness_command_matches(command: &str, arguments: &str, matcher: &Regex) 
         let Some(word) = words.next() else {
             return false;
         };
+        // Shell stdin/eval/options do not establish an executed script.
+        if shell && word.starts_with('-') {
+            return false;
+        }
         if matches!(
             word,
             "-c" | "-m" | "-e" | "--eval" | "--module" | "-r" | "--require" | "--import"
@@ -388,22 +393,47 @@ mod tests {
     #[test]
     fn interpreter_identity_ignores_parent_directory_and_payload_names() {
         let matcher = harness_regex();
+        let sourced_match = |command: &str, arguments: &str| {
+            std::process::Command::new("bash")
+                .args([
+                    "-c",
+                    ". \"$1\"; mx_harness_command_matches \"$2\" \"$3\"",
+                    "fixture",
+                ])
+                .arg(
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("../../bin/mx-session-lock-lib.sh"),
+                )
+                .args([command, arguments])
+                .status()
+                .unwrap()
+                .success()
+        };
         for (command, args) in [
             ("/usr/bin/python3", "python3 /tmp/mx-codex-proof/handle.py"),
             ("/usr/bin/python3", "python3 /tmp/handle.py codex"),
             ("/usr/bin/python3", "python3 -c codex"),
+            ("/usr/bin/python3", "python3 -m codex"),
             ("/usr/bin/python3", "python3 -X codex /tmp/handle.py"),
             ("/usr/bin/node", "node --conditions codex /tmp/handle.js"),
+            ("/usr/bin/node", "node --require codex /tmp/handle.js"),
+            ("/usr/bin/node", "node --import codex /tmp/handle.js"),
             ("/usr/bin/node", "node /tmp/handle.js --description claude"),
             ("/bin/zsh", "zsh -c codex"),
+            ("/bin/bash", "bash -s /tmp/codex"),
+            ("/bin/bash", "bash /tmp/handle.sh --description codex"),
+            ("/bin/sh", "sh /tmp/mx-codex-proof/handle.sh"),
         ] {
             assert!(
                 !super::harness_command_matches(command, args, &matcher),
                 "{args}"
             );
+            assert!(!sourced_match(command, args), "sourced ABI: {args}");
         }
         for (command, args) in [
             ("/bin/codex", "codex app-server"),
+            ("/bin/bash", "bash /tmp/codex --config arbitrary-payload"),
+            ("/bin/sh", "sh /tmp/claude"),
             (
                 "/usr/bin/node",
                 "node /usr/lib/node_modules/@openai/codex/bin/codex.js",
@@ -427,6 +457,7 @@ mod tests {
                 super::harness_command_matches(command, args, &matcher),
                 "{args}"
             );
+            assert!(sourced_match(command, args), "sourced ABI: {args}");
         }
     }
 
