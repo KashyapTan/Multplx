@@ -185,7 +185,7 @@ The required CI pin remains 0.7.4, and the runtime protocol floor remains 14.
 On 2026-10-12, `tests/mx-backend-herdr-project-e2e.test.sh` passed against installed Herdr 0.9.3 in a guarded non-default named lab using inert Python harnesses.
 The fixture used an isolated `XDG_CONFIG_HOME`, a PID-owned temporary default server for the tripwire, and guarded named-session teardown; no user session or private operational state was changed.
 The test proved default grouping despite the old presentation flag, preservation of a foreign same-title workspace, detached-worktree reuse, separate same-basename repositories, seeded standing and validated nested-worker grouping, concurrent convergence, unchanged human focus and exact cleanup preserving every sibling and foreign pane.
-The ten deterministic repository tests additionally cover private binding and inventory corruption, uncertain-create nonce reconciliation without adoption seed pruning, root isolation, and exact shared restart replacement versus foreign, renamed, split or active targets.
+The twelve deterministic repository tests additionally cover private binding and inventory corruption, contradictory create responses, uncertain-create nonce reconciliation without adoption seed pruning, root isolation, and exact shared restart replacement versus foreign, renamed, split or active targets.
 Legacy per-home topology remains verified through its explicitly selected `home` layout.
 Primary upstream contracts are the [Herdr CLI reference](https://herdr.dev/docs/cli-reference/) and [agent automation guide](https://herdr.dev/docs/agent-automation/); live version evidence takes precedence over assuming every current documented capability exists in the older CI pin.
 

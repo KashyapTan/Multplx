@@ -54,6 +54,7 @@ mod tests {
         tabs: Vec<Value>,
         calls: Vec<Vec<String>>,
         lost_create: bool,
+        corrupt_create: Option<&'static str>,
     }
     #[derive(Debug, Clone)]
     struct Fake(Arc<Mutex<World>>);
@@ -96,11 +97,14 @@ mod tests {
                     world
                         .tabs
                         .push(json!({"workspace_id":id,"tab_id":tab,"label":"1","focused":false}));
-                    if world.lost_create {
+                    if let Some(fault) = world.corrupt_create.take() {
+                        if fault == "nonce" { world.spaces.last_mut().unwrap()["label"] = json!("foreign"); }
+                        json!({"result":{"workspace":{"workspace_id":if fault == "id" {"human".to_owned()} else {id}},"tab":{"tab_id":tab}}})
+                    } else if world.lost_create {
                         world.lost_create = false;
                         json!({"result":{}})
                     } else {
-                        json!({"result":{"workspace":{"workspace_id":id},"tab":{"tab_id":tab}}})
+                        json!({"result":{"workspace":{"workspace_id":id},"tab":{"tab_id":tab,"workspace_id":id}}})
                     }
                 }
                 ("workspace", Some("rename")) => {
@@ -184,6 +188,7 @@ mod tests {
                 ],
                 calls: vec![],
                 lost_create: false,
+                corrupt_create: None,
             })));
             Self {
                 temp,
@@ -563,6 +568,50 @@ mod tests {
                 .is_err()
         );
     }
+
+    #[test]
+    fn contradictory_create_response_never_grants_foreign_rename_or_prune_authority() {
+        for fault in ["id", "nonce"] {
+            let f = Fixture::new();
+            f.fake.0.lock().unwrap().corrupt_create = Some(fault);
+            assert!(f.create(&f.root, "mx-corrupt").is_err());
+            let world = f.fake.0.lock().unwrap();
+            assert_eq!(world.spaces[0]["label"], "project");
+            assert!(
+                !world
+                    .calls
+                    .iter()
+                    .any(|args| (args[0] == "workspace" && args[1] == "rename")
+                        || (args[0] == "tab" && args[1] == "create")
+                        || (args[0] == "pane" && args[1] == "close"))
+            );
+            drop(world);
+            let binding: Binding = serde_json::from_slice(&fs::read(f.binding()).unwrap()).unwrap();
+            assert!(binding.workspace_id.is_none());
+            if fault == "nonce" {
+                let count = f.fake.0.lock().unwrap().spaces.len();
+                assert!(f.create(&f.root, "mx-corrupt").is_err());
+                assert_eq!(f.fake.0.lock().unwrap().spaces.len(), count);
+            }
+        }
+    }
+
+    #[test]
+    fn empty_session_and_unsafe_private_namespace_have_explicit_outcomes() {
+        let f = Fixture::new();
+        {
+            let mut world = f.fake.0.lock().unwrap();
+            world.spaces.clear();
+            world.tabs.clear();
+        }
+        let (_, _, lock) = f.create(&f.root, "mx-first").unwrap();
+        drop(lock);
+        let f = Fixture::new();
+        let directory = f.root.join("state/herdr-project-workspaces");
+        fs::create_dir(&directory).unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(f.create(&f.root, "mx-refuse").is_err());
+    }
 }
 
 /// Canonical repository identity shared by linked and detached worktrees.
@@ -676,6 +725,7 @@ impl<R: CommandRunner> HerdrBackend<R> {
         let directory = root.join("state/herdr-project-workspaces");
         private_directory(&directory)?;
         let path = directory.join(format!("{}.json", key(&root, &common, &session)));
+        let existing_intent = fs::symlink_metadata(&path).is_ok();
         let mut binding = match fs::symlink_metadata(&path) {
             Ok(info) => {
                 if info.uid() != rustix::process::getuid().as_raw() || info.mode() & 0o777 != 0o600
@@ -754,6 +804,11 @@ impl<R: CommandRunner> HerdrBackend<R> {
             if matches.len() > 1 {
                 return Err(metadata("ambiguous pending repository workspace creation"));
             }
+            if existing_intent && matches.is_empty() {
+                return Err(metadata(
+                    "pending repository workspace create has no verified endpoint; inspect retained intent before retry",
+                ));
+            }
             matches
                 .first()
                 .map(|value| {
@@ -789,7 +844,42 @@ impl<R: CommandRunner> HerdrBackend<R> {
                 .filter(|id| !id.is_empty())
                 .ok_or_else(|| metadata("workspace create omitted exact identity"))?
                 .to_owned();
-            seed = field(&created, "/result/tab/tab_id").map(str::to_owned);
+            if identities.contains(id.as_str()) {
+                return Err(metadata(
+                    "workspace create returned a preexisting foreign identity",
+                ));
+            }
+            let after = self.json_scoped(&session, ["workspace", "list"])?;
+            let after = after
+                .pointer("/result/workspaces")
+                .and_then(Value::as_array)
+                .ok_or_else(|| metadata("unreadable post-create workspace inventory"))?;
+            let mut after_ids = std::collections::BTreeSet::new();
+            for value in after {
+                let exact = field(value, "/workspace_id")
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| metadata("invalid post-create workspace identity"))?;
+                if !after_ids.insert(exact) {
+                    return Err(metadata("duplicate post-create workspace identity"));
+                }
+            }
+            if after
+                .iter()
+                .filter(|value| field(value, "/label") == Some(binding.create_label.as_str()))
+                .count()
+                != 1
+                || !after.iter().any(|value| {
+                    field(value, "/workspace_id") == Some(id.as_str())
+                        && field(value, "/label") == Some(binding.create_label.as_str())
+                })
+            {
+                return Err(metadata(
+                    "workspace create response does not match its exact nonce binding",
+                ));
+            }
+            if field(&created, "/result/tab/workspace_id") == Some(id.as_str()) {
+                seed = field(&created, "/result/tab/tab_id").map(str::to_owned);
+            }
             id
         };
         let first_binding = binding.workspace_id.is_none();
