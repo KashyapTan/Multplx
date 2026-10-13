@@ -164,3 +164,85 @@ fn canonical_question_and_done_close_watcher_without_republishing_wakes() {
         assert!(!String::from_utf8_lossy(&quiet.stdout).contains("signal:"));
     }
 }
+
+// A durable accepted report must not be hidden behind unrelated maintenance.
+// This reproduces the production ordering cause while preserving the same
+// one-second checkpoint, real report/watcher owners and no duplicate wake.
+#[test]
+fn canonical_wake_precedes_blocked_dispatch_maintenance() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let mut task = canonical_task(&home, "worker");
+    task.artifact = ArtifactKind::Report;
+    write_task(&home, &task);
+    let artifact = home.join("result.md");
+    fs::write(&artifact, "completed fixture").unwrap();
+    let attempt = task.attempt.as_ref().unwrap();
+    let result = run(mx(&home)
+        .env("MX_TASK_ID", "worker")
+        .env("MX_ATTEMPT_ID", &attempt.id)
+        .env("MX_ATTEMPT_GENERATION", attempt.generation.to_string())
+        .env("MX_BRIEF_REVISION", attempt.brief_revision.to_string())
+        .args([
+            "supervision",
+            "mx-report",
+            "--state",
+            "done",
+            "--message",
+            "durable before maintenance",
+            "--message-id",
+            "blocked-maintenance-completion",
+            "--artifact",
+        ])
+        .arg(&artifact));
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let before = fs::read(home.join("state/.wake-queue")).unwrap();
+    let source = temp.path().join("runtime");
+    fs::create_dir_all(source.join("bin")).unwrap();
+    for (name, body) in [
+        (
+            "mx-watch.sh",
+            "exec \"$MX_RUST_BIN\" supervision mx-watch.sh",
+        ),
+        ("mx-pr-check-migrate.sh", "exit 0"),
+        (
+            "mx-headroom.sh",
+            "printf 'entered\\n' > \"$MX_HOME/maintenance-entered\"; exec sleep 5",
+        ),
+    ] {
+        let path = source.join("bin").join(name);
+        fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let output = run(mx(&home)
+        .env("MX_RUST_SOURCE_ROOT", &source)
+        .env("MX_RUST_BIN", env!("CARGO_BIN_EXE_mx"))
+        .env("MX_SIGNAL_GRACE", "0")
+        .env("MX_POLL", "0.05")
+        .env("MX_HEARTBEAT", "999999")
+        .env("MX_CHECK_INTERVAL", "999999")
+        .args(["supervision", "mx-watch-checkpoint.sh", "--seconds", "1"]));
+    assert!(
+        output.status.success(),
+        "code={:?}; stdout={}; stderr={}; maintenance_entered={}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+        home.join("maintenance-entered").exists()
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("signal:"));
+    assert!(
+        !home.join("maintenance-entered").exists(),
+        "accepted wake waited for unrelated maintenance"
+    );
+    assert_eq!(
+        fs::read(home.join("state/.wake-queue")).unwrap(),
+        before,
+        "handoff republished canonical wake"
+    );
+}

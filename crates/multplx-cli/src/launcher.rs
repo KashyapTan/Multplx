@@ -22,7 +22,7 @@ const VIZ_PUBLIC_HELP: &str = "Open the read-only dashboard for the configured o
 
 const LAUNCHER_HELP: &str = "Open one globally configured Multplx workspace and conversation.\n\nUsage:\n  multplx [--plain]\n  multplx PATH|ALIAS\n  multplx chat [claude|codex|cursor|pi] [args...]\n  multplx project|projects [args...]\n  multplx task --project SELECTOR [args...] TEXT\n  multplx domain [args...]\n  multplx spawn [args...]\n  multplx launcher-install [--upgrade|--uninstall] [args...]\n  multplx [--backend auto|tmux|herdr|cmux] claude|codex|cursor|pi [args...]\n  multplx [--backend auto|tmux|herdr|cmux] shell\n  multplx doctor [args...]\n  multplx task-session inspect TASK\n  multplx update\n  multplx viz [--no-open|serve|status|stop]\n  multplx paths\n  multplx --help\n  multplx --version\n\nA bare launch opens the terminal workspace. Use Tab to change views, arrows/j/k or the mouse wheel to move, / to filter, t to enter a task, c to chat, v for Viz, and q to quit. PATH or ALIAS selects a registered checkout; an explicit path is registered if needed. Chat reconnects to the one live conversation or starts the remembered harness. Shell mode is explicit. The caller directory supplies request context but is never scanned or registered implicitly.\n";
 
-const INSTALL_HELP: &str = "Install the global `multplx` and `mx` binaries and register one runtime and home.\n\nUsage:\n  mx launcher-install --package PATH [--home PATH]\n  mx launcher-install [--root PATH] [--home PATH] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --managed [--source GIT-URL] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --upgrade [--recover-stale-launch] [--allow-stopped-agents] [--stop-managed-sessions] [install options]\n  mx launcher-install --uninstall [shared options]\n\nInstall options:\n  --package PATH       verified extracted platform package (binary plus matching assets)\n  --root PATH          explicit source checkout runtime\n  --home PATH          operational state home; package default is DATA_DIR/home\n  --binary PATH        verified prebuilt binary or explicit local release build\n  --checksum SHA256    required checksum for an external --binary artifact\n  --managed            clone a clean managed source runtime under DATA_DIR/runtime\n  --source GIT-URL     source for --managed only\n\nShared options:\n  --bin-dir PATH       default ${XDG_BIN_HOME:-$HOME/.local/bin}\n  --config-dir PATH    default ${XDG_CONFIG_HOME:-$HOME/.config}/multplx\n  --data-dir PATH      default ${XDG_DATA_HOME:-$HOME/.local/share}/multplx\n  --upgrade            atomically replace the owned binary and matching runtime assets\n  --recover-stale-launch  confirm removal of a verified stale workspace launch reservation during upgrade\n  --allow-stopped-agents  confirm upgrade with verified stopped standing agents; preserve records, homes and work\n  --stop-managed-sessions  explicitly consent to stopping verified owned live executions during upgrade\n  --uninstall          remove owned application files and records; preserve state and repositories\n  -h, --help\n\nPackage, source runtime and operational home are independent of the current directory.\nLegacy migration requires unchanged generated shim bytes and matching root/home records; foreign files are refused.\n";
+const INSTALL_HELP: &str = "Install the global `multplx` and `mx` binaries and register one runtime and home.\n\nUsage:\n  mx launcher-install --package PATH [--home PATH]\n  mx launcher-install [--root PATH] [--home PATH] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --managed [--source GIT-URL] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --upgrade [--recover-stale-launch] [--allow-stopped-agents] [--stop-managed-sessions] [install options]\n  mx launcher-install --uninstall [shared options]\n\nInstall options:\n  --package PATH       verified extracted platform package (binary plus matching assets)\n  --root PATH          explicit source checkout runtime\n  --home PATH          operational state home; package default is DATA_DIR/home\n  --binary PATH        verified prebuilt binary or explicit local release build\n  --checksum SHA256    required checksum for an external --binary artifact\n  --managed            clone a clean managed source runtime under DATA_DIR/runtime\n  --source GIT-URL     source for --managed only\n\nShared options:\n  --bin-dir PATH       default ${XDG_BIN_HOME:-$HOME/.local/bin}\n  --config-dir PATH    default ${XDG_CONFIG_HOME:-$HOME/.config}/multplx\n  --data-dir PATH      default ${XDG_DATA_HOME:-$HOME/.local/share}/multplx\n  --upgrade            atomically replace the owned binary and matching runtime assets\n  --recover-stale-launch  confirm removal of a verified stale workspace launch reservation during upgrade\n  --allow-stopped-agents  confirm upgrade with verified stopped standing agents and inert reservations; preserve records, homes and work\n  --stop-managed-sessions  explicitly consent to stopping verified owned live executions during upgrade\n  --uninstall          remove owned application files and records; preserve state and repositories\n  -h, --help\n\nPackage, source runtime and operational home are independent of the current directory.\nLegacy migration requires unchanged generated shim bytes and matching root/home records; foreign files are refused.\nUpgrade previews proven inert successor reservations and historical reused endpoints.\nThey never authorize stopping another task: its current exact execution is listed separately.\nReleased interrupted executions require consent to detach their stale endpoint and retain failed recovery evidence.\n";
 
 fn error(message: impl AsRef<str>) {
     eprintln!("multplx: {}", message.as_ref());
@@ -1519,6 +1519,13 @@ fn require_packaged_runtime_quiescent_mode(
     Ok(())
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct InterruptedUpgradeExecution {
+    task: String,
+    endpoint: String,
+    current_owner: multplx_backend::upgrade_stop::VerifiedEndpoint,
+}
+
 #[derive(Default, Clone, Debug, Eq, PartialEq)]
 struct RetainedUsers {
     preview: bool,
@@ -1531,6 +1538,8 @@ struct RetainedUsers {
     homes: BTreeSet<PathBuf>,
     home_identities: BTreeMap<PathBuf, (u64, u64)>,
     records: usize,
+    inert: BTreeMap<PathBuf, String>,
+    interruptions: BTreeMap<PathBuf, InterruptedUpgradeExecution>,
     tasks: BTreeSet<PathBuf>,
 }
 
@@ -1623,6 +1632,338 @@ fn release_upgrade_execution(
     Ok(())
 }
 
+// Read-only ownership proof: keep the retry boundary intact instead of deleting
+// reservations during a runtime upgrade. Spawn remains the sole recovery owner.
+fn inspect_reserved_upgrade_action(
+    context: &multplx_domain::lifecycle::spawn::Context,
+    root_home: &Path,
+    action: &multplx_domain::lifecycle::spawn::LaunchAction,
+    actions: &[multplx_domain::lifecycle::spawn::LaunchAction],
+    inspection: &mut RetainedUsers,
+) -> Result<(), String> {
+    use multplx_backend::headroom::{AdmissionReceipt, AdmissionState};
+    let meta = context.state.join(format!("{}.meta", action.task_id));
+    let bytes = upgrade_owned_snapshot(&meta)?;
+    let current = multplx_domain::lifecycle::subagent_model::read_meta(
+        &action.task_id,
+        std::str::from_utf8(&bytes).map_err(|e| e.to_string())?,
+    )?;
+    if !current.persistent || !current.private_home {
+        return Err("reservation is not an owned standing successor".into());
+    }
+    let intent = multplx_domain::lifecycle::spawn::inspect_unsubmitted_replacement_intent(
+        context, &current, actions,
+    )?
+    .ok_or("reservation has no matched replacement intent")?;
+    let reserved: multplx_domain::lifecycle::subagent_model::TaskRecord =
+        serde_json::from_slice(&intent).map_err(|e| e.to_string())?;
+    if reserved != action.binding {
+        return Err("reserved receipt differs from the exact owner intent".into());
+    }
+    let attempt = action
+        .binding
+        .attempt
+        .as_ref()
+        .ok_or("reserved attempt missing")?;
+    let admission_path = root_home
+        .join("state/.admissions")
+        .join(format!("{}.json", action.request_id));
+    let admission_bytes = upgrade_owned_snapshot(&admission_path)?;
+    let admission: AdmissionReceipt =
+        serde_json::from_slice(&admission_bytes).map_err(|e| e.to_string())?;
+    if admission.version != 1
+        || admission.request_id != action.request_id
+        || admission.task_id != action.task_id
+        || admission.root_home != root_home
+        || admission.owner_home != context.home
+        || admission.owner_state != context.state
+        || admission.attempt_id != attempt.id
+        || admission.backend != action.backend
+        || admission.endpoint.is_some()
+        || admission.allocation_id.is_some()
+        || !matches!(
+            admission.state,
+            AdmissionState::Reserved | AdmissionState::Retryable
+        )
+        || admission.resources.is_empty()
+    {
+        return Err("reservation admission does not match its exact unsubmitted attempt".into());
+    }
+    let owner = admission
+        .owner
+        .as_ref()
+        .ok_or("reservation has no creator process lifetime")?;
+    if !multplx_backend::headroom::admission_owner_is_authoritatively_gone(owner) {
+        return Err("reservation creator is live or uncertain; wait for its spawn owner".into());
+    }
+    multplx_backend::upgrade_stop::require_unsubmitted_task_absent(
+        &context.root,
+        current
+            .persistent_home
+            .as_deref()
+            .map(Path::new)
+            .unwrap_or(&context.home),
+        &action.task_id,
+        &action.backend,
+        current.runtime.endpoint.as_deref(),
+    )?;
+    let operation_path = context
+        .state
+        .join(format!(".spawn-{}.operation", action.task_id));
+    let operation_bytes = upgrade_owned_snapshot(&operation_path)?;
+    let operation: serde_json::Value =
+        serde_json::from_slice(&operation_bytes).map_err(|e| e.to_string())?;
+    if operation["expected_attempt"].as_str() != current.attempt.as_ref().map(|a| a.id.as_str())
+        || operation["backend"].as_str() != Some(action.backend.as_str())
+        || operation.get("queued_binding").is_some()
+        || (!operation["request_id"].is_null()
+            && operation["request_id"].as_str() != Some(action.request_id.as_str()))
+    {
+        return Err(
+            "replacement operation does not bind the predecessor and reserved receipt".into(),
+        );
+    }
+    inspection.snapshots.insert(meta, bytes);
+    inspection.snapshots.insert(admission_path, admission_bytes);
+    inspection.snapshots.insert(operation_path, operation_bytes);
+    Ok(())
+}
+
+fn upgrade_owned_snapshot(path: &Path) -> Result<Vec<u8>, String> {
+    let metadata = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+    if !metadata.is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.uid() != rustix::process::geteuid().as_raw()
+    {
+        return Err(format!("{} is not an owned regular record", path.display()));
+    }
+    multplx_core::filesystem::read_bounded_regular(path, 1024 * 1024).map_err(|e| e.to_string())
+}
+
+fn inspect_released_upgrade_admission(
+    root_home: &Path,
+    home: &Path,
+    old: &multplx_domain::lifecycle::subagent_model::TaskRecord,
+    endpoint: &str,
+    inspection: &mut RetainedUsers,
+) -> Result<(), String> {
+    use multplx_backend::headroom::{AdmissionReceipt, AdmissionState};
+    let attempt = old.attempt.as_ref().ok_or("interrupted attempt missing")?;
+    let directory = root_home.join("state/.admissions");
+    require_existing_owned_dir(&directory, "root admission records")?;
+    let mut matched = None;
+    for (index, entry) in fs::read_dir(&directory)
+        .map_err(|e| e.to_string())?
+        .enumerate()
+    {
+        if index >= 4096 {
+            return Err("root admission records exceed 4096 entries".into());
+        }
+        let path = entry.map_err(|e| e.to_string())?.path();
+        if path.extension() != Some(OsStr::new("json")) {
+            continue;
+        }
+        let bytes = upgrade_owned_snapshot(&path)?;
+        let receipt: AdmissionReceipt =
+            serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        if receipt.task_id != old.task_id
+            || receipt.owner_state != home.join("state")
+            || receipt.attempt_id != attempt.id
+        {
+            continue;
+        }
+        if matched.is_some()
+            || receipt.version != 1
+            || receipt.root_home != root_home
+            || receipt.owner_home != home
+            || path.file_stem().and_then(OsStr::to_str) != Some(&receipt.request_id)
+            || receipt.state != AdmissionState::Released
+            || receipt.backend != old.runtime.provider
+            || receipt.endpoint.as_deref() != Some(endpoint)
+            || receipt.allocation_id.as_deref()
+                != old.allocation.as_ref().map(|a| a.allocation_id.as_str())
+            || receipt.resources.is_empty()
+        {
+            return Err(format!(
+                "unfinished task {} lacks unique exact released admission; reconcile its lifecycle owner before upgrade",
+                old.task_id
+            ));
+        }
+        let owner = receipt
+            .owner
+            .as_ref()
+            .ok_or("released admission creator lifetime missing")?;
+        if !multplx_backend::headroom::admission_owner_is_authoritatively_gone(owner) {
+            return Err("unfinished task's launch creator is live or uncertain; retained".into());
+        }
+        matched = Some((path, bytes));
+    }
+    let (path,bytes) = matched.ok_or("unfinished reused task has no exact released admission; reconcile its lifecycle owner before upgrade")?;
+    inspection.snapshots.insert(path, bytes);
+    Ok(())
+}
+
+// A different label alone is insufficient. Find a current canonical claimant,
+// then use the existing backend owner to verify its exact physical execution.
+fn inspect_reused_upgrade_endpoint(
+    runtime_root: &Path,
+    root_home: &Path,
+    home: &Path,
+    task: &str,
+    backend: &str,
+    endpoint: &str,
+    inspection: &mut RetainedUsers,
+) -> Result<bool, String> {
+    use multplx_domain::lifecycle::subagent_model::{WorkState, read_meta};
+    let old_path = home.join("state").join(format!("{task}.meta"));
+    let old_bytes = match upgrade_owned_snapshot(&old_path) {
+        Ok(bytes) => bytes,
+        Err(_) => return Ok(false),
+    };
+    let old = read_meta(
+        task,
+        std::str::from_utf8(&old_bytes).map_err(|e| e.to_string())?,
+    )?;
+    let mut homes = vec![root_home.to_path_buf()];
+    let mut visited = BTreeSet::new();
+    let mut count = 0;
+    let mut claimant = None;
+    while let Some(candidate_home) = homes.pop() {
+        if !visited.insert(candidate_home.clone()) {
+            continue;
+        }
+        if visited.len() > 64 {
+            return Err("reused endpoint route exceeds 64 homes".into());
+        }
+        require_existing_owned_dir(&candidate_home, "endpoint claimant home")?;
+        require_existing_owned_dir(&candidate_home.join("state"), "endpoint claimant state")?;
+        for entry in fs::read_dir(candidate_home.join("state")).map_err(|e| e.to_string())? {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            if path.extension() != Some(OsStr::new("meta")) {
+                continue;
+            }
+            count += 1;
+            if count > 1024 {
+                return Err("reused endpoint route exceeds 1024 records".into());
+            }
+            let id = path
+                .file_stem()
+                .and_then(OsStr::to_str)
+                .ok_or("invalid claimant identity")?;
+            let bytes = upgrade_owned_snapshot(&path)?;
+            let record = read_meta(id, std::str::from_utf8(&bytes).map_err(|e| e.to_string())?)?;
+            if record.legacy_unknown
+                || record.owner_home.as_deref() != candidate_home.to_str()
+                || record.owner_state.as_deref() != candidate_home.join("state").to_str()
+                || record.root_id.as_deref()
+                    != Some(format!("root-home:{}", root_home.display()).as_str())
+                || record.owning_coordinator.is_some()
+                || !record.native_observations.is_empty()
+            {
+                return Err(format!(
+                    "endpoint claimant {} has uncertain ownership; retained",
+                    path.display()
+                ));
+            }
+            if let Some(binding) = &record.home_allocation {
+                let allocation = multplx_domain::lifecycle::home_seed::read_home_allocation(
+                    &candidate_home.join("data"),
+                    id,
+                )?
+                .ok_or("endpoint claimant home lease missing")?;
+                if allocation.binding != *binding || allocation.runtime_root != runtime_root {
+                    return Err("endpoint claimant home lease changed; retained".into());
+                }
+                multplx_domain::lifecycle::home_seed::verify_active_home(&allocation)?;
+                homes.push(binding.path.clone());
+            }
+            if (id == task && candidate_home == home)
+                || record.runtime.provider != backend
+                || record.runtime.endpoint.as_deref() != Some(endpoint)
+            {
+                continue;
+            }
+            let cwd = record
+                .allocation
+                .as_ref()
+                .map(|a| Path::new(&a.path))
+                .or_else(|| record.persistent_home.as_deref().map(Path::new))
+                .ok_or("endpoint claimant directory missing")?;
+            let old_cwd = old
+                .allocation
+                .as_ref()
+                .map(|a| Path::new(&a.path))
+                .or_else(|| old.persistent_home.as_deref().map(Path::new));
+            let Ok(verified) = multplx_backend::upgrade_stop::inspect(
+                runtime_root,
+                &candidate_home,
+                record
+                    .persistent_home
+                    .as_deref()
+                    .map(Path::new)
+                    .unwrap_or(&candidate_home),
+                id,
+                backend,
+                endpoint,
+                cwd,
+            ) else {
+                // Other historical records may claim this recycled name too.
+                // Only an exact positive physical proof is a current claimant.
+                continue;
+            };
+            let same_physical_directory = old_cwd
+                .and_then(|path| fs::canonicalize(path).ok())
+                .zip(fs::canonicalize(cwd).ok())
+                .is_some_and(|(old, new)| old == new);
+            if old_cwd == Some(cwd) || same_physical_directory {
+                return Err(
+                    "reused endpoint has ambiguous shared execution directory; retained".into(),
+                );
+            }
+            if claimant.is_some() {
+                return Err("reused endpoint has multiple current claimants; retained".into());
+            }
+            claimant = Some((path, bytes, verified));
+        }
+    }
+    let Some((path, bytes, verified)) = claimant else {
+        return Ok(false);
+    };
+    if old.schedule.state != WorkState::Completed {
+        if !old.retained_executions.is_empty()
+            || home
+                .join("state")
+                .join(format!(".spawn-{task}.intent"))
+                .exists()
+        {
+            return Err(format!(
+                "unfinished task {task} has retained or replacement work; reconcile its exact lifecycle owner before upgrade"
+            ));
+        }
+        inspect_released_upgrade_admission(root_home, home, &old, endpoint, inspection)?;
+        inspection.interruptions.insert(
+            old_path.clone(),
+            InterruptedUpgradeExecution {
+                task: task.into(),
+                endpoint: endpoint.into(),
+                current_owner: verified.clone(),
+            },
+        );
+        inspection.standing.insert(
+            old_path.clone(),
+            format!("{:x}", Sha256::digest(&old_bytes)),
+        );
+        inspection.inert.insert(old_path.clone(), format!("INTERRUPT task {task}: released execution endpoint {endpoint} reused by {}; detach stale endpoint and record failed interruption; preserve work and decisions", verified.task));
+    }
+    inspection.snapshots.insert(old_path.clone(), old_bytes);
+    inspection.snapshots.insert(path.clone(), bytes);
+    inspection.tasks.insert(path);
+    if old.schedule.state == WorkState::Completed {
+        inspection.inert.insert(old_path, format!("historical endpoint {endpoint} for completed task {task}; current verified owner {} is handled separately", verified.task));
+    }
+    Ok(true)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn inspect_execution(
     runtime_root: &Path,
@@ -1632,6 +1973,7 @@ fn inspect_execution(
     endpoint: &str,
     cwd: Option<&Path>,
     backend_home: Option<&Path>,
+    root_home: &Path,
     inspection: &mut RetainedUsers,
 ) -> Result<(), String> {
     let observed = multplx_backend::facade::observe_endpoint_for_home(
@@ -1645,6 +1987,17 @@ fn inspect_execution(
         format!("cannot verify recorded task endpoint {backend} {endpoint} for task {task}: {e}")
     })?;
     if !observed.exists {
+        return Ok(());
+    }
+    if inspect_reused_upgrade_endpoint(
+        runtime_root,
+        root_home,
+        home,
+        task,
+        backend,
+        endpoint,
+        inspection,
+    )? {
         return Ok(());
     }
     if !inspection.preview {
@@ -1820,6 +2173,7 @@ fn inspect_retained_users(
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
         entries.sort_by_key(|entry| entry.file_name());
+        let mut receipts = Vec::new();
         for (index, entry) in entries.into_iter().enumerate() {
             if index >= 1024 {
                 return Err(format!(
@@ -1846,7 +2200,11 @@ fn inspect_retained_users(
                 ));
             }
             let action = read_action(&context, id).map_err(|e| format!("spawn receipt {} is uncertain: {e}; reconcile this exact launch before upgrade", path.display()))?.ok_or("spawn receipt disappeared during inspection")?;
-            if action.stage != LaunchStage::Running
+            receipts.push((path, action));
+        }
+        let all_actions: Vec<_> = receipts.iter().map(|(_, action)| action.clone()).collect();
+        for (path, action) in receipts {
+            if !matches!(action.stage, LaunchStage::Running | LaunchStage::Reserved)
                 || action.backend != action.binding.runtime.provider
                 || action.binding.legacy_unknown
                 || action.binding.owning_coordinator.is_some()
@@ -1865,6 +2223,21 @@ fn inspect_retained_users(
             }
             let task_path = home.join("state").join(format!("{}.meta", action.task_id));
             inspection.tasks.insert(task_path.clone());
+            if action.stage == LaunchStage::Reserved {
+                inspect_reserved_upgrade_action(&context, root_home, &action, &all_actions, inspection)
+                    .map_err(|e| format!("spawn receipt {} cannot be retained safely: {e}; recover this exact reservation through spawn before upgrade", path.display()))?;
+                inspection.snapshots.insert(
+                    path.clone(),
+                    multplx_core::filesystem::read_bounded_regular(&path, 1024 * 1024)
+                        .map_err(|e| e.to_string())?,
+                );
+                inspection
+                    .standing
+                    .insert(path.clone(), "unsubmitted".into());
+                inspection.inert.insert(path, format!("unsubmitted successor {}: preserved for explicit spawn recovery; no endpoint was submitted", action.task_id));
+                launch_actions.push(action);
+                continue;
+            }
             let endpoint = action
                 .endpoint
                 .as_deref()
@@ -1875,6 +2248,15 @@ fn inspect_retained_users(
                 multplx_core::filesystem::read_bounded_regular(&path, 1024 * 1024)
                     .map_err(|e| e.to_string())?,
             );
+            if multplx_domain::lifecycle::teardown::inspect_reconciled_upgrade_launch(
+                &context.state,
+                &action,
+                inspection.snapshots.get(&path).expect("receipt snapshot"),
+            )? {
+                inspection.inert.insert(path.clone(), format!("reconciled interrupted historical launch {}: work retained for explicit recovery",action.task_id));
+                launch_actions.push(action);
+                continue;
+            }
             let canonical_cwd = action
                 .binding
                 .allocation
@@ -1900,6 +2282,7 @@ fn inspect_retained_users(
                 endpoint,
                 action_cwd,
                 action.binding.persistent_home.as_deref().map(Path::new),
+                root_home,
                 inspection,
             )
             .map_err(|e| format!("launch receipt {}: {e}", path.display()))?;
@@ -2126,6 +2509,7 @@ fn retained_worker_is_quiescent(
                 .map(|a| Path::new(&a.path))
                 .or_else(|| record.persistent_home.as_deref().map(Path::new)),
             record.persistent_home.as_deref().map(Path::new),
+            root_home,
             inspection,
         )?;
     }
@@ -2139,6 +2523,7 @@ fn retained_worker_is_quiescent(
                 endpoint,
                 retained.allocation.as_ref().map(|a| Path::new(&a.path)),
                 record.persistent_home.as_deref().map(Path::new),
+                root_home,
                 inspection,
             )?;
         }
@@ -2654,6 +3039,29 @@ fn apply_generation(
                         if &current != approved {
                             return Err("runtime users changed after upgrade consent; rerun upgrade to review the current exact users; nothing was stopped".into());
                         }
+                        for (path, interruption) in &approved.interruptions {
+                            multplx_backend::upgrade_stop::recheck(&interruption.current_owner)?;
+                            let expected = approved
+                                .snapshots
+                                .get(path)
+                                .ok_or("interrupted task snapshot missing")?;
+                            let state = path.parent().ok_or("interrupted task state missing")?;
+                            let mut launches = BTreeMap::new();
+                            for (source, bytes) in &approved.snapshots {
+                                if source.parent() != Some(state.join(".spawn-actions").as_path()) {
+                                    continue;
+                                }
+                                let action: multplx_domain::lifecycle::spawn::LaunchAction =
+                                    serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+                                if action.task_id == interruption.task
+                                    && action.endpoint.as_deref() == Some(&interruption.endpoint)
+                                {
+                                    launches.insert(action.request_id, bytes.clone());
+                                }
+                            }
+                            multplx_domain::lifecycle::teardown::interrupt_reused_execution_for_upgrade(state,&interruption.task,expected,&interruption.endpoint,
+                                &multplx_backend::upgrade_stop::execution_fingerprint(&interruption.current_owner)?,&launches)?;
+                        }
                         for primary in approved.primaries.values() {
                             multplx_backend::harness_launch::stop_upgrade_primary(primary)?;
                             multplx_backend::harness_launch::reconcile_stopped_upgrade_launch(
@@ -2688,12 +3096,27 @@ fn apply_generation(
                         ));
                     }
                 }
+                let mut reconciled_users = RetainedUsers::default();
+                let reconciled_standing =
+                    if approved_users.is_some_and(|users| !users.interruptions.is_empty()) {
+                        inspect_retained_users(
+                            &read_path_file(&config_dir.join("root"))?,
+                            home,
+                            home,
+                            None,
+                            true,
+                            &mut reconciled_users,
+                        )?;
+                        Some(&reconciled_users.standing)
+                    } else {
+                        approved_standing
+                    };
                 if let Err(message) = require_packaged_runtime_quiescent_mode(
                     &read_path_file(&config_dir.join("root"))?,
                     home,
                     allow_stopped_workers,
                     approved_stale_launch,
-                    approved_standing,
+                    reconciled_standing,
                 ) {
                     remove_transaction(&transaction)?;
                     return Err(message);
@@ -3524,6 +3947,9 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                         if live { "owned" } else { "stopped" },
                         path.display()
                     );
+                }
+                for (path, detail) in &retained.inert {
+                    eprintln!("  RETAIN {detail} ({})", path.display());
                 }
                 for target in &retained.stops {
                     eprintln!(

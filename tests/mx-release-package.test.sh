@@ -1029,6 +1029,71 @@ if upgrade_standing --allow-stopped-agents >"$TMP_ROOT/standing-lease.out" 2>"$T
   fail 'standing consent accepted changed owned home lease'
 fi
 cp "$TMP_ROOT/standing-lease.before" "$install/data/home/data/.home-allocation-$standing.json"
+# An abandoned generation-2 Reserved receipt uses an unrelated request name.
+# Keep its exact owner retry boundary across negative consent and repeat upgrades.
+python3 - "$install/data/home" "$standing" <<'PY_FIXTURE'
+from pathlib import Path
+import copy,json,sys
+home=Path(sys.argv[1]); task=sys.argv[2]; state=home/'state'
+current=json.loads(next(l.split('=',1)[1] for l in (state/(task+'.meta')).read_text().splitlines() if l.startswith('canonical_model=')))
+reserved=copy.deepcopy(current)
+reserved['retained_executions'].append({'attempt':copy.deepcopy(current['attempt']),'runtime':copy.deepcopy(current['runtime']),'allocation':copy.deepcopy(current['allocation'])})
+reserved['prior_attempts'].append(copy.deepcopy(current['attempt']))
+reserved['attempt']={'id':'attempt-upgrade-reserved-fixture','generation':current['attempt']['generation']+1,'brief_revision':current['accepted_brief_revision']}
+reserved['runtime']['endpoint']=None;reserved['runtime']['session_id']=None;reserved['allocation']=None
+reserved['delivery']['current_commit']=None;reserved['schedule']['state']='runnable';reserved['schedule']['waiting_condition']=None
+request='custom-upgrade-successor'
+(state/('.spawn-'+task+'.intent')).write_text(json.dumps(reserved))
+(state/('.spawn-'+task+'.operation')).write_text(json.dumps({'expected_attempt':current['attempt']['id'],'backend':'tmux','request_id':None}))
+(state/'.spawn-actions'/(request+'.json')).write_text(json.dumps({'version':1,'request_id':request,'task_id':task,'binding':reserved,'backend':'tmux','worktree':None,'endpoint':None,'stage':'reserved','detail':None}))
+admission=json.loads((state/'.admissions'/(task+'.json')).read_text())
+admission.update(request_id=request,attempt_id=reserved['attempt']['id'],state='reserved',endpoint=None,allocation_id=None,owner={'pid':999999999,'marker':'fixture-absent-creator'})
+(state/'.admissions'/(request+'.json')).write_text(json.dumps(admission))
+PY_FIXTURE
+reservation_receipt="$install/data/home/state/.spawn-actions/custom-upgrade-successor.json"
+cp "$reservation_receipt" "$TMP_ROOT/reservation.before"
+for answer in n EOF; do
+  if output=$(run_tty_confirmation "$answer" env -u MX_HOME -u MX_ROOT_OVERRIDE -u MX_STATE_OVERRIDE -u MX_CONFIG_OVERRIDE "$package/bin/mx" launcher-install --upgrade --package "$package" \
+      --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" 2>&1); then fail 'inert reservation accepted negative consent'; fi
+  assert_contains "$output" 'unsubmitted successor standing-upgrade' 'reserved receipt blocked before preview'
+  assert_contains "$output" '[y/N]' 'reserved successor did not reach confirmation'
+  cmp -s "$TMP_ROOT/reservation.before" "$reservation_receipt" || fail 'negative consent altered reserved receipt'
+done
+for mutate in submitted endpoint creator foreign operation; do
+  cp "$reservation_receipt" "$TMP_ROOT/reservation.restore"
+  cp "$install/data/home/state/.admissions/custom-upgrade-successor.json" "$TMP_ROOT/admission.restore"
+  cp "$install/data/home/state/.spawn-$standing.operation" "$TMP_ROOT/operation.restore"
+  python3 - "$install/data/home/state" "$mutate" "$$" <<'PY_NEGATIVE'
+from pathlib import Path
+import json,sys,subprocess
+state=Path(sys.argv[1]); mode=sys.argv[2]
+path=state/'.spawn-actions/custom-upgrade-successor.json'
+a=json.loads(path.read_text())
+if mode=='submitted':a['stage']='submitted'
+if mode=='endpoint':a['endpoint']='broker:uncertain'
+if mode=='foreign':a['binding']['owner_home']='/foreign'
+path.write_text(json.dumps(a))
+if mode=='creator':
+ p=state/'.admissions/custom-upgrade-successor.json';a=json.loads(p.read_text());pid=int(sys.argv[3])
+ if sys.platform=='linux':
+  proc=Path('/proc')/str(pid);start=proc.joinpath('stat').read_text().rsplit(')',1)[1].split()[19];marker='linux-starttime='+start+' cmdline-hex='+proc.joinpath('cmdline').read_bytes().hex()
+ else:marker=subprocess.check_output(['ps','-p',str(pid),'-o','lstart=','-o','command=']).decode().lstrip().rstrip('\n')
+ a['owner']={'pid':pid,'marker':marker};p.write_text(json.dumps(a))
+if mode=='operation':
+ p=state/'.spawn-standing-upgrade.operation';a=json.loads(p.read_text());a['expected_attempt']='foreign-attempt';p.write_text(json.dumps(a))
+PY_NEGATIVE
+  if upgrade_standing --allow-stopped-agents >/dev/null 2>"$TMP_ROOT/reservation-negative.err"; then fail "reservation accepted $mutate"; fi
+  cp "$TMP_ROOT/reservation.restore" "$reservation_receipt"
+  cp "$TMP_ROOT/admission.restore" "$install/data/home/state/.admissions/custom-upgrade-successor.json"
+  cp "$TMP_ROOT/operation.restore" "$install/data/home/state/.spawn-$standing.operation"
+done
+upgrade_standing --allow-stopped-agents >/dev/null || fail 'exact inert reserved successor refused upgrade'
+upgrade_standing --allow-stopped-agents >/dev/null || fail 'repeat upgrade refused retained successor'
+cmp -s "$TMP_ROOT/reservation.before" "$reservation_receipt" || fail 'upgrade altered reserved receipt'
+cmp -s "$TMP_ROOT/standing-meta.before" "$standing_meta" || fail 'reservation upgrade altered predecessor'
+rm "$reservation_receipt" "$install/data/home/state/.spawn-$standing.intent" "$install/data/home/state/.spawn-$standing.operation" "$install/data/home/state/.admissions/custom-upgrade-successor.json"
+pass 'custom-ID Reserved successor reaches default-No consent, is preserved across upgrades, and uncertain bindings refuse'
+
 # Aggregate a stale launcher and stopped standing worker into one prompt.
 printf '{"schema":"mx-workspace-launch.v1","owner":{"pid":%s,"started":"retired-lifetime"}}\n' \
   "$$" >"$install/data/home/state/workspace-launch.json"

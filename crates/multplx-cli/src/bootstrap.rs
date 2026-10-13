@@ -1636,6 +1636,77 @@ mod tests {
     }
 
     #[test]
+    fn upgrade_reconciled_interruption_never_probes_or_relaunches_reused_endpoint() {
+        use multplx_domain::lifecycle::{
+            spawn::{LaunchAction, LaunchStage},
+            subagent_model::{ArtifactKind, AssignmentRole, TaskRecord, WorkState, write_meta},
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let fixture = paths(temp.path());
+        fs::create_dir_all(fixture.state.join(".spawn-actions")).unwrap();
+        let mut record = TaskRecord::new(
+            "interrupted".into(),
+            AssignmentRole::Researcher,
+            ArtifactKind::Report,
+            true,
+            "root".into(),
+            "root".into(),
+            fixture.home.to_string_lossy().into_owned(),
+        );
+        record.runtime.provider = "tmux".into();
+        record.runtime.endpoint = Some("broker:reused".into());
+        record.schedule.state = WorkState::Running;
+        let original = write_meta(
+            "kind=daemon\nwindow=broker:reused\nbackend=tmux\nharness=codex\n",
+            &record,
+        )
+        .unwrap();
+        fs::write(fixture.state.join("interrupted.meta"), &original).unwrap();
+        let action = LaunchAction {
+            version: 1,
+            request_id: "custom-interrupted".into(),
+            task_id: record.task_id.clone(),
+            binding: record,
+            backend: "tmux".into(),
+            endpoint: Some("broker:reused".into()),
+            worktree: None,
+            stage: LaunchStage::Running,
+            detail: None,
+        };
+        let bytes = serde_json::to_vec(&action).unwrap();
+        fs::write(
+            fixture.state.join(".spawn-actions/custom-interrupted.json"),
+            &bytes,
+        )
+        .unwrap();
+        multplx_domain::lifecycle::teardown::interrupt_reused_execution_for_upgrade(
+            &fixture.state,
+            "interrupted",
+            original.as_bytes(),
+            "broker:reused",
+            &"a".repeat(64),
+            &std::collections::BTreeMap::from([("custom-interrupted".into(), bytes)]),
+        )
+        .unwrap();
+        let before = fs::read(fixture.state.join("interrupted.meta")).unwrap();
+        for _ in 0..2 {
+            let mut output = String::new();
+            daemon_liveness_with(
+                &fixture,
+                &mut output,
+                true,
+                |_, _| panic!("detached interrupted endpoint must never be observed"),
+                |_, _| panic!("reused endpoint must never be killed"),
+            );
+            assert!(!output.contains("respawn"));
+            assert_eq!(
+                fs::read(fixture.state.join("interrupted.meta")).unwrap(),
+                before
+            );
+        }
+    }
+
+    #[test]
     fn completed_standing_assignments_never_probe_kill_or_spawn_automatically() {
         use multplx_domain::lifecycle::subagent_model::{
             ArtifactKind, AssignmentRole, TaskRecord, WorkState, write_meta,

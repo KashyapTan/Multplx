@@ -127,13 +127,13 @@ if cmd==('pane','get'):
 elif cmd==('pane','process-info'):
     result={'result':{'process_info':{'pane_id':'w-test:p1','shell_pid':int(os.environ['MX_UPGRADE_NATIVE_PID'])}}}
 elif cmd==('workspace','list'):
-    spaces=[{'workspace_id':'w-test','label':'agent-standing-upgrade'}]
+    spaces=[{'workspace_id':'w-test','label':'agent-'+os.environ.get('MX_UPGRADE_TASK_LABEL','standing-upgrade')}]
     if projected:
         spaces=[{'workspace_id':'parent','label':'agent-standing-upgrade','focused':not active and not moved,'active_tab_id':'parent:t1'}, {'workspace_id':'w-test','label':'└ standing-upgrade · p:abcdefghijklmnopqrstuv','focused':active,'active_tab_id':'w-test:t1'}, {'workspace_id':'other','label':'unrelated','focused':moved,'active_tab_id':'other:t1'}]
     result={'result':{'workspaces':spaces}}
 elif cmd==('tab','list'):
     workspace=args[args.index('--workspace')+1] if '--workspace' in args else 'w-test'
-    result={'result':{'tabs':[{'tab_id':workspace+':t1','label':'mx-standing-upgrade' if workspace=='w-test' else 'unrelated','focused':active if workspace=='w-test' else (moved if workspace=='other' else not active and not moved)}]}}
+    result={'result':{'tabs':[{'tab_id':workspace+':t1','label':'mx-'+os.environ.get('MX_UPGRADE_TASK_LABEL','standing-upgrade') if workspace=='w-test' else 'unrelated','focused':active if workspace=='w-test' else (moved if workspace=='other' else not active and not moved)}]}}
 elif cmd==('tab','get'):
     result={'result':{'tab':{'tab_id':'parent:t1','workspace_id':'parent'}}}
 elif cmd==('tab','focus'):
@@ -186,6 +186,7 @@ PY
   upgrade_standing --stop-managed-sessions --allow-stopped-agents >/dev/null || fail 'actual Herdr shape with no pane-get shell_pid blocked safe stop'
   [ -e "$MX_UPGRADE_HERDR_FIXTURE/gone" ] || fail 'Herdr exact pane stop was not observed'
   run_upgrade_herdr_projection_checks
+  run_upgrade_reused_endpoint_checks
   cp "$TMP_ROOT/herdr-action.before" "$action"
   cp "$TMP_ROOT/herdr-meta.before" "$standing_meta"
   unset MX_HERDR_BIN MX_UPGRADE_HERDR_FIXTURE MX_UPGRADE_TEST_CWD MX_UPGRADE_NATIVE_PID
@@ -325,4 +326,99 @@ PY
   [ ! -e "$install/data/home/state/workspace-launch.json" ] || fail 'stopped primary launch reservation not reconciled'
   [ -f "$install/data/home/state/workspace-connection.json" ] || fail 'primary stop discarded connection history'
   pass 'registered primary stop previews exact lifetime and reconciles its reservation without discarding history'
+}
+
+run_upgrade_reused_endpoint_checks() {
+  local output root_state="$install/data/home/state" owner=endpoint-owner nested=interrupted-child
+  local owner_home="$TMP_ROOT/endpoint-owner-home"
+  cp "$standing_meta" "$TMP_ROOT/reuse-standing.before"
+  mkdir -p "$owner_home/state" "$owner_home/data" "$owner_home/config"
+  printf 'endpoint-owner\n' >"$owner_home/.mx-agent-home"
+  export MX_UPGRADE_TASK_LABEL="$owner" MX_UPGRADE_TEST_CWD="$owner_home"
+  rm -f "$MX_UPGRADE_HERDR_FIXTURE/gone" "$MX_UPGRADE_HERDR_FIXTURE/close.log"
+  python3 - "$standing_meta" "$owner_home" "$standing_home" <<'PY_REUSE'
+import copy,json,pathlib,sys
+meta=pathlib.Path(sys.argv[1]);owner_home=pathlib.Path(sys.argv[2]);child_home=pathlib.Path(sys.argv[3]);state=meta.parent
+current=json.loads(next(l.split('=',1)[1] for l in meta.read_text().splitlines() if l.startswith('canonical_model=')))
+def write(path,r):
+ path.write_text('schema_version=2\ncanonical_model='+json.dumps(r,separators=(',',':'))+'\nbackend=herdr\n'+('window='+r['runtime']['endpoint']+'\n' if r['runtime']['endpoint'] else ''))
+# Completed old record: its historical receipt still names the reused pane.
+current['schedule']['state']='completed';write(meta,current)
+owner=copy.deepcopy(current);owner.update(task_id='endpoint-owner',persistent=False,private_home=False,home_allocation=None,persistent_home=str(owner_home))
+owner['attempt']['id']='attempt-endpoint-owner';owner['schedule']['state']='running';write(state/'endpoint-owner.meta',owner)
+# A child in a different owner state claims the same recycled ID, but its exact
+# released root admission proves the original execution is already gone.
+nested=copy.deepcopy(current);nested.update(task_id='interrupted-child',persistent=False,private_home=False,home_allocation=None,persistent_home=str(child_home/'nested-cwd'),owner_home=str(child_home),owner_state=str(child_home/'state'),parent_id='standing-upgrade',parent_home=str(state.parent),parent_state=str(state))
+pathlib.Path(nested['persistent_home']).mkdir()
+nested['attempt']['id']='attempt-interrupted-child';nested['schedule']['state']='running'
+nested['schedule']['decisions']=[{'id':'retained-choice','task_id':'interrupted-child','brief_revision':nested['accepted_brief_revision'],'workflow_revision':None,'question':'Retain this unresolved choice','answer':None}]
+write(child_home/'state/interrupted-child.meta',nested)
+(child_home/'state/interrupted-child.status').write_text('running: interrupted fixture\n')
+a={'version':1,'request_id':'custom-child-request','task_id':'interrupted-child','binding':nested,'backend':'herdr','endpoint':nested['runtime']['endpoint'],'worktree':nested['persistent_home'],'stage':'running','detail':None}
+(child_home/'state/.spawn-actions/custom-child-request.json').write_text(json.dumps(a))
+admission=json.loads((state/'.admissions/standing-upgrade.json').read_text())
+admission.update(request_id='custom-child-request',task_id='interrupted-child',owner_home=str(child_home),owner_state=str(child_home/'state'),attempt_id=nested['attempt']['id'],backend='herdr',endpoint=nested['runtime']['endpoint'],allocation_id=None,state='released',owner={'pid':999999999,'marker':'absent-original-creator'})
+(state/'.admissions/custom-child-request.json').write_text(json.dumps(admission))
+PY_REUSE
+  cp "$standing_home/state/$nested.meta" "$TMP_ROOT/reuse-nested.before"
+  cp "$root_state/.admissions/custom-child-request.json" "$TMP_ROOT/reuse-admission.before"
+  for answer in n EOF; do
+    if output=$(run_tty_confirmation "$answer" env -u MX_HOME -u MX_ROOT_OVERRIDE -u MX_STATE_OVERRIDE -u MX_CONFIG_OVERRIDE "$package/bin/mx" launcher-install --upgrade --package "$package" \
+        --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" 2>&1); then fail 'reused endpoint accepted negative consent'; fi
+    assert_contains "$output" 'historical endpoint default:w-test:p1 for completed task standing-upgrade' 'completed reused endpoint was not recognized'
+    assert_contains "$output" 'INTERRUPT task interrupted-child' 'released nested execution did not reach consent'
+    assert_contains "$output" 'STOP task endpoint-owner' 'current pane owner omitted from preview'
+    if printf '%s' "$output" | grep -q 'STOP task standing-upgrade\|STOP task interrupted-child'; then fail 'stale task gained stop authority'; fi
+    [ ! -e "$MX_UPGRADE_HERDR_FIXTURE/close.log" ] || fail 'negative consent stopped reused pane'
+    cmp -s "$TMP_ROOT/reuse-nested.before" "$standing_home/state/$nested.meta" || fail 'negative consent changed interrupted task'
+  done
+  cp "$root_state/$owner.meta" "$TMP_ROOT/reuse-owner.before"
+  cat >"$TMP_ROOT/change-reused-claimant" <<'HOOK'
+#!/usr/bin/env python3
+import json,os,pathlib
+p=pathlib.Path(os.environ['MX_UPGRADE_OWNER_META']);rows=p.read_text().splitlines()
+for i,line in enumerate(rows):
+ if line.startswith('canonical_model='):
+  r=json.loads(line.split('=',1)[1]);r['schedule']['priority']+=1;rows[i]='canonical_model='+json.dumps(r,separators=(',',':'))
+p.write_text('\n'.join(rows)+'\n')
+HOOK
+  chmod +x "$TMP_ROOT/change-reused-claimant"
+  export MX_TEST_CONFIRM_HOOK="$TMP_ROOT/change-reused-claimant" MX_UPGRADE_OWNER_META="$root_state/$owner.meta"
+  if output=$(run_tty_confirmation y env -u MX_HOME -u MX_ROOT_OVERRIDE -u MX_STATE_OVERRIDE -u MX_CONFIG_OVERRIDE "$package/bin/mx" launcher-install --upgrade --package "$package" \
+      --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" 2>&1); then fail 'changed reused claimant accepted old consent'; fi
+  unset MX_TEST_CONFIRM_HOOK MX_UPGRADE_OWNER_META
+  assert_contains "$output" 'changed after upgrade consent' 'changed reused claimant lacked retry diagnostic'
+  [ ! -e "$MX_UPGRADE_HERDR_FIXTURE/close.log" ] || fail 'changed claimant stopped reused pane'
+  cmp -s "$TMP_ROOT/reuse-nested.before" "$standing_home/state/$nested.meta" || fail 'changed claimant consent altered nested task'
+  cp "$TMP_ROOT/reuse-owner.before" "$root_state/$owner.meta"
+  jq '.state="active"' "$TMP_ROOT/reuse-admission.before" >"$root_state/.admissions/custom-child-request.json"
+  if upgrade_standing --allow-stopped-agents --stop-managed-sessions >/dev/null 2>&1; then fail 'unreleased reused execution accepted'; fi
+  cp "$TMP_ROOT/reuse-admission.before" "$root_state/.admissions/custom-child-request.json"
+  cp "$root_state/$owner.meta" "$TMP_ROOT/reuse-owner.before"
+  printf 'corrupt claimant\n' >"$root_state/$owner.meta"
+  if upgrade_standing --allow-stopped-agents --stop-managed-sessions >/dev/null 2>&1; then fail 'corrupt current claimant accepted'; fi
+  cp "$TMP_ROOT/reuse-owner.before" "$root_state/$owner.meta"
+  # The real exact proof must reject a different allocation directory.
+  export MX_UPGRADE_TEST_CWD="$standing_home"
+  if upgrade_standing --allow-stopped-agents --stop-managed-sessions >/dev/null 2>&1; then fail 'mismatched current claimant directory accepted'; fi
+  export MX_UPGRADE_TEST_CWD="$owner_home"
+  upgrade_standing --allow-stopped-agents --stop-managed-sessions >/dev/null || fail 'proven reused nested execution refused consent'
+  python3 - "$standing_home/state/$nested.meta" "$TMP_ROOT/reuse-nested.before" <<'PY_VERIFY'
+import json,pathlib,sys
+def model(p):return json.loads(next(l.split('=',1)[1] for l in pathlib.Path(p).read_text().splitlines() if l.startswith('canonical_model=')))
+a,b=map(model,sys.argv[1:]);assert a['runtime']['endpoint'] is None
+assert a['schedule']['state']=='waiting-human' and a['schedule']['waiting_condition']=='retained-choice'
+for field in ['attempt','briefs','allocation','delivery','prior_attempts']:assert a[field]==b[field],field
+assert a['schedule']['decisions']==b['schedule']['decisions']
+PY_VERIFY
+  assert_grep 'failed: upgrade' "$standing_home/state/$nested.status" 'interrupted task lacks failed disposition'
+  upgrade_standing --allow-stopped-agents >/dev/null || fail 'repeat upgrade rejected reconciled historical child receipt'
+  [ -f "$standing_home/state/.spawn-actions/custom-child-request.json" ] || fail 'reconciliation discarded historical launch receipt'
+  rm "$root_state/$owner.meta" "$root_state/.admissions/custom-child-request.json" "$standing_home/state/$nested.meta" "$standing_home/state/$nested.status" "$standing_home/state/.spawn-actions/custom-child-request.json"
+  # Fixture-only cleanup retains the originals in TMP_ROOT until test completion.
+  rm "$standing_home/state"/.upgrade-reconcile.interrupted-child.*.json "$standing_home/state/.transitions"/upgrade-interrupt-interrupted-child-*.json
+  cp "$TMP_ROOT/reuse-standing.before" "$standing_meta"
+  export MX_UPGRADE_TEST_CWD="$standing_home"
+  unset MX_UPGRADE_TASK_LABEL
+  pass 'reused endpoint uses exact current owner; released nested interruption confirms, retains decisions/history, and permits repeat upgrade'
 }

@@ -155,6 +155,31 @@ fn herdr_process(home: &Path, endpoint: &str, cwd: &Path) -> Result<HerdrTermina
         process,
     })
 }
+/// Inventory check for a preallocation reservation whose receipt has no endpoint.
+/// This is read-only and grants no authority to stop or discard an external outcome.
+pub fn require_unsubmitted_task_absent(
+    root: &Path,
+    home: &Path,
+    task: &str,
+    backend: &str,
+    predecessor_endpoint: Option<&str>,
+) -> Result<(), String> {
+    let name = BackendName::parse(backend).map_err(|e| e.to_string())?;
+    let label = format!("mx-{task}");
+    let live = scoped_backend(
+        name,
+        root,
+        home,
+        predecessor_endpoint.unwrap_or("default:reserved"),
+    )
+    .list_live(None)
+    .map_err(|e| e.to_string())?;
+    if live.iter().any(|entry| entry.label == label) {
+        return Err("reservation has a matching live task endpoint; external creation outcome is retained for spawn recovery".into());
+    }
+    Ok(())
+}
+
 /// Bind a live execution to its recorded task, exact allocation and physical home.
 /// A mere matching endpoint name is insufficient authority to stop it.
 pub fn inspect(
@@ -328,6 +353,25 @@ pub fn execution_fingerprint(target: &VerifiedEndpoint) -> Result<String, String
     .map_err(|e| e.to_string())?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
+/// Revalidate a proof without stopping its current execution.
+pub fn recheck(approved: &VerifiedEndpoint) -> Result<(), String> {
+    let current = inspect(
+        &approved.root,
+        &approved.home,
+        &approved.backend_home,
+        &approved.task,
+        &approved.backend,
+        &approved.endpoint,
+        &approved.cwd,
+    )?;
+    if &current != approved {
+        return Err(
+            "approved runtime execution changed; rerun upgrade to review current users".into(),
+        );
+    }
+    Ok(())
+}
+
 /// Recheck the entire approved execution proof, stop only its immutable endpoint,
 /// and require exact disappearance. No records or homes are retired.
 pub fn stop(approved: &VerifiedEndpoint) -> Result<(), String> {

@@ -184,6 +184,16 @@ Yes stops only the verified approved executions through their owners, checks qui
 No or EOF leaves live sessions and durable task state untouched.
 Upgrade preserves every task record, pending task, private home and worktree; it does not retire agents or mark work complete.
 Exact retired-home receipts and unsubmitted successor reservations can be retained as stopped historical ownership only when their predecessor, route, lease and fresh endpoint checks agree.
+A preallocation Reserved successor also requires its exact owner intent, frozen replacement operation and matching root admission, a proven absent creator process lifetime, and no matching live task in backend inventory.
+The preview identifies this as an unsubmitted successor preserved for explicit spawn recovery; upgrade neither deletes its retry boundary nor launches it.
+Custom launch request names are matched by typed task and attempt identity, rather than filename prefixes.
+A historical endpoint reused by another task is recognized only when that task has a current canonical record in the same root portfolio and passes the backend's exact physical execution proof in a different directory.
+The preview lists stopping under the current owner's identity; the historical task never grants stop authority over the reused pane.
+For an unfinished historical task, automatic interruption additionally requires its unique exact released root admission, absent creator lifetime, and no retained execution or replacement intent.
+Consent records a failed interruption, detaches the obsolete endpoint, preserves pending decisions, work, allocations and historical receipts, and leaves explicit recovery pending instead of marking the task complete.
+A task with an unanswered decision continues waiting for that decision.
+The lifecycle owner stores the original metadata and status bytes in a recoverable filesystem transition, with a task-bound reconciliation receipt; an interrupted transition can resume after fresh proof and consent on the next upgrade.
+Repeated upgrades recognize the exact reconciled launch as historical, and bootstrap skips its detached endpoint rather than reusing or relaunching it.
 Malformed or unmatched intents and orphan launch receipts require explicit owner reconciliation; upgrade never deletes these records.
 Uncertain inventory, malformed or foreign ownership, transferred authority and unknown native executions remain refused with exact inspection guidance.
 Switch away from an active Herdr projected task tab before retrying, so its presentation owner can preserve focus while closing the exact task pane.
