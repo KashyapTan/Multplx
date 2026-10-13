@@ -85,9 +85,31 @@ The observation-age header continues to advance on a `304` response.
 Failed state responses also carry a bounded, single-line `X-Multplx-Refresh-Error` value so a client can explain why its last-good snapshot remains stale.
 `/api/meta` exposes refresh attempts, successes, failures, cache hits, stale serves, initial unavailability, conditional responses, and last/maximum refresh latency for verification.
 The canonical snapshot JSON is embedded byte-for-byte without a dashboard-side parser or reshaping pass.
+The additive envelope `forge_observations` contains bounded read-only GitHub PR observations, keyed by the exact canonical URL.
+The delivery-domain parser validates the returned URL, head commit and open, closed or merged state.
+The Viz service caches these disposable observations for `MX_VIZ_FORGE_REFRESH_SECS` (default 60, range 10-3600 seconds), with one shared three-second collection budget and at most 100 distinct PR reads per refresh.
+Further PRs retain explicit unknown or stale observations when the budget or read limit is reached.
+Authentication, access, timeout and malformed responses remain explicit unknown observations; a failed read never proves a merge.
+An expired observation that the budget cannot refresh is labeled stale with its age and original observation time.
+The service does not mutate canonical task or delivery records, and page rendering performs no forge request.
+A remote head that differs from the revision-bound delivery commit cannot prove that the current task revision landed.
+A later open observation replaces an earlier closed observation so reopened work returns to view.
 
 The page uses the canonical `mx-portfolio.v1` task projection as its overview.
+Active work is the default view; finished assignments appear in a separate collapsed history section.
+Unresolved or historical execution observations remain discoverable in a separate reconciliation group.
 Tasks are grouped by stable project identity and ordered by numeric priority, while task, session and attempt counts remain distinct.
+Each assignment has one plain primary status; runtime observation quality, scheduling facts, worker availability and retained session evidence appear in details.
+A worker done report establishes a reported outcome, and the canonical completed schedule establishes implementation completion; neither proves that the parent validated and delivered its complete job.
+A provider turn ending and a local validation run finishing remain separate `session-turn-ended` and `validation-complete` observations.
+Neither supplies a worker delivery report or parent verification.
+A standing worker can remain available after its assignment finishes.
+The catchup projection reports a standing worker’s currently observed own assignment separately from its private home’s child-work queue, so an empty child queue does not erase an active worker.
+Its `decisions_open` list retains canonical unanswered portfolio questions, their qualified task identity and parent answer route independently of runtime activity or implementation completion.
+The task projection preserves `observation` and `completion` separately from schedule state and snapshot collection freshness.
+`observation.collected_at` is the collector time, while an unrecorded underlying event time and age stay null.
+Historical status and run-step observations do not become proof of a currently working model.
+A `native-event` source means the actor-state owner read the provider native-state API during collection; it is distinct from an old parent status event.
 Search and project, state, role and priority filters operate on that projection.
 Expanding a task shows its owner, current and prior attempts, sessions, workflow stage, dependencies, nested task lineage, revision-bound decisions, allocation observation, evidence and delivery.
 Domain cards use the canonical domain projection and show coordinator identity, parent-channel delivery backlog and partial observation.
@@ -96,14 +118,19 @@ Focus, expanded rows and filter values survive meaningful snapshot updates.
 Up and Down move between task summaries, Enter or Space expands the focused task, `/` focuses search, and Escape clears an active search.
 Narrow layouts collapse detail and side panels to one column without hiding role or freshness labels.
 Loading, empty, unavailable, partial, stale and refresh-error states are shown explicitly.
+A failed refresh remains reported while a retry is in flight; only a successful refresh clears its error.
 Decision and delivery items link to their task without exposing approve, defer, merge or write actions.
 Task labels prefer the backlog title, then the task or charter section of the accepted brief; the complete scope remains available through the brief evidence.
 Human Attention contains explicit unanswered questions and published PRs that the canonical review queue records as ready with an actual HTTP(S) PR URL.
-Question cards display “Answer needed”, the question and “Reply in main orchestrator chat”; PR cards display “PR ready for review”, a concise task label, the actual PR link and “Review and merge if satisfied”.
-Missing checks, blocking dependencies, review findings and unrecorded reviews stay in task details unless they carry an explicit human question.
+Question cards display the actual unanswered question and “Answer question in main orchestrator chat”; PR cards display the verified PR title and actual PR link with “Review linked PR”.
+A current unanswered canonical question keeps its assignment active even when implementation is complete or its PR is merged.
+Questions bound to superseded accepted brief revisions remain labeled superseded in task details and do not request an answer for the current assignment.
+Missing checks, blocking dependencies and review findings appear as task status labels.
+Only a current canonical question or a verified ready PR advertises a human action.
 Attention cards bound title and question previews to readable lines and retain the complete original text in a keyboard-accessible disclosure with a bounded scroll region.
 Open attention disclosures, keyboard focus and scroll position survive snapshot updates by qualified task and decision identity.
-The client extracts a useful task or charter label from historical multiline or flattened briefs and falls back to the task ID when only instruction text is available.
+The client extracts a useful task or charter label from historical multiline or flattened briefs and uses a readable identity when only instruction text is available.
+Full assignment descriptions remain available in a bounded disclosure.
 Original task text remains accessible in task details even when the task has no human action.
 Untrusted titles, questions and details remain literal text.
 Displayed timestamps use the browser's local time zone, a 12-hour clock, and omit the year.
@@ -167,9 +194,19 @@ Older connection records without home/state bindings require a new managed prima
 The collector bounds this one owner probe to two seconds and 16 KiB, without scanning unrelated processes or exposing command lines, process identity markers, terminal routes or conversation text.
 Snapshot/cache freshness remains separate from primary health: fresh evidence can report an unavailable or stale primary, and a stale cached live observation is historical evidence.
 A worker's assignment state is separate from its observed sessions; a queued assignment, completed task or retained home is not presented as a currently running model.
-Opaque native observations do not become invented agent nodes.
+The additive `portfolio.native_children` projection exposes provider-supplied child session identities under their exact canonical task and attempt.
+A uniquely matched provider parent-session identity can connect an observed nested session to another observed session within that task and attempt.
+These observed native sessions are separate from canonical tasks and carry lifecycle evidence with unknown current activity; a result or interrupted event never completes the owning assignment.
+Historical attempts remain labeled historical, and session-bound recovery does not imply resumability.
+Opaque native observations without child identity or exact attempt remain explicit `opaque` records and task details, rather than invented agent nodes.
 
-Connections use home-qualified task identity and recorded coordinator home ownership.
+Connections use home-qualified task identity and verified registered home ownership for every assignment role.
+The additive `descendants` projection traverses ordinary worker homes as well as coordinator homes, with one global record, depth and time budget.
+Modern routes require an active home allocation with matching owner and directory identity; legacy routes require a canonical task with the exact owner and persistent home.
+`ownership_verified` records exact route validation separately from the child observation `valid` flag, so a partial portfolio does not erase verified lineage.
+Duplicate homes, cycles, registry failures, unknown ownership and failed child observations remain explicit unresolved records.
+Descendant portfolios are merged by qualified task key, including active children of completed parents.
+The domain projection reuses those observations rather than collecting each coordinator home twice.
 Same-named tasks in different homes remain separate.
 Unknown parents, conflicting identities and cycles remain visibly unresolved instead of being attached to a guessed owner.
 A partial or truncated snapshot is labeled; the graph cannot display records the collector did not provide.
@@ -181,9 +218,10 @@ There are no spawn, nudge, stop, approve, drain, or other mutation endpoints.
 The only filesystem mutation is the dashboard's private lifecycle record under `state/.viz/`.
 
 Artifact browsing is limited to regular files whose canonical paths remain inside the repository's `data/` or `docs/` directory, the configured home's `data/` or `state/brief-revisions/` directory, or those same directories in a currently validated direct or nested coordinator home.
-Portfolio brief, research and report pointers receive opaque, exact-file browser routes only when the task's owning home and canonical file pass those containment checks.
+Portfolio brief, research, report and native provider artifact pointers receive opaque, exact-file browser routes only when the task's owning home and canonical file pass those containment checks.
+An external provider transcript path remains visible as its original pointer and receives no browser route when it falls outside the owned allowlist.
 The response envelope preserves each artifact's original snapshot `source_path` and supplies its opaque `url` so the client can enrich the matching canonical pointer without changing the shared projection; the server retains the validated canonical path internally.
-Nested coordinator homes receive routes only when the canonical projection publishes `coordinator.validated_home`; invalid, unknown and external owner paths remain visible as snapshot pointers and never become file-serving routes.
+Nested homes receive routes only when the canonical projection publishes `coordinator.validated_home` or a verified `descendants.records[].validated_home`; invalid, unknown and external owner paths remain visible as snapshot pointers and never become file-serving routes.
 Traversal segments, malformed escapes, absolute-path attempts, missing files, and symlinks that escape an allowed root are refused.
 Artifact links open in a near-fullscreen in-page viewer.
 Markdown is rendered into safe DOM nodes, while HTML is loaded in a scriptless sandbox with a deny-by-default content policy that permits same-origin assets, data images and fonts, and authored styles.
@@ -199,3 +237,5 @@ The exact key set and serialization are owned by `multplx-services::local_servic
 A dead or identity-mismatched record is removed without signaling the recorded PID.
 The server removes a record during shutdown only when both its token and PID match, so an older generation cannot erase a replacement record.
 `bin/mx-doctor.sh` includes this location in its orphan-server invariant check.
+
+[Active dashboard regression evidence](verification/viz-active-dashboard.md) records the synthetic desktop/mobile screenshots and actual Rust service browser checks.

@@ -218,3 +218,33 @@ dialog.dialog-fullscreen #dialog-body { flex: 1; min-height: 0; overflow: auto; 
   .age-chip { order: 3; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+
+/* Keep historical and diagnostic material available without filling the overview. */
+.history-panel { margin-top: 16px; border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: rgba(17,24,35,.7); }
+.history-panel > summary { color: var(--muted); font-size: 13px; }
+.history-panel[open] > summary { margin-bottom: 12px; }
+.history-panel > p { color: var(--muted); font-size: 12px; }
+.technical-details { min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.technical-details > summary { color: var(--muted); font-size: 12px; }
+.technical-details .detail-section, .technical-details > .fact-grid { margin-top: 10px; }
+.task-description { margin: 10px 0 0; max-height: 10rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; }
+.counts { flex-basis: 460px; grid-template-columns: repeat(4, minmax(70px, 1fr)); }
+.agent-card-title { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.evidence-row { overflow-wrap: anywhere; }
+@media (max-width: 700px) { .counts { flex-basis: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); } .section-meta { white-space: normal; text-align: right; } }
+
+@media (max-width: 700px) {
+  .agents-canvas { min-width: 0; }
+  .agent-children { grid-template-columns: minmax(0, 1fr); }
+  .agent-card-facts .chip { white-space: normal; }
+}
+
+.skip-link { top: -100px; transform: none; }
+.skip-link:focus { top: 8px; }
+
+.attention-pr-label { grid-column: 1 / -1; color: var(--blue); font-size: 12px; overflow-wrap: anywhere; }
+.root-observation-details { min-width: 0; font-size: 11px; color: var(--muted); }
+.root-observation-details > .fact-grid { margin-top: 8px; }
+
+.skip-link { clip-path: inset(50%); }
+.skip-link:focus { clip-path: none; }

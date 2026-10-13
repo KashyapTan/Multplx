@@ -170,3 +170,48 @@ for (const status of ["live", "unregistered", "stale", "unavailable"]) {
   fixture.primary.identity_verified = false;
   if (status === "live") assert.equal(normalize(fixture).root.state, "unknown");
 }
+
+{
+  const parent = task("standing-worker");
+  const childHome = "/mx/standing-worker";
+  const nestedHome = "/mx/standing-worker/nested";
+  const child = task("child", childHome, `root-home:${childHome}`);
+  const nested = task("nested-child", nestedHome, "root");
+  const fixture = snapshot([parent, child, nested]);
+  fixture.descendants = { complete: true, records: [
+    { parent_home: home, parent_task_key: parent.key, home: childHome, validated_home: childHome, valid: true },
+    { parent_home: childHome, parent_task_key: child.key, home: nestedHome, validated_home: nestedHome, valid: true },
+  ] };
+  const graph = normalize(fixture);
+  assert.equal(graph.unresolved.length, 0);
+  assert.equal(graph.root.children[0].children[0].key, child.key);
+  assert.equal(graph.root.children[0].children[0].children[0].key, nested.key);
+  fixture.descendants.records[1].validated_home = "/different";
+  assert.equal(normalize(fixture).unresolved.length, 1, "unvalidated descendant route is not inferred");
+}
+
+{
+  const owner = task("parent");
+  const childHome = "/mx/worker";
+  const localCollision = task("parent", childHome);
+  const child = task("child", childHome, "parent", { owner: { home: childHome, parent_home: home } });
+  const graph = normalize(snapshot([owner, localCollision, child]));
+  assert.equal(graph.nodes.find((node) => node.id === "child").parentKey, owner.key);
+  child.owner.parent_home = "/missing";
+  assert.match(normalize(snapshot([owner, localCollision, child])).nodes.find((node) => node.id === "child").unresolved, /recorded parent route/);
+}
+
+{
+  const owner = task("native-owner");
+  const fixture = snapshot([owner]);
+  fixture.portfolio.native_children = { records: [
+    { key: "native:first", parent_task_key: owner.key, provider: "codex", child_id: "child-1", state: "started", current_attempt: true },
+    { key: "native:nested", parent_task_key: owner.key, parent_native_key: "native:first", provider: "codex", child_id: "child-2", state: "result", current_attempt: true },
+  ], opaque: [{ parent_task_key: owner.key, reason: "identity unavailable" }] };
+  const graph = normalize(fixture);
+  assert.equal(graph.nativeCount, 2);
+  assert.equal(graph.root.children[0].children[0].kind, "native");
+  assert.equal(graph.root.children[0].children[0].children[0].key, "native:nested");
+  assert.equal(graph.nodes.filter((node) => node.kind === "task").length, 1, "native observations do not become extra tasks");
+  assert.equal(graph.opaqueNative.length, 1);
+}

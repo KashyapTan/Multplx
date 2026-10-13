@@ -8,6 +8,51 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+fn current_standing_assignment(task: &Value) -> bool {
+    task["kind"] == "daemon"
+        && matches!(
+            task.pointer("/coordination/role").and_then(Value::as_str),
+            Some("implementer" | "researcher" | "reviewer")
+        )
+        && task
+            .pointer("/coordination/schedule/state")
+            .and_then(Value::as_str)
+            .is_some_and(|state| !matches!(state, "completed" | "cancelled" | "failed"))
+        && task.pointer("/current_state/state").and_then(Value::as_str) == Some("working")
+        && matches!(
+            task.pointer("/current_state/source")
+                .and_then(Value::as_str),
+            Some("native-event" | "pane" | "backend")
+        )
+}
+
+fn canonical_questions(root: &Value) -> Vec<Value> {
+    let mut seen = BTreeSet::new();
+    let mut questions = Vec::new();
+    for task in array(root.pointer("/portfolio/tasks")) {
+        for decision in array(task.get("decisions")) {
+            if decision["source"].as_str() == Some("coordination")
+                && decision["brief_revision"].as_u64().is_some()
+                && decision["answer"].is_null()
+                && !matches!(
+                    decision["state"].as_str(),
+                    Some("superseded" | "cancelled" | "answered")
+                )
+                && decision["question"]
+                    .as_str()
+                    .is_some_and(|question| !question.trim().is_empty())
+            {
+                let task_key = nonnull_str(task.get("key"));
+                let decision_id = nonnull_str(decision.get("id"));
+                if seen.insert((task_key.clone(), decision_id.clone())) {
+                    questions.push(json!({"id":task["id"],"task_key":task_key,"key":decision_id,"verb":"needs-decision","question":decision["question"],"summary":truncate(&nonnull_str(decision.get("question")),90),"owner":task.pointer("/owner/home"),"brief_revision":decision["brief_revision"],"waiting_since":decision["waiting_since"],"answer_via":"Reply in main orchestrator chat; the parent records the answer through this task's owning decision channel"}));
+                }
+            }
+        }
+    }
+    questions
+}
+
 pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, String, String) {
     let mut json_output = false;
     let mut include_prs = false;
@@ -143,9 +188,23 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
             json!({"id":task["id"],"kind":task["kind"],"state":task["current_state"]["state"],"doing":truncate(&doing,90)})
         })
         .collect::<Vec<_>>();
+    for task in tasks
+        .iter()
+        .filter(|task| current_standing_assignment(task))
+    {
+        in_flight.push(json!({"id":task["id"],"kind":"daemon","state":"working-own-assignment","doing":truncate(&value_or(task.pointer("/current_state/detail"),"Working on its accepted assignment"),90),"source":task.pointer("/current_state/source"),"child_work":false}));
+    }
     for daemon in &daemons {
         if daemon_status_state(daemon) == "active_child_work" {
-            in_flight.push(json!({"id":daemon["id"],"kind":"daemon","state":"active_child_work","doing":truncate(&daemon_active_summary(daemon),90)}));
+            if let Some(own) = in_flight
+                .iter_mut()
+                .find(|row| row["id"] == daemon["id"] && row["state"] == "working-own-assignment")
+            {
+                own["child_work"] = json!(true);
+                own["child_work_summary"] = json!(truncate(&daemon_active_summary(daemon), 90));
+            } else {
+                in_flight.push(json!({"id":daemon["id"],"kind":"daemon","state":"active_child_work","doing":truncate(&daemon_active_summary(daemon),90)}));
+            }
         }
     }
 
@@ -165,6 +224,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
             }
         }
     }
+    decisions.extend(canonical_questions(&root));
     let mut gates = Vec::new();
     if root
         .pointer("/main_inventory/valid")
@@ -226,7 +286,15 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
     }
     for daemon in &daemons {
         let state = daemon_status_state(daemon);
-        daemon_rows.push(json!({"id":daemon["id"],"state":state,"doing":truncate(&daemon_doing(daemon,&state),120),"provenance":daemon.pointer("/provenance/selected").cloned().unwrap_or(Value::String("unknown".into())),"freshness":daemon.pointer("/freshness/status").cloned().unwrap_or(Value::String("unknown".into())),"age_seconds":daemon.pointer("/freshness/age_seconds").cloned().unwrap_or(Value::Null),"contradiction":daemon.get("contradiction").cloned().unwrap_or(Value::Bool(false)),"reason":value_or(daemon.pointer("/current/reason"),"-")}));
+        let own_assignment = tasks
+            .iter()
+            .find(|task| task["id"] == daemon["id"] && current_standing_assignment(task));
+        let doing = if own_assignment.is_some() {
+            format!("Own assignment working; {}", daemon_doing(daemon, &state))
+        } else {
+            daemon_doing(daemon, &state)
+        };
+        daemon_rows.push(json!({"id":daemon["id"],"state":state,"assignment_observation":own_assignment.map(|task|task["current_state"].clone()),"doing":truncate(&doing,120),"provenance":daemon.pointer("/provenance/selected").cloned().unwrap_or(Value::String("unknown".into())),"freshness":daemon.pointer("/freshness/status").cloned().unwrap_or(Value::String("unknown".into())),"age_seconds":daemon.pointer("/freshness/age_seconds").cloned().unwrap_or(Value::Null),"contradiction":daemon.get("contradiction").cloned().unwrap_or(Value::Bool(false)),"reason":value_or(daemon.pointer("/current/reason"),"-")}));
     }
     let reports = root
         .get("scout_reports")
@@ -321,8 +389,10 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
             "schema":portfolio["schema"],
             "freshness":portfolio["freshness"],
             "counts":portfolio["counts"],
+            "native_children":portfolio["native_children"],
             "tasks":portfolio["tasks"].as_array().map(|tasks| tasks.iter().map(|task| json!({
                 "key":task["key"],"id":task["id"],"title":task["title"],"state":task["state"],
+                "observation":task["observation"],"completion":task["completion"],"waiting_condition":task["waiting_condition"],
                 "project":task.pointer("/project/id"),"role":task["role"],"attempt":task["attempt"],
                 "workflow":{"id":task.pointer("/workflow/id"),"current_stage":task.pointer("/workflow/current_stage")},
                 "dependencies":task["dependencies"],"decisions":task["decisions"],
@@ -875,4 +945,49 @@ fn toon_quote(value: &str) -> String {
 }
 fn usage() -> String {
     "usage: mx-status-snapshot.sh [--json] [--include-prs] [--fields <list>] [--all-in-flight] [--all-decisions] [--all-agents] [--all-landed] [--all-reports] [--all-queued] [--all-recorded-prs] [--all-unhealthy] [--all-pr-repos]\n\nJSON and default output share the same bounded task-first portfolio summary. Use mx-system-snapshot.sh --json for the full canonical portfolio detail.\n".into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn canonical_questions_survive_finished_or_unavailable_sessions_until_answered() {
+        let mut root = json!({"portfolio":{"tasks":[{"key":"home#task:worker","id":"worker","state":"completed","owner":{"home":"home"},"observation":{"quality":"unknown"},"decisions":[{"id":"choice","question":"Use cached or live data?","answer":null,"brief_revision":2,"source":"coordination"}]}]}});
+        let questions = canonical_questions(&root);
+        assert_eq!(questions.len(), 1);
+        assert_eq!(questions[0]["question"], "Use cached or live data?");
+        assert_eq!(questions[0]["task_key"], "home#task:worker");
+        assert_eq!(questions[0]["brief_revision"], 2);
+        assert!(
+            questions[0]["answer_via"]
+                .as_str()
+                .unwrap()
+                .contains("parent records")
+        );
+        root["portfolio"]["tasks"][0]["decisions"][0]["source"] = json!("status-event");
+        assert!(canonical_questions(&root).is_empty());
+        root["portfolio"]["tasks"][0]["decisions"][0]["source"] = json!("coordination");
+        root["portfolio"]["tasks"][0]["decisions"][0]["state"] = json!("superseded");
+        assert!(canonical_questions(&root).is_empty());
+        root["portfolio"]["tasks"][0]["decisions"][0]["state"] = json!("open");
+        root["portfolio"]["tasks"][0]["decisions"][0]["answer"] = json!({"text":"cached"});
+        assert!(canonical_questions(&root).is_empty());
+    }
+
+    #[test]
+    fn standing_workers_own_assignment_activity_is_not_their_child_home_queue() {
+        let mut task = json!({"kind":"daemon","coordination":{"role":"implementer","schedule":{"state":"runnable"}},"current_state":{"state":"working","source":"native-event"}});
+        assert!(current_standing_assignment(&task));
+        task["current_state"]["source"] = json!("status-log");
+        assert!(!current_standing_assignment(&task));
+        task["current_state"]["source"] = json!("native-event");
+        task["coordination"]["schedule"]["state"] = json!("completed");
+        assert!(!current_standing_assignment(&task));
+        task["coordination"]["schedule"]["state"] = json!("runnable");
+        task["coordination"]["role"] = json!("sub-orchestrator");
+        assert!(!current_standing_assignment(&task));
+        task["coordination"]["role"] = json!("implementer");
+        task["current_state"]["state"] = json!("unknown");
+        assert!(!current_standing_assignment(&task));
+    }
 }

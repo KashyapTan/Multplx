@@ -28,7 +28,7 @@
         <div>
           <span class="eyebrow">Workspace overview</span>
           <h1 id="page-title">Task portfolio</h1>
-          <p class="hero-copy">Tasks are counted once. Sessions, retries, roles and workflow stages stay inside their owning task.</p>
+          <p class="hero-copy">Active work and actions that need you. Expand an assignment for its description and evidence.</p>
         </div>
         <dl id="portfolio-counts" class="counts" aria-label="Portfolio counts"></dl>
       </section>
@@ -40,6 +40,8 @@
         </div>
         <div id="attention-list" class="attention-list"></div>
       </section>
+
+      <div id="state-banner" class="state-banner loading" role="status">Loading the shared projection…</div>
 
       <nav class="view-switch" aria-label="Workspace view">
         <button id="tasks-view-button" class="view-tab selected" type="button" aria-pressed="true">Tasks</button>
@@ -72,6 +74,15 @@
           <p>These records remain visible without an inferred parent connection.</p>
           <div id="agents-unresolved" class="agents-unresolved-list"></div>
         </section>
+        <details id="agent-reconciliation" class="history-panel" hidden>
+          <summary id="agent-reconciliation-label">Needs reconciliation</summary>
+          <div id="agent-reconciliation-list" class="agents-unresolved-list"></div>
+        </details>
+        <details id="agent-history" class="history-panel">
+          <summary id="agent-history-label">History</summary>
+          <p>Completed assignments, agent references and session details remain available here.</p>
+          <div id="agent-history-list" class="agents-unresolved-list"></div>
+        </details>
       </section>
 
       <section id="tasks-view" class="workspace" aria-label="Task portfolio browser">
@@ -85,20 +96,27 @@
             <button id="clear-filters" class="ghost-btn" type="button">Clear</button>
           </form>
 
-          <div id="state-banner" class="state-banner loading" role="status">Loading the shared projection…</div>
           <div id="task-summary" class="result-summary" aria-live="polite"></div>
           <div id="task-list" class="task-groups" tabindex="-1"></div>
+          <details id="task-reconciliation" class="history-panel" hidden>
+            <summary id="task-reconciliation-label">Needs reconciliation</summary>
+            <div id="task-reconciliation-list" class="task-groups"></div>
+          </details>
+          <details id="task-history" class="history-panel">
+            <summary id="task-history-label">History</summary>
+            <div id="task-history-list" class="task-groups"></div>
+          </details>
         </div>
 
         <aside class="side-column">
-          <section class="panel" aria-labelledby="domains-title">
+          <details class="panel" aria-labelledby="domains-title"><summary>Ownership and allocations</summary>
             <div class="section-heading"><div><span class="eyebrow">Ownership</span><h2 id="domains-title">Domains and allocations</h2></div></div>
             <div id="domains" class="side-list"></div>
-          </section>
-          <section class="panel" aria-labelledby="artifacts-title">
+          </details>
+          <details class="panel" aria-labelledby="artifacts-title"><summary>Artifacts and transcripts</summary>
             <div class="section-heading"><div><span class="eyebrow">Read-only browser</span><h2 id="artifacts-title">Artifacts</h2></div></div>
             <div id="artifacts" class="side-list"></div>
-          </section>
+          </details>
         </aside>
       </section>
     </main>

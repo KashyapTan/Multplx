@@ -136,6 +136,19 @@
       }
     });
 
+    const nativeRows = rows(portfolio?.native_children?.records);
+    for (const record of nativeRows) {
+      const parentKey = text(record?.parent_task_key);
+      const owner = parentKey && sourceKeys.get(parentKey);
+      const key = text(record?.key);
+      if (!key || !text(record?.child_id) || owner?.length !== 1 || nodes.some((node) => node.key === key)) continue;
+      nodes.push({ key, sourceKey: key, id: record.child_id, title: `${record.provider || "Provider"} observed session`,
+        kind: "native", role: "observed native session", home: owner[0].home, state: text(record.state) || "unknown",
+        freshness: "activity unknown", provider: text(record.provider), session: "activity unknown",
+        sessionDetails: `Recorded ${record.state || "unknown"} event; current activity and liveness are not observed.`,
+        task: owner[0].task, native: record, order: owner[0].order + .5, parentKey: text(record.parent_native_key) || parentKey,
+        children: [], unresolved: null, issues: [], });
+    }
     const byKey = new Map(nodes.map((node) => [node.key, node]));
     const runtimeOwners = new Map();
     for (const node of nodes) {
@@ -151,10 +164,34 @@
       }
     }
 
+    // Registered standing workers may own children without a coordinator domain.
+    // Use only the backend-validated exact parent route; never infer from folder names.
+    for (const descendant of rows(snapshot?.descendants?.records)) {
+      const runtimeHome = text(descendant?.home);
+      const parentKey = text(descendant?.parent_task_key);
+      const owners = parentKey ? sourceKeys.get(parentKey) : null;
+      if ((descendant?.ownership_verified === true || (descendant?.ownership_verified === undefined && descendant?.valid === true)) && runtimeHome && runtimeHome === text(descendant?.validated_home)
+          && owners?.length === 1 && text(descendant?.parent_home) === owners[0].home) {
+        if (!runtimeOwners.has(runtimeHome)) runtimeOwners.set(runtimeHome, []);
+        if (!runtimeOwners.get(runtimeHome).includes(owners[0])) runtimeOwners.get(runtimeHome).push(owners[0]);
+      }
+    }
+
     function parentFor(node) {
       if (!node.home) return { issue: "owner home unavailable" };
       const task = node.task;
       const reference = text(task?.parent_id) || text(task?.owner?.parent_id) || text(task?.owner?.coordinator);
+      const parentHome = text(task?.owner?.parent_home) || text(task?.parent_home);
+      if (parentHome && reference) {
+        if (reference === "root" || reference === `root-home:${parentHome}`) {
+          if (parentHome === rootHome) return { key: rootKey };
+          const owners = runtimeOwners.get(parentHome);
+          return owners?.length === 1 ? { key: owners[0].key } : { issue: "recorded parent home has no unique validated owner" };
+        }
+        const exact = sourceKeys.get(reference) || homeIds.get(`${parentHome}\u0000${reference}`);
+        if (exact?.length === 1 && exact[0].home === parentHome) return { key: exact[0].key };
+        return { issue: exact?.length > 1 ? "ambiguous recorded parent route" : "recorded parent route not found or conflicts with parent home" };
+      }
       if (!reference) {
         if (rootHome && node.home === rootHome && text(task?.root_id) === rootRef) return { key: rootKey };
         return { issue: "parent owner unavailable" };
@@ -189,6 +226,7 @@
     }
 
     for (const node of nodes) {
+      if (node.kind === "native") continue;
       if (node.issues.length) {
         node.unresolved = node.issues[0];
         continue;
@@ -199,6 +237,16 @@
         continue;
       }
       node.parentKey = parent.key;
+    }
+
+    for (const node of nodes.filter((candidate) => candidate.kind === "native")) {
+      if (node.native.parent_native_key) {
+        const parent = byKey.get(node.native.parent_native_key);
+        if (parent?.kind !== "native" || parent.native.parent_task_key !== node.native.parent_task_key) {
+          node.parentKey = null;
+          node.unresolved = "recorded native parent is unavailable or conflicts with owner assignment";
+        }
+      }
     }
 
     const visiting = new Map();
@@ -250,22 +298,27 @@
     sortTree(root);
     unresolved.sort((left, right) => left.order - right.order || left.key.localeCompare(right.key));
 
-    const total = Number.isSafeInteger(portfolio?.counts?.records) ? portfolio.counts.records : nodes.length;
+    const canonicalCount = nodes.filter((node) => node.kind === "task").length;
+    const total = (Number.isSafeInteger(portfolio?.counts?.records) ? portfolio.counts.records : canonicalCount) + nativeRows.length;
     const truncated = Number.isSafeInteger(portfolio?.counts?.truncated) ? portfolio.counts.truncated : Math.max(0, total - nodes.length);
     const freshness = portfolio?.freshness || {};
     const domainsComplete = snapshot?.domains?.complete === true;
-    const partial = freshness.partial === true || truncated > 0 || !domainsComplete;
+    const nativeTruncated = Number(portfolio?.native_children?.truncated) || 0;
+    const partial = freshness.partial === true || truncated > 0 || nativeTruncated > 0 || !domainsComplete;
     return {
       root,
       rootKey,
       nodes,
       unresolved,
       total,
+      nativeCount: nodes.filter((node) => node.kind === "native").length,
+      opaqueNative: rows(portfolio?.native_children?.opaque),
       truncated,
       partial,
       partialReasons: [...new Set([
         ...rows(freshness.reasons).filter((reason) => typeof reason === "string"),
         ...(truncated ? [`${truncated} assignment${truncated === 1 ? "" : "s"} omitted by the portfolio limit`] : []),
+        ...(nativeTruncated ? [`${nativeTruncated} native session observations omitted by the portfolio limit`] : []),
         ...(!domainsComplete ? ["domain projection incomplete or unavailable"] : []),
       ])],
     };

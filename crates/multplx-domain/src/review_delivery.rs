@@ -23,6 +23,39 @@ const MAX_RECORD_BYTES: usize = 64 * 1024;
 pub const POLL_REGISTRATION_VERSION: &str = "mx-pr-poll-registration-v2";
 pub const POLL_RETIREMENT_VERSION: &str = "mx-pr-poll-retirement-v1";
 
+/// Parse a bounded read-only forge response against the requested canonical URL.
+/// An inaccessible, malformed or identity-mismatched response never proves merge.
+pub fn parse_pr_observation(
+    identity: &PrIdentity,
+    bytes: &[u8],
+) -> Result<serde_json::Value, String> {
+    if bytes.len() > 64 * 1024 {
+        return Err("forge observation exceeds byte limit".into());
+    }
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|_| "forge observation is malformed")?;
+    if value["url"].as_str() != Some(identity.url.as_str()) {
+        return Err("forge observation URL does not match requested PR".into());
+    }
+    let state = match value["state"].as_str() {
+        Some("OPEN") => "open",
+        Some("CLOSED") => "closed",
+        Some("MERGED") => "merged",
+        _ => return Err("forge observation state is unknown".into()),
+    };
+    let head = value["headRefOid"]
+        .as_str()
+        .filter(|head| head_valid(head))
+        .ok_or("forge observation head is invalid")?;
+    let title = value["title"]
+        .as_str()
+        .filter(|title| !title.trim().is_empty())
+        .ok_or("forge observation title is missing")?;
+    Ok(
+        serde_json::json!({"url":identity.url,"state":state,"title":title.chars().take(200).collect::<String>(),"head":head}),
+    )
+}
+
 /// A path-safe task identifier accepted by existing operational state.
 ///
 /// New task creation is capped at 64 bytes by `TaskId`, but historical state
@@ -856,6 +889,34 @@ pub fn agent_ambience() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forge_observation_checks_exact_identity_state_and_head() {
+        let identity = PrIdentity::parse("https://github.com/example/project/pull/1").unwrap();
+        let mut value = serde_json::json!({"url":identity.url,"title":"Repair stale Viz","headRefOid":"a".repeat(40),"state":"OPEN"});
+        for (state, expected) in [("OPEN", "open"), ("CLOSED", "closed"), ("MERGED", "merged")] {
+            value["state"] = serde_json::json!(state);
+            assert_eq!(
+                parse_pr_observation(&identity, &serde_json::to_vec(&value).unwrap()).unwrap()["state"],
+                expected
+            );
+        }
+        for (field, replacement) in [
+            ("url", "https://github.com/example/other/pull/1"),
+            ("state", "unknown"),
+            ("headRefOid", "bad"),
+            ("title", ""),
+        ] {
+            let mut invalid = value.clone();
+            invalid[field] = serde_json::json!(replacement);
+            assert!(
+                parse_pr_observation(&identity, &serde_json::to_vec(&invalid).unwrap()).is_err()
+            );
+        }
+        assert!(parse_pr_observation(&identity, b"no access").is_err());
+        assert!(parse_pr_observation(&identity, &vec![b' '; 65537]).is_err());
+    }
+
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     #[test]
