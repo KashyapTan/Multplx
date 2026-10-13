@@ -1551,3 +1551,24 @@ fn codex_default_home_is_not_replaced_by_the_terminal_server_environment() {
         "unset"
     );
 }
+
+#[test]
+fn queued_relative_codex_home_refused_before_task_mutation() {
+    let f = Fixture::new();
+    let template = f.spawn(&[]);
+    let mut command = Command::new(template.get_program());
+    command.current_dir(template.get_current_dir().unwrap());
+    for (key, value) in template.get_envs() {
+        if let Some(value) = value {
+            command.env(key, value);
+        } else {
+            command.env_remove(key);
+        }
+    }
+    command
+        .args(["headroom", "--queue-add", "task"])
+        .arg(&f.project)
+        .args(["--harness", "codex"])
+        .env("CODEX_HOME", "relative");
+    f.refused(run(&mut command), "CODEX_HOME must be absolute");
+}

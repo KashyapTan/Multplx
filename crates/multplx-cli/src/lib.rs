@@ -2670,6 +2670,7 @@ fn queue_spawn(
         &context,
         &settings.actor(multplx_backend::harness::detect()),
     )?;
+    codex_launch_environment(&request.harness, std::env::var_os("CODEX_HOME").as_deref())?;
     let explicit_request_id = admission_request_id
         .map(str::to_owned)
         .or_else(|| std::env::var("MX_ADMISSION_REQUEST_ID").ok());
