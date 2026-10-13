@@ -55,6 +55,7 @@ mod tests {
         calls: Vec<Vec<String>>,
         lost_create: bool,
         corrupt_create: Option<&'static str>,
+        agent_states: std::collections::VecDeque<&'static str>,
     }
     #[derive(Debug, Clone)]
     struct Fake(Arc<Mutex<World>>);
@@ -99,6 +100,8 @@ mod tests {
                         .push(json!({"workspace_id":id,"tab_id":tab,"label":"1","focused":false}));
                     if let Some(fault) = world.corrupt_create.take() {
                         if fault == "nonce" { world.spaces.last_mut().unwrap()["label"] = json!("foreign"); }
+                        if fault == "duplicate" { let duplicate = world.spaces.last().unwrap().clone(); world.spaces.push(duplicate); }
+                        if fault == "empty-id" { world.spaces.last_mut().unwrap()["workspace_id"] = json!(""); }
                         json!({"result":{"workspace":{"workspace_id":if fault == "id" {"human".to_owned()} else {id}},"tab":{"tab_id":tab}}})
                     } else if world.lost_create {
                         world.lost_create = false;
@@ -139,7 +142,11 @@ mod tests {
                     world.tabs.iter().find(|tab| format!("{}:p", tab["tab_id"].as_str().unwrap()) == args[2])
                         .map_or_else(|| json!({"error":{"code":"pane_not_found"}}), |tab| json!({"result":{"pane":{"pane_id":args[2],"tab_id":tab["tab_id"],"workspace_id":tab["workspace_id"]}}}))
                 }
-                ("agent", _) => json!({"error":{"code":"agent_not_found"}}),
+                ("agent", _) => match world.agent_states.pop_front() {
+                    Some("absent") => json!({"error":{"code":"agent_not_found"}}),
+                    Some(status) => json!({"result":{"agent":{"agent_status":status}}}),
+                    None => json!({"error":{"code":"agent_not_found"}}),
+                },
                 other => panic!("unexpected fake call {other:?}: {args:?}"),
             };
             Ok(CommandOutput {
@@ -189,6 +196,7 @@ mod tests {
                 calls: vec![],
                 lost_create: false,
                 corrupt_create: None,
+                agent_states: Default::default(),
             })));
             Self {
                 temp,
@@ -576,7 +584,7 @@ mod tests {
 
     #[test]
     fn contradictory_create_response_never_grants_foreign_rename_or_prune_authority() {
-        for fault in ["id", "nonce"] {
+        for fault in ["id", "nonce", "duplicate", "empty-id"] {
             let f = Fixture::new();
             f.fake.0.lock().unwrap().corrupt_create = Some(fault);
             assert!(f.create(&f.root, "mx-corrupt").is_err());
@@ -599,6 +607,133 @@ mod tests {
                 assert_eq!(f.fake.0.lock().unwrap().spaces.len(), count);
             }
         }
+    }
+
+    #[test]
+    fn shared_recovery_refuses_live_or_changed_agent_without_closing_owned_pane() {
+        for states in [vec!["working"], vec!["absent", "working"]] {
+            let f = Fixture::new();
+            let (workspace, endpoint, lock) = f.create(&f.root, "mx-recover").unwrap();
+            drop(lock);
+            let spec = TaskSpec {
+                label: endpoint.target.expected_label().unwrap().to_owned(),
+                working_directory: f.repo.clone(),
+            };
+            f.fake.0.lock().unwrap().agent_states = states.clone().into();
+            let before = f.fake.0.lock().unwrap().calls.len();
+            let container =
+                ContainerId::for_backend(BackendName::Herdr, format!("named:{workspace}")).unwrap();
+            let result = HerdrBackend::new(f.fake.clone(), "herdr", "named", f.root.clone())
+                .create_task_recover_owned(&container, &spec, &endpoint.tab_id, &endpoint.pane_id);
+            assert!(result.is_err());
+            let world = f.fake.0.lock().unwrap();
+            assert!(
+                world
+                    .tabs
+                    .iter()
+                    .any(|tab| tab["tab_id"] == endpoint.tab_id)
+            );
+            assert!(world.tabs.iter().any(|tab| tab["tab_id"] == "human:t"));
+            assert!(
+                !world.calls[before..]
+                    .iter()
+                    .any(|args| args[0] == "pane" && args[1] == "close")
+            );
+            let creates = world.calls[before..]
+                .iter()
+                .filter(|args| args[0] == "tab" && args[1] == "create")
+                .count();
+            assert_eq!(creates, usize::from(states.len() == 2));
+        }
+    }
+
+    #[test]
+    fn grouped_inventory_is_home_and_session_scoped_with_incomplete_metadata_retained() {
+        let f = Fixture::new();
+        let (_, endpoint, lock) = f.create(&f.root, "mx-inventory").unwrap();
+        drop(lock);
+        let label = endpoint.target.expected_label().unwrap();
+        for (name, text) in [
+            (
+                "owned",
+                format!(
+                    "backend=herdr\nherdr_project_workspace=1\nwindow={}\nherdr_task_label={label}\n",
+                    endpoint.target.endpoint()
+                ),
+            ),
+            (
+                "foreign-session",
+                format!(
+                    "backend=herdr\nherdr_project_workspace=1\nwindow=other:{}\nherdr_task_label={label}\n",
+                    endpoint.pane_id
+                ),
+            ),
+            (
+                "missing-window",
+                "backend=herdr\nherdr_project_workspace=1\nherdr_task_label=mx-incomplete\n".into(),
+            ),
+            (
+                "missing-label",
+                format!(
+                    "backend=herdr\nherdr_project_workspace=1\nwindow={}\n",
+                    endpoint.target.endpoint()
+                ),
+            ),
+        ] {
+            fs::write(f.root.join(format!("state/{name}.meta")), text).unwrap();
+        }
+        let before = f.fake.0.lock().unwrap().calls.len();
+        let mut backend = HerdrBackend::new(f.fake.clone(), "herdr", "original", f.root.clone());
+        let live = backend.list_live_scoped("named").unwrap();
+        assert_eq!(backend.session(), "original");
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].target, endpoint.target);
+        assert_eq!(
+            fs::read_dir(f.root.join("state"))
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "meta"))
+                .count(),
+            4
+        );
+        assert!(
+            !f.fake.0.lock().unwrap().calls[before..]
+                .iter()
+                .any(|args| args[0] == "pane" && args[1] == "close")
+        );
+    }
+
+    #[test]
+    fn changed_checkout_and_non_directory_namespace_fail_before_create_authority() {
+        let f = Fixture::new();
+        let other = f.temp.path().join("other");
+        fs::create_dir(&other).unwrap();
+        git(&other, &["init", "-q"]);
+        let task = TaskSpec {
+            label: "mx-mismatch".into(),
+            working_directory: f.repo.clone(),
+        };
+        let mut backend = HerdrBackend::new(f.fake.clone(), "herdr", "named", f.root.clone());
+        assert!(
+            backend
+                .project_task_create(&f.root, &f.common, &other, &f.root, &task)
+                .is_err()
+        );
+        fs::remove_dir(f.root.join("state")).unwrap();
+        fs::write(f.root.join("state"), "foreign file").unwrap();
+        assert!(f.create(&f.root, "mx-namespace").is_err());
+        assert!(
+            !f.fake
+                .0
+                .lock()
+                .unwrap()
+                .calls
+                .iter()
+                .any(|args| args[0] == "workspace" && args[1] == "create")
+        );
     }
 
     #[test]
