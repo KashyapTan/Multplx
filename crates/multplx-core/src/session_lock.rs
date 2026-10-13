@@ -67,6 +67,14 @@ pub fn harness_command_matches(command: &str, arguments: &str, matcher: &Regex) 
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("");
+    if shell
+        && !matches!(
+            script_name,
+            "codex" | "codex-cli" | "claude" | "cursor-agent" | "pi"
+        )
+    {
+        return false;
+    }
     matcher.is_match(script_name)
         || script.ends_with("/@anthropic-ai/claude-code/cli.js") && matcher.is_match("claude")
         || script.ends_with("/@mariozechner/pi-coding-agent/dist/cli.js") && matcher.is_match("pi")
@@ -422,6 +430,8 @@ mod tests {
             ("/bin/zsh", "zsh -c codex"),
             ("/bin/bash", "bash -s /tmp/codex"),
             ("/bin/bash", "bash /tmp/handle.sh --description codex"),
+            ("/bin/bash", "bash /tmp/mx-codex-helper.sh"),
+            ("/bin/sh", "sh /tmp/notcodex"),
             ("/bin/sh", "sh /tmp/mx-codex-proof/handle.sh"),
         ] {
             assert!(
@@ -433,7 +443,10 @@ mod tests {
         for (command, args) in [
             ("/bin/codex", "codex app-server"),
             ("/bin/bash", "bash /tmp/codex --config arbitrary-payload"),
+            ("/bin/zsh", "zsh /tmp/codex-cli"),
             ("/bin/sh", "sh /tmp/claude"),
+            ("/bin/bash", "bash /tmp/cursor-agent"),
+            ("/bin/sh", "sh /tmp/pi"),
             (
                 "/usr/bin/node",
                 "node /usr/lib/node_modules/@openai/codex/bin/codex.js",

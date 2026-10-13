@@ -2006,6 +2006,8 @@ mod tests {
         );
         for (command, arguments, expected) in [
             ("bash", "bash /tmp/codex", "live"),
+            ("bash", "bash /tmp/mx-codex-helper.sh", "stale"),
+            ("sh", "sh /tmp/notcodex", "stale"),
             ("bash", "bash /tmp/handle.sh --description codex", "stale"),
             ("bash", "bash -c /tmp/codex", "stale"),
             ("bash", "bash -s /tmp/codex", "stale"),

@@ -32,6 +32,10 @@ mx_harness_command_matches() {
     esac
   done
   [ -n "$script" ] || return 1
+  case "$interpreter" in
+    sh|bash|zsh|dash|ksh)
+      case "$(basename "$script")" in codex|codex-cli|claude|cursor-agent|pi) ;; *) return 1 ;; esac ;;
+  esac
   printf '%s' "$(basename "$script")" | grep -qE "$MX_HARNESS_RE" && return 0
   case "$script" in
     */@anthropic-ai/claude-code/cli.js) printf '%s' claude | grep -qE "$MX_HARNESS_RE" ;;
