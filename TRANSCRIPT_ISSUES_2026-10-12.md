@@ -48,7 +48,7 @@ The isolated native probe below uses actual generated launch arguments and nativ
 | IDLE-01 | Installed hooks execute packaged `mx`, but `primary_scope` recognized only a public executable named `multplx` with adjacent config; the git-free installed runtime consequently failed primary scope and Stop exited quietly. Main line 1490 reports ready-for-turn-end with no bridge; line 2607 repeats that state after the human resumption. | Accept only the exact packaged `target/release/mx` using its installer-owned root/config/home binding; retain worker, gate, wrong-home, symlink and foreign-executable refusal tests. |
 | IDLE-02 | The canonical shared Codex launch bundle contains only worker observation/merge handlers, while its launch message promises primary hooks too. Primary idle behavior depends on a separate project hook source and that source's path preconditions. | Include anchored registration, Stop and SessionEnd in the same native-reviewed bundle; hash both new wrappers and binary bytes; skip duplicate tracked primary adapters under shared activation. Disable controls and independent project/user review remain authoritative. |
 | IDLE-03 | A real canonical child report publishes its durable wake; `scan_signals` skips its canonical status endpoint, marks the change routine and parks forever. The Codex bridge only checked wakes before/after that watcher, so no native queue input followed. Actual generated-bundle probe retained the question wake with zero transport receipts and no follow-up turn. | Existing pending current canonical report wakes close the watcher without a second append; acknowledged/progress reports stay quiet. The Codex bridge also observes pending wakes while its watcher lives, using transport receipts to prevent duplicates. |
-| IDLE-04 | Python/node ancestry matched any argument containing a harness name. During the actual native probe, `python /tmp/mx-codex-installed-idle.../handle.py` was mistaken for Codex, and disposition/ack failed with a different harness PID despite correct root ownership. | Match only the executed script basename or known provider package entrypoint; exclude directories, payload arguments and eval/module forms. Mirror the sourced compatibility ABI and test real wrapper shapes. |
+| IDLE-04 | Python/node ancestry matched any argument containing a harness name. During the actual native probe, `python /tmp/mx-codex-installed-idle.../handle.py` was mistaken for Codex, and disposition/ack failed with a different harness PID despite correct root ownership. Backend primary observation independently used the same broad argument matching. Final launcher validation also caught the first tightening incorrectly rejecting an executed shell wrapper named `codex`. | Share executed-script/provider-entrypoint identity across session locks, Codex hook ownership and primary observation; exclude directories, payload arguments and eval/module/stdin forms. Support default shell script wrappers conservatively, rejecting shell options. Check the sourced compatibility ABI against the Rust positive/negative matrix and retain real launcher attach coverage. |
 | DECISION-01 | Player asked `stat-line-market-semantics`; parent sent implementation direction without canonical `parent-channel answer`. Worker informational answer and accepted keyed `resolved` reports left the canonical question unanswered, as designed, but the acceptance UX did not expose this distinction. Raw Player records 1374, 1381, 1388 and 1941 show the sequence. | Preserve the parent answer owner; expose pending current decisions and owner state in report receipts, print the actionable diagnostic on unresolved resolution, and document exact recording before send. This is a discoverability/coordination defect, not authority to derive an answer from worker prose. |
 | DELIVERY-01 | Player publication reports only `PR state recording failed`; the helper invokes PR-check with stderr discarded and collapses the actual cause to a generic error. Raw Player record 1920 demonstrates the hidden failure; subsequent canonical registration eventually succeeds. | Capture bounded registration diagnostics and retain the actual cause in failure evidence. Historical proof does not establish that the unanswered decision caused the registration error. |
 | VIZ-01 | Catchup excludes `kind=daemon` assignments from `in_flight` and only includes daemon child work; persistent workers doing their own task disappear when their child queue is empty (main line 2650). Historical status-log/runtime facts also compete with schedule/completion. | State worker projects current standalone own assignments separately from child work and preserves observation provenance, current versus historical quality and explicit unknown freshness. |
@@ -62,6 +62,14 @@ The isolated native probe below uses actual generated launch arguments and nativ
 
 These changes do not retroactively settle the user's existing wakes or decisions.
 The parent must reconcile those through their recorded owners after an explicitly authorized runtime update/restart; testing does not mutate that portfolio.
+
+The ledger contains 14 confirmed Multplx issues: IDLE-01–04, DECISION-01,
+DELIVERY-01 and STARTUP-01 map to [PR 64](https://github.com/KashyapTan/Multplx/pull/64);
+VIZ-01–07 map to [PR 65](https://github.com/KashyapTan/Multplx/pull/65).
+PR 65's exact `71c3e46` checks passed, including the unchanged 93% line-coverage
+gate (93.01%), all four behavior lanes and required Herdr checks.
+The additional observations below are classified separately rather than counted
+as unresolved Multplx defects.
 
 ## Other transcript friction and scope disposition
 
@@ -89,5 +97,40 @@ The synthetic model does not establish authenticated provider quality or Codex D
 The retained failed probes are under `/private/tmp/mx-codex-installed-idle.COFPGQ`, `V3YYxW` and `uDBeE9`; their failure records show IDLE-03 and IDLE-04 before repair.
 The first successful native proof is `/private/tmp/mx-codex-installed-idle.w0hbME/evidence.json`: question 8,825 ms, completion 8,665 ms, three turns, six synthetic model requests and three tool calls.
 Replay reports cause no new model requests, the unrelated thread receives zero turns, and the root finishes with zero unfinished events.
-Subsequent source-review changes tighten interpreter option/provider identity and avoid rewriting unchanged receipt files during quiet observation; the final proof must be rerun at that final revision.
-Final exact regression outcomes, coverage and CI are appended after validation completes.
+Final independent source review passed at `10c20c88961d8a5773dec1d5b899b001bb92ae94`.
+The final installed proof at that source is
+`/private/tmp/mx-codex-installed-idle-工具 space.ffArSr/evidence.json`:
+question 6,141 ms, completion 8,756 ms, three turns, six model requests and three
+tool calls. It uses canonical package paths containing Unicode and a space.
+The record includes the tested source commit and binary SHA-256.
+It proves native transport and durable wake handling; canonical decision-answer
+semantics are covered separately by the parent-channel tests.
+
+Final local validation passed: strict workspace/all-target/all-feature clippy,
+119 core tests, the primary-observation regression, and 53 integration tests
+across nine targets (canonical notification, Codex idle, information/pause,
+spawn, coordination, parent channels, launcher, workspace and supervision).
+Idle bridge six-unit and bootstrap 22-unit checks also passed during validation;
+the bootstrap contributor verified 15 liveness and 21 sync shell cases.
+Documentation validation passed with 105 surfaces and 596 local links; the
+unchanged shell inventory guard contains 134 scripts.
+
+The original new handoff fixture failed its one-second checkpoint when embedded
+among concurrent parent subprocess tests; the precise contention cause is
+unproven. Logs are retained at `/private/tmp/mx-idle-final-focused.log` and
+`/private/tmp/mx-idle-final-parent-launcher.log`. Its dedicated integration target
+preserves real production wrappers, the same deadline, all queue/acknowledgement
+assertions, and automatic workspace/coverage inclusion. No retry, skip or budget
+was added. An unproven production priority-scan change was removed.
+
+Ambiguous unquoted interpreter script paths containing spaces are conservatively
+rejected because `ps` displays arguments without reliable argv boundaries.
+Direct executable paths with spaces/Unicode, known package entry paths, capital
+framework Python and numeric Python versions are covered; universal wrapper
+support is not claimed.
+
+Earlier full local/remote runs with obsolete source and failures are diagnostic,
+not final validation. Exact final full behavior, Rust platform and unchanged 93%
+coverage results are maintained in the [PR 64 checks and delivery body](https://github.com/KashyapTan/Multplx/pull/64),
+so publishing evidence does not continually restart the same gates. Human merge
+and an explicitly authorized operational runtime update remain separate actions.
