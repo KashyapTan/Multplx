@@ -31,10 +31,10 @@ track_pid() {
 }
 
 start_watcher() {  # <home> <poll-seconds> <output>
-  local home=$1 poll=$2 output=$3
+  local home=$1 poll=$2 output=$3 heartbeat=${4:-999999}
   mkdir -p "$home/state"
   MX_HOME="$home" MX_ROOT_OVERRIDE="$ROOT" MX_POLL="$poll" \
-    MX_SIGNAL_GRACE=0 MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 \
+    MX_SIGNAL_GRACE=0 MX_CHECK_INTERVAL=999999 MX_HEARTBEAT="$heartbeat" \
     "$WATCH" >"$output" 2>"$output.err" &
   WATCHER_PID=$!
   track_pid "$WATCHER_PID"
@@ -162,24 +162,42 @@ test_identity_mismatch_never_signals_decoy() {
 
 test_opt_out_uses_natural_poll() {
   local home="$TMP_ROOT/disabled" id=nudge-disabled-d4 output="$TMP_ROOT/disabled-watch" pid
-  # The poll timer starts before the watcher publishes readiness. Leave enough
-  # room for a load-delayed startup so this assertion measures the nudge path,
-  # not whether the already-running natural timer happened to expire.
-  start_watcher "$home" 8 "$output"
+  # Lock/beat publication precedes the initial status scan. With no events,
+  # a zero heartbeat updates .last-heartbeat at the END of that scan without
+  # waking. Wait for this checkpoint before measuring the opt-out fast path.
+  local checkpoint="$TMP_ROOT/disabled-ready" i=0
+  mkdir -p "$home/state"
+  : > "$home/state/.last-heartbeat"
+  touch -t 199901010000 "$home/state/.last-heartbeat"
+  : > "$checkpoint"
+  touch -t 200001010000 "$checkpoint"
+  start_watcher "$home" 8 "$output" 0
   pid=$WATCHER_PID
   wait_for_watcher "$home" "$pid" || fail "opt-out watcher did not publish a healthy lock"
+  while [ "$i" -lt 100 ] && [ ! "$home/state/.last-heartbeat" -nt "$checkpoint" ]; do
+    kill -0 "$pid" 2>/dev/null || fail "opt-out watcher exited during its initial scan"
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ "$home/state/.last-heartbeat" -nt "$checkpoint" ] \
+    || fail "opt-out watcher did not finish its initial status scan"
   sleep 0.3
 
   MX_NUDGE=0 MX_HOME="$home" MX_TASK_ID="$id" "$REPORT" \
     --id "$id" --state blocked --message "poll fallback" \
     || fail "MX_NUDGE=0 changed mx-report success"
   sleep 0.4
-  kill -0 "$pid" 2>/dev/null || fail "MX_NUDGE=0 woke the watcher before its natural poll"
+  kill -0 "$pid" 2>/dev/null || {
+    cat "$output" "$output.err" >&2
+    fail "MX_NUDGE=0 woke the watcher before its natural poll"
+  }
   [ ! -s "$home/state/.wake-queue" ] \
     || fail "MX_NUDGE=0 enqueued a wake before the natural poll"
 
   wait_for_queue "$home" 100 || fail "natural poll did not pick up an opt-out status event"
   wait "$pid" || fail "natural-poll watcher did not exit cleanly"
+  grep -F $'\tsignal\t' "$home/state/.wake-queue" >/dev/null \
+    || fail "natural poll did not produce the ordinary signal queue record"
   [ "$(cat "$home/state/$id.status")" = "blocked: poll fallback" ] \
     || fail "MX_NUDGE=0 changed the durable status line"
   pass "mx-report: MX_NUDGE=0 disables only the fast path and natural polling still surfaces the event"

@@ -54,6 +54,16 @@ except subprocess.TimeoutExpired as exc:
         process.wait(timeout=1)
     os.close(master)
     sys.exit(124)
+# The child can exit between poll() and the final PTY read. Drain the bytes
+# already queued after wait so a fast cancellation keeps its final diagnostic.
+while select.select([master], [], [], 0)[0]:
+    try:
+        chunk = os.read(master, 4096)
+    except OSError:
+        break
+    if not chunk:
+        break
+    output.extend(chunk)
 os.close(master)
 sys.stdout.buffer.write(output)
 if not sent:

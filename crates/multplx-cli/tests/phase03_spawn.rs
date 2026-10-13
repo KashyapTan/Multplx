@@ -206,6 +206,202 @@ esac
     cmux
 }
 
+#[test]
+fn herdr_repository_launch_preserves_real_allocation_and_nested_owner_routes() {
+    use std::ffi::OsString;
+    let f = Fixture::new();
+    let herdr = f.fake.join("herdr");
+    fs::write(
+        &herdr,
+        include_str!("../../../tests/fixtures/herdr-project-cli.py"),
+    )
+    .unwrap();
+    fs::set_permissions(&herdr, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(f.fake.join("codex"), "#!/bin/sh\necho fixture-codex\n").unwrap();
+    fs::set_permissions(f.fake.join("codex"), fs::Permissions::from_mode(0o755)).unwrap();
+    let state = f.home.join("herdr.json");
+    fs::write(&state, r#"{"next":0,"workspaces":[{"workspace_id":"human","label":"human","focused":true,"active_tab_id":"human:t"}],"tabs":[{"workspace_id":"human","tab_id":"human:t","label":"human","focused":true}],"panes":[{"workspace_id":"human","tab_id":"human:t","pane_id":"human:p","foreground_cwd":"/"}]}"#).unwrap();
+    let command = |id: &str, project: &std::path::Path, options: &[&str]| {
+        let base = f.spawn(&["--backend", "herdr", "--harness", "codex"]);
+        let mut command = Command::new(base.get_program());
+        command.current_dir(base.get_current_dir().unwrap());
+        for (name, value) in base.get_envs() {
+            if let Some(value) = value {
+                command.env(name, value);
+            } else {
+                command.env_remove(name);
+            }
+        }
+        let mut args = base.get_args().map(OsString::from).collect::<Vec<_>>();
+        args[1] = id.into();
+        args[2] = project.as_os_str().to_owned();
+        command
+            .args(args)
+            .args(options)
+            .env("MX_HERDR_BIN", &herdr)
+            .env("HERDR_SESSION", "project-fixture")
+            .env("MX_HERDR_FIXTURE", &state)
+            .env("MX_INERT_START", f.fake.join("inert-terminal-start.sh"))
+            .env("MX_TEST_INERT_PID_LOG", f.home.join("inert-pids"));
+        command
+    };
+    let meta = |home: &std::path::Path, id: &str| {
+        fs::read_to_string(home.join(format!("state/{id}.meta"))).unwrap()
+    };
+    let field = |text: &str, key: &str| {
+        text.lines()
+            .rev()
+            .find_map(|line| line.strip_prefix(key))
+            .unwrap()
+            .to_owned()
+    };
+    success(&mut command("task", &f.project, &[]));
+    let first = meta(&f.home, "task");
+    assert!(first.contains("herdr_project_workspace=1"));
+    assert!(std::path::Path::new(&field(&first, "worktree=")).is_dir());
+    let workspace = field(&first, "herdr_workspace_id=");
+    let private = f.home.parent().unwrap().join("legacy-standing");
+    for directory in ["state", "data", "config", "projects", "bin"] {
+        fs::create_dir_all(private.join(directory)).unwrap();
+    }
+    fs::write(private.join(".mx-agent-home"), "standing\n").unwrap();
+    fs::write(private.join("AGENTS.md"), "# Fixture standing home\n").unwrap();
+    fs::write(
+        private.join("data/charter.md"),
+        "Inspect the fixture repository.\n",
+    )
+    .unwrap();
+    fs::copy(
+        f.home.join("data/projects.json"),
+        private.join("data/projects.json"),
+    )
+    .unwrap();
+    success(&mut command(
+        "standing",
+        &private,
+        &["--persistent", "--role", "researcher", "--output", "report"],
+    ));
+    let parent_text = meta(&f.home, "standing");
+    assert_eq!(field(&parent_text, "herdr_workspace_id="), workspace);
+    let parent = read_meta("standing", &parent_text).unwrap();
+    fs::create_dir_all(private.join("data/nested")).unwrap();
+    fs::write(
+        private.join("data/nested/brief.md"),
+        "Inspect this nested fixture.\n",
+    )
+    .unwrap();
+    let attempt = parent.attempt.as_ref().unwrap();
+    success(
+        command("nested", &f.project, &[])
+            .env("MX_HOME", &private)
+            .env("MX_STATE_OVERRIDE", private.join("state"))
+            .env("MX_DATA_OVERRIDE", private.join("data"))
+            .env("MX_CONFIG_OVERRIDE", private.join("config"))
+            .env("MX_PROJECTS_OVERRIDE", private.join("projects"))
+            .env("MX_REPORT_STATE_OVERRIDE", f.home.join("state"))
+            .env("MX_TASK_ID", "standing")
+            .env("MX_ATTEMPT_ID", &attempt.id)
+            .env("MX_ATTEMPT_GENERATION", attempt.generation.to_string())
+            .env(
+                "MX_BRIEF_REVISION",
+                parent.accepted_brief_revision.unwrap().to_string(),
+            ),
+    );
+    let nested_text = meta(&private, "nested");
+    assert_eq!(field(&nested_text, "herdr_workspace_id="), workspace);
+    let nested = read_meta("nested", &nested_text).unwrap();
+    assert_eq!(nested.root_id, parent.root_id);
+    assert_eq!(nested.owner_home.as_deref(), private.to_str());
+    assert_ne!(nested.owner_home, parent.owner_home);
+    let inventory: serde_json::Value = serde_json::from_slice(&fs::read(&state).unwrap()).unwrap();
+    assert_eq!(inventory["workspaces"].as_array().unwrap().len(), 2);
+    assert_eq!(inventory["panes"].as_array().unwrap().len(), 4);
+    let live = |home: &std::path::Path| {
+        let base = command("task", &f.project, &[]);
+        let mut cli = Command::new(base.get_program());
+        for (name, value) in base.get_envs() {
+            if let Some(value) = value {
+                cli.env(name, value);
+            } else {
+                cli.env_remove(name);
+            }
+        }
+        cli.current_dir(home)
+            .env("MX_HOME", home)
+            .args(["herdr", "list-live", "project-fixture"]);
+        String::from_utf8(success(&mut cli).stdout).unwrap()
+    };
+    let root_live = live(&f.home);
+    assert!(root_live.contains(&field(&first, "herdr_task_label=")));
+    assert!(root_live.contains(&field(&parent_text, "herdr_task_label=")));
+    assert!(!root_live.contains(&field(&nested_text, "herdr_task_label=")));
+    let child_live = live(&private);
+    assert!(child_live.contains(&field(&nested_text, "herdr_task_label=")));
+    assert!(!child_live.contains(&field(&first, "herdr_task_label=")));
+
+    // Automatic cleanup cannot erase a human's restored active shell. Only
+    // canonical explicit teardown may close its own active endpoint, and must
+    // preserve every sibling and private-home endpoint in the shared workspace.
+    let tab = field(&first, "herdr_tab_id=");
+    let pane = field(&first, "herdr_pane_id=");
+    let mut active = inventory.clone();
+    for space in active["workspaces"].as_array_mut().unwrap() {
+        space["focused"] = (space["workspace_id"] == workspace).into();
+        if space["workspace_id"] == workspace {
+            space["active_tab_id"] = tab.clone().into();
+        }
+    }
+    for item in active["tabs"].as_array_mut().unwrap() {
+        item["focused"] = (item["tab_id"] == tab).into();
+    }
+    fs::write(&state, serde_json::to_vec(&active).unwrap()).unwrap();
+    let cli = |args: &[&str]| {
+        let base = command("task", &f.project, &[]);
+        let mut cli = Command::new(base.get_program());
+        cli.current_dir(&f.home);
+        for (name, value) in base.get_envs() {
+            if let Some(value) = value {
+                cli.env(name, value);
+            } else {
+                cli.env_remove(name);
+            }
+        }
+        cli.args(args);
+        cli
+    };
+    success(&mut cli(&["herdr", "kill", &field(&first, "window=")]));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&fs::read(&state).unwrap()).unwrap(),
+        active
+    );
+    assert!(f.home.join("state/task.meta").exists());
+    success(&mut cli(&["teardown", "task"]));
+    assert!(!f.home.join("state/task.meta").exists());
+    let after: serde_json::Value = serde_json::from_slice(&fs::read(&state).unwrap()).unwrap();
+    assert_eq!(after["workspaces"], active["workspaces"]);
+    assert_eq!(after["panes"].as_array().unwrap().len(), 3);
+    assert!(
+        !after["panes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["pane_id"] == pane)
+    );
+    for retained in [
+        "human:p".to_owned(),
+        field(&parent_text, "herdr_pane_id="),
+        field(&nested_text, "herdr_pane_id="),
+    ] {
+        assert!(
+            after["panes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["pane_id"] == retained)
+        );
+    }
+}
+
 fn evidence_request(record: &TaskRecord, commit: &str, evidence_id: &str) -> serde_json::Value {
     let attempt = record.attempt.as_ref().unwrap();
     serde_json::json!({

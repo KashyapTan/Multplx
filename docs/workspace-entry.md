@@ -20,6 +20,8 @@ multplx projects resolve my-app
 Exact aliases, project and checkout identifiers, and validated paths select a known checkout.
 Ambiguous names report candidate paths instead of choosing a clone by basename or remote URL.
 Distinct clones retain distinct checkout identity; linked worktrees share repository identity while retaining separate checkout locations.
+Fresh Herdr task tabs share one repository workspace across those linked worktrees and private standing-agent homes within the same validated root context.
+Different repositories remain separate, and the primary conversation keeps its control workspace; [the backend guide](herdr-backend.md#watching-and-task-containers) owns presentation and exact endpoint recovery.
 The registry revalidates location identity before dispatch and retains history when a checkout is missing or replaced.
 A project context applies to the next request; changing it never rebinds accepted work.
 Outside a repository, the launcher shows the workspace overview without silently selecting the last project.

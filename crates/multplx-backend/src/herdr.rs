@@ -339,6 +339,38 @@ impl<R: CommandRunner> HerdrBackend<R> {
         task: &TaskSpec,
         seeded_tab_id: Option<&str>,
     ) -> Result<HerdrTaskEndpoint, BackendError> {
+        self.create_task_inner(container, task, seeded_tab_id, true, None)
+    }
+
+    /// Create a fresh tab without granting mutable labels authority to replace panes.
+    pub fn create_task_fresh(
+        &mut self,
+        container: &ContainerId,
+        task: &TaskSpec,
+        seeded_tab_id: Option<&str>,
+    ) -> Result<HerdrTaskEndpoint, BackendError> {
+        self.create_task_inner(container, task, seeded_tab_id, false, None)
+    }
+
+    /// Recover only the exact metadata-bound endpoint within a shared workspace.
+    pub fn create_task_recover_owned(
+        &mut self,
+        container: &ContainerId,
+        task: &TaskSpec,
+        prior_tab: &str,
+        prior_pane: &str,
+    ) -> Result<HerdrTaskEndpoint, BackendError> {
+        self.create_task_inner(container, task, None, true, Some((prior_tab, prior_pane)))
+    }
+
+    fn create_task_inner(
+        &mut self,
+        container: &ContainerId,
+        task: &TaskSpec,
+        seeded_tab_id: Option<&str>,
+        replace_husks: bool,
+        owned: Option<(&str, &str)>,
+    ) -> Result<HerdrTaskEndpoint, BackendError> {
         if container.backend() != BackendName::Herdr {
             return Err(BackendError::InvalidContainer(
                 container.as_str().to_owned(),
@@ -352,11 +384,38 @@ impl<R: CommandRunner> HerdrBackend<R> {
                 "could not parse herdr tab list output for workspace {workspace} (session {session})"
             ))
         })?;
+        if let Some((owned_tab, _)) = owned
+            && self.focus_snapshot(session)?.tab_id == owned_tab
+        {
+            return Err(BackendError::Metadata(
+                "shared workspace recovery target is the active tab".to_owned(),
+            ));
+        }
         let duplicates = tabs
             .iter()
             .filter(|tab| string_at(tab, "/label") == Some(task.label.as_str()))
             .filter_map(|tab| string_at(tab, "/tab_id").map(str::to_owned))
             .collect::<Vec<_>>();
+        if let Some((owned_tab, owned_pane)) = owned {
+            if tabs.iter().any(|tab| {
+                string_at(tab, "/tab_id") == Some(owned_tab)
+                    && string_at(tab, "/label") != Some(task.label.as_str())
+            }) || duplicates.iter().any(|tab| tab != owned_tab)
+            {
+                return Err(BackendError::Metadata(
+                    "shared workspace recovery label conflicts with exact ownership".to_owned(),
+                ));
+            }
+            if !duplicates.is_empty() {
+                self.verify_single_owned_pane(session, workspace, owned_tab, owned_pane)?;
+            }
+        }
+        if !replace_husks && !duplicates.is_empty() {
+            return Err(BackendError::Command(format!(
+                "Herdr task label '{}' already exists; exact endpoint reconciliation is required",
+                task.label
+            )));
+        }
         for duplicate in &duplicates {
             let pane = self.pane_for_tab(session, workspace, duplicate).ok_or_else(|| {
                 BackendError::Command(format!(
@@ -394,7 +453,21 @@ impl<R: CommandRunner> HerdrBackend<R> {
             self.prune_seeded_tab(session, workspace, seed);
         }
         for duplicate in &duplicates {
-            let _ = self.run_scoped(session, ["tab", "close", duplicate]);
+            if let Some((owned_tab, owned_pane)) = owned {
+                self.verify_single_owned_pane(session, workspace, owned_tab, owned_pane)?;
+                if self.pane_agent_state(session, owned_pane) != PaneAgentState::NoAgent {
+                    return Err(BackendError::Metadata(
+                        "shared workspace recovery endpoint changed before close".to_owned(),
+                    ));
+                }
+                self.close_pane_focus_preserving(
+                    session,
+                    owned_pane,
+                    Some(PaneAgentState::NoAgent),
+                )?;
+            } else {
+                let _ = self.run_scoped(session, ["tab", "close", duplicate]);
+            }
         }
         if !duplicates.is_empty() {
             let verify = self.json_scoped(session, ["tab", "list", "--workspace", workspace])?;
@@ -422,6 +495,31 @@ impl<R: CommandRunner> HerdrBackend<R> {
             pane_id,
             target,
         })
+    }
+
+    fn verify_single_owned_pane(
+        &mut self,
+        session: &str,
+        workspace: &str,
+        tab: &str,
+        pane: &str,
+    ) -> Result<(), BackendError> {
+        let inventory = self.json_scoped(session, ["pane", "list", "--workspace", workspace])?;
+        let panes = array_at(&inventory, "/result/panes")
+            .ok_or_else(|| BackendError::Malformed("missing pane inventory".to_owned()))?;
+        let matching = panes
+            .iter()
+            .filter(|value| string_at(value, "/tab_id") == Some(tab))
+            .collect::<Vec<_>>();
+        if matching.len() != 1
+            || string_at(matching[0], "/pane_id") != Some(pane)
+            || string_at(matching[0], "/workspace_id") != Some(workspace)
+        {
+            return Err(BackendError::Metadata(
+                "shared workspace recovery has ambiguous exact pane ownership".to_owned(),
+            ));
+        }
+        Ok(())
     }
 
     fn prune_seeded_tab(&mut self, session: &str, workspace: &str, seed: &str) {
@@ -815,6 +913,99 @@ impl<R: CommandRunner> HerdrBackend<R> {
     }
 }
 
+impl<R: CommandRunner> HerdrBackend<R> {
+    /// List only this home's recorded grouped endpoints and legacy container in one session.
+    pub fn list_live_scoped(&mut self, session: &str) -> Result<Vec<LiveTarget>, BackendError> {
+        let previous = std::mem::replace(&mut self.session, session.to_owned());
+        let result = RuntimeBackend::list_live(self, None);
+        self.session = previous;
+        result
+    }
+
+    /// Explicit metadata-bound teardown may close its own active pane.
+    /// Automatic liveness cleanup and rollback must use conservative kill_verified.
+    pub fn kill_explicit_owned(&mut self, target: &BackendTarget, metadata: &Path) -> KillOutcome {
+        self.kill_policy(target, Some(metadata))
+    }
+
+    fn kill_policy(
+        &mut self,
+        target: &BackendTarget,
+        explicit_metadata: Option<&Path>,
+    ) -> KillOutcome {
+        let Ok((session, pane)) = self.ensure_target(target) else {
+            return KillOutcome::Unknown;
+        };
+        let session = session.to_owned();
+        let pane = pane.to_owned();
+        let state = std::env::var_os("MX_STATE_OVERRIDE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.home.join("state"));
+        let metadata = if let Some(path) = explicit_metadata {
+            if crate::facade::target_of_meta(path)
+                .ok()
+                .flatten()
+                .as_deref()
+                != Some(target.endpoint())
+                || crate::facade::backend_of_meta(path).ok() != Some(BackendName::Herdr)
+            {
+                return KillOutcome::Unknown;
+            }
+            Some(path.to_path_buf())
+        } else {
+            match crate::facade::meta_for_target(&state, target.endpoint()) {
+                Ok(path) => path,
+                Err(_) => return KillOutcome::Unknown,
+            }
+        };
+        let grouped = if let Some(path) = metadata {
+            let Ok(text) = fs::read_to_string(path) else {
+                return KillOutcome::Unknown;
+            };
+            text.lines().any(|line| line == "herdr_project_workspace=1")
+        } else {
+            false
+        };
+        if grouped {
+            let Ok(lock_path) = self.presentation_session_lock_path(&session) else {
+                return KillOutcome::Unknown;
+            };
+            let Ok(_lock) = multplx_core::locks::DirectoryLock::acquire_wait(
+                lock_path,
+                &multplx_core::process::SystemProcessProbe::default(),
+                Duration::from_secs(15),
+            ) else {
+                return KillOutcome::Unknown;
+            };
+            // Explicit teardown may close its own active pane. Its former tab
+            // cannot remain focused once removed; unrelated focus is restored
+            // only for a non-active target. Never close a workspace or tab.
+            let Ok(before) = self.focus_snapshot(&session) else {
+                return KillOutcome::Unknown;
+            };
+            let Ok(exact) = self.json_any_status(&session, ["pane", "get", &pane]) else {
+                return KillOutcome::Unknown;
+            };
+            if explicit_metadata.is_some()
+                && string_at(&exact, "/result/pane/pane_id") == Some(pane.as_str())
+                && string_at(&exact, "/result/pane/tab_id") == Some(before.tab_id.as_str())
+            {
+                let _ = self.run_scoped(&session, ["pane", "close", &pane]);
+                return self.post_kill(&session, &pane);
+            }
+            if self
+                .close_pane_focus_preserving(&session, &pane, None)
+                .is_err()
+            {
+                return self.post_kill(&session, &pane);
+            }
+            return self.post_kill(&session, &pane);
+        }
+        let _ = self.run_scoped(&session, ["pane", "close", &pane]);
+        self.post_kill(&session, &pane)
+    }
+}
+
 impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
     fn name(&self) -> BackendName {
         BackendName::Herdr
@@ -1015,19 +1206,49 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
     }
 
     fn kill_verified(&mut self, target: &BackendTarget) -> KillOutcome {
-        let Ok((session, pane)) = self.ensure_target(target) else {
-            return KillOutcome::Unknown;
-        };
-        let session = session.to_owned();
-        let pane = pane.to_owned();
-        let _ = self.run_scoped(&session, ["pane", "close", &pane]);
-        self.post_kill(&session, &pane)
+        self.kill_policy(target, None)
     }
 
     fn list_live(
         &mut self,
         container: Option<&ContainerId>,
     ) -> Result<Vec<LiveTarget>, BackendError> {
+        let mut live = Vec::new();
+        if container.is_none() {
+            let state = std::env::var_os("MX_STATE_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| self.home.join("state"));
+            if state.is_dir() {
+                for path in crate::facade::metadata_paths(&state)? {
+                    let text = fs::read_to_string(&path)
+                        .map_err(|error| BackendError::Metadata(error.to_string()))?;
+                    let field =
+                        |key: &str| text.lines().rev().find_map(|line| line.strip_prefix(key));
+                    if field("herdr_project_workspace=") != Some("1")
+                        || field("backend=") != Some("herdr")
+                    {
+                        continue;
+                    }
+                    let Some(endpoint) = field("window=") else {
+                        continue;
+                    };
+                    let Some(label) = field("herdr_task_label=") else {
+                        continue;
+                    };
+                    let target =
+                        BackendTarget::new(BackendName::Herdr, endpoint, Some(label.to_owned()))?;
+                    if self.ensure_target(&target)?.0 != self.session() {
+                        continue;
+                    }
+                    if self.observe_target(&target).is_ok() {
+                        live.push(LiveTarget {
+                            target,
+                            label: label.to_owned(),
+                        });
+                    }
+                }
+            }
+        }
         let (session, workspace) = if let Some(container) = container {
             if container.backend() != BackendName::Herdr {
                 return Err(BackendError::InvalidContainer(
@@ -1043,10 +1264,9 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
             (session, workspace)
         };
         let Some(workspace) = workspace else {
-            return Ok(Vec::new());
+            return Ok(live);
         };
         let value = self.json_scoped(&session, ["tab", "list", "--workspace", &workspace])?;
-        let mut live = Vec::new();
         for tab in array_at(&value, "/result/tabs").unwrap_or(&[]) {
             let Some(label) = string_at(tab, "/label").filter(|label| label.starts_with("mx-"))
             else {
@@ -1058,6 +1278,12 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
             let Some(pane) = self.pane_for_tab(&session, &workspace, tab_id) else {
                 continue;
             };
+            if live
+                .iter()
+                .any(|item| item.target.endpoint() == format!("{session}:{pane}"))
+            {
+                continue;
+            }
             live.push(LiveTarget {
                 target: BackendTarget::new(
                     BackendName::Herdr,

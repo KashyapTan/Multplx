@@ -560,5 +560,9 @@
       "path": "TRANSCRIPT_ISSUES_2026-10-12.md",
       "audience": "maintainer-verification"
     }
+    ,{
+      "path": "HERDR_WORKSPACE_FOLLOWUP_2026-10-12.md",
+      "audience": "maintainer-verification"
+    }
   ]
 }

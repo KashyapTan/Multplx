@@ -1,7 +1,7 @@
 # Herdr runtime backend
 
 Herdr is an experimental agent-native terminal backend with native per-pane agent state and push events.
-Multplx requires Herdr protocol 14 or newer; versions 0.7.1, 0.7.3, 0.7.4, and 0.7.5 are verified, with protocol-16 features enabled only when available.
+Multplx requires Herdr protocol 14 or newer; versions 0.7.1, 0.7.3, 0.7.4, 0.7.5 and 0.9.3 are verified, with protocol-16 features enabled only when available.
 Herdr provides terminal sessions at the exact paths returned by the [built-in Git allocation owner](worktrees.md).
 [`configuration.md`](configuration.md#runtime-backend-configbackend--mx_backend) owns shared backend selection and metadata semantics.
 
@@ -39,7 +39,30 @@ It parses JSON with typed Rust code and performs event subscription and `workspa
 
 ## Watching and task containers
 
-Each Multplx home gets one durable workspace with one task tab per endpoint.
+Fresh Git tasks use one shared repository workspace with one separate task tab per endpoint.
+Canonical Git common-directory identity groups linked and detached worktrees, with the validated root operational home keeping unrelated orchestrators separate.
+Standing workers and nested children retain their private homes, task ownership and parent routes while sharing the same repository workspace.
+Different repositories receive different workspaces even when their directory basenames match.
+Workspace titles use the repository basename, adding a short disambiguator for title collisions; task tabs retain `mx-<id>` with a stable owner-home suffix.
+The primary conversation remains a separate control workspace.
+
+Local gitignored `config/herdr-workspace-layout` accepts `repository` (default) or `home` (explicit legacy layout).
+Invalid values refuse new launches.
+This setting is inherited through the standard persistent-home configuration owner.
+Under the default, fresh Git tasks take precedence over `herdr-presentation-spaces`; repository-free tasks and existing exact presentation recovery retain their documented behavior.
+No existing agent, tab or workspace is migrated or renamed.
+
+Repository grouping uses a private typed binding under the root home's `state/herdr-project-workspaces/`, recording the exact named session and response-derived workspace id.
+A pre-create random intent token reconciles an uncertain create only when its exact title matches once; ordinary repository titles never authorize adoption.
+The temporary token title becomes a readable repository title only after the exact id is durably recorded.
+Corrupt, foreign or ambiguous bindings and inventories refuse mutation.
+Concurrent launches hold the shared named-session lock through endpoint publication.
+Fresh task-label collisions require exact endpoint reconciliation and never authorize deleting another tab.
+Grouped restart recovery validates the metadata-bound tab and its sole exact pane before replacing an agent-free husk.
+Cleanup closes only the recorded pane under that same lock and preserves unrelated exact prior focus.
+Explicit teardown can close its own active pane, whose removed tab cannot remain focused; restart and rollback retain active targets rather than changing the human's focus.
+
+Repository-free tasks and explicit `home` layout use one durable workspace per Multplx home.
 New primary workspaces use `primary`; the existing `broker` workspace is adopted as an exact legacy alias.
 A standing-agent home uses `agent-<id>`, derived from its `.mx-agent-home` identity marker or validated historical `.mx-daemon-home` alias.
 The label is independent of the assignment role, so workers and coordinators use the same convention.
@@ -53,7 +76,7 @@ Workspace and tab creation use `--no-focus`.
 The first workspace in a completely empty Herdr session must become focused because no prior target exists, but later task creation does not intentionally steal focus.
 
 Herdr does not enforce workspace or tab label uniqueness.
-Multplx adopts the first workspace matching its current or historical home label in list order and refuses duplicate task tabs inside it.
+The legacy home layout adopts the first workspace matching its current or historical home label in list order and refuses duplicate task tabs inside it.
 Avoid naming a personal workspace `primary`, `broker`, `agent-<id>`, or `daemon-<id>` because the adapter cannot distinguish that label collision from its own container.
 An older persistent-sub-agent workspace using `broker-<id>` is not migrated automatically; rename it manually before expecting new tasks or recovery to use it.
 
@@ -63,7 +86,7 @@ Closing its last tab can remove the workspace, and the next spawn recreates it.
 
 ## Optional presentation spaces
 
-Create local gitignored `config/herdr-presentation-spaces` to request a disposable one-task workspace for each new sub-agent.
+Create local gitignored `config/herdr-presentation-spaces` to request a disposable one-task workspace for repository-free tasks or tasks under explicit `config/herdr-workspace-layout=home`.
 The setting is inherited into persistent-sub-agent homes through the normal configuration-convergence owner.
 A persistent sub-agent itself always stays in its ordinary parent workspace; only children launched by that home are eligible.
 An absent or unconverged setting keeps the flat default.
@@ -288,6 +311,7 @@ tests/mx-backend-herdr-smoke.test.sh
 tests/mx-backend-herdr-prune-safety-e2e.test.sh
 tests/mx-backend-herdr-respawn-idem-e2e.test.sh
 tests/mx-backend-herdr-workspace-per-home-e2e.test.sh
+tests/herdr-project-grouping-e2e.sh
 tests/mx-backend-herdr-presentation-e2e.test.sh
 tests/mx-backend-herdr-eventwait-smoke.test.sh
 tests/mx-herdr-session-cleanup.test.sh
