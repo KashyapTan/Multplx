@@ -1289,10 +1289,12 @@ fn primary_public_launcher_and_worker_package_fallback_share_exact_hook_argument
     let fake_provider = f.fake.join("provider");
     fs::write(
         &fake_provider,
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$MX_HOME/primary-args\"\n",
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$MX_HOME/primary-args\"\nprintf '%s\\n' \"${CODEX_HOME:-unset}\" > \"$MX_HOME/provider-home\"\n",
     )
     .unwrap();
     fs::set_permissions(&fake_provider, fs::Permissions::from_mode(0o755)).unwrap();
+    let provider_home = f.home.join("Codex's isolated home");
+    fs::create_dir(&provider_home).unwrap();
     let mut primary = Command::new(&public);
     for (key, _) in std::env::vars_os() {
         if key.to_string_lossy().starts_with("MX_") {
@@ -1306,7 +1308,8 @@ fn primary_public_launcher_and_worker_package_fallback_share_exact_hook_argument
             .env("MX_HOME", &f.home)
             .env("MX_LAUNCH_VALIDATED", "1")
             .env("MX_MULTICALL_EXPLICIT", "1")
-            .env("MX_REAL_CODEX", &fake_provider),
+            .env("MX_REAL_CODEX", &fake_provider)
+            .env("CODEX_HOME", &provider_home),
     );
     let primary_args = fs::read_to_string(f.home.join("primary-args")).unwrap();
     let cmux = install_fake_cmux(&f);
@@ -1326,9 +1329,32 @@ fn primary_public_launcher_and_worker_package_fallback_share_exact_hook_argument
         worker
             .env("MX_RUST_SOURCE_ROOT", &runtime)
             .env("MX_CMUX_FIXTURE", &f.fake)
-            .env("MX_CMUX_BIN", &cmux),
+            .env("MX_CMUX_BIN", &cmux)
+            .env("MX_REAL_CODEX", &fake_provider)
+            .env("CODEX_HOME", &provider_home),
     );
     let launch = fs::read_to_string(f.fake.join("launch-script")).unwrap();
+    let quoted_home = format!(
+        "CODEX_HOME='{}'",
+        provider_home.display().to_string().replace('\'', "'\\''")
+    );
+    assert!(launch.contains(&quoted_home));
+    // A terminal server may carry a different home (or no caller environment).
+    // Execute the captured real launch in that shell against an inert provider.
+    success(
+        Command::new("/bin/sh")
+            .arg(f.fake.join("launch-script"))
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("CODEX_HOME", f.home.join("wrong-terminal-home")),
+    );
+    assert_eq!(
+        fs::read_to_string(f.home.join("provider-home"))
+            .unwrap()
+            .trim(),
+        provider_home.to_str().unwrap()
+    );
+
     let definitions = primary_args
         .lines()
         .filter(|value| value.starts_with("hooks."))
@@ -1387,4 +1413,141 @@ fn coordinator_display_model_fails_before_home_provisioning() {
     );
     assert!(!f.home.join("data/agents.md").exists());
     assert!(!f.home.join("state/.spawn-task.intent").exists());
+}
+
+#[test]
+fn standing_report_worker_retains_explicit_codex_home_in_a_separate_terminal_shell() {
+    let f = Fixture::new();
+    for directory in ["state", "data", "config", "projects", "bin"] {
+        fs::create_dir_all(f.project.join(directory)).unwrap();
+    }
+    fs::write(f.project.join(".mx-agent-home"), "task\n").unwrap();
+    fs::write(f.project.join("AGENTS.md"), "# Fixture standing home\n").unwrap();
+    fs::write(
+        f.project.join("data/charter.md"),
+        "Write a bounded fixture report.\n",
+    )
+    .unwrap();
+    let provider_home = f.home.join("isolated codex home");
+    fs::create_dir(&provider_home).unwrap();
+    let provider = f.fake.join("provider");
+    fs::write(&provider, "#!/bin/sh\nprintf '%s\\n' \"$CODEX_HOME\" \"$MX_TASK_ID\" \"$MX_ATTEMPT_ID\" > \"$MX_HOME/provider-context\"\n").unwrap();
+    fs::set_permissions(&provider, fs::Permissions::from_mode(0o755)).unwrap();
+    let tmux = f.fake.join("tmux");
+    fs::write(
+        f.fake.join("inert-terminal-tmux.sh"),
+        include_str!("../../../tests/inert-terminal-tmux.sh"),
+    )
+    .unwrap();
+    fs::write(
+        &tmux,
+        r#"#!/bin/sh
+set -eu
+fixture=$(dirname "$0")
+if [ "$1" = send-keys ]; then
+    previous=
+    for argument do
+        if [ "$previous" = -l ]; then
+            script=${argument#\'}; script=${script%\'}
+            cat "$script" > "$fixture/launch-script"
+        fi
+        previous=$argument
+    done
+fi
+bash "$fixture/inert-terminal-tmux.sh" "$@"
+case "$1" in
+    has-session|new-session) exit 0 ;;
+    new-window) printf '%s\n' '@context' ;;
+    display-message) printf '%s\n' '%1' ;;
+    list-windows) [ -f "$fixture/launch-script" ] && printf '%s\n' 'mx-task'; exit 0 ;;
+    *) exit 0 ;;
+esac
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&tmux, fs::Permissions::from_mode(0o755)).unwrap();
+    success(
+        f.spawn(&[
+            "--persistent",
+            "--role",
+            "researcher",
+            "--output",
+            "report",
+            "--backend",
+            "tmux",
+        ])
+        .env("MX_TMUX_BIN", &tmux)
+        .env("MX_REAL_CODEX", &provider)
+        .env("CODEX_HOME", &provider_home),
+    );
+    let metadata = fs::read_to_string(f.home.join("state/task.meta")).unwrap();
+    let task = read_meta("task", &metadata).unwrap();
+    assert!(task.persistent && task.private_home);
+    assert_eq!(
+        task.role,
+        multplx_domain::lifecycle::subagent_model::AssignmentRole::Researcher
+    );
+    assert!(
+        task.project.is_none(),
+        "report project references do not allocate a checkout"
+    );
+    success(
+        Command::new("/bin/sh")
+            .arg(f.fake.join("launch-script"))
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("CODEX_HOME", f.home.join("wrong-terminal-home")),
+    );
+    let actual = fs::read_to_string(f.project.join("provider-context")).unwrap();
+    let lines = actual.lines().collect::<Vec<_>>();
+    assert_eq!(
+        lines,
+        vec![
+            provider_home.to_str().unwrap(),
+            "task",
+            &task.attempt.unwrap().id
+        ]
+    );
+}
+
+#[test]
+fn relative_codex_home_refused_before_task_or_backend_mutation() {
+    let f = Fixture::new();
+    f.refused(
+        run(f.spawn(&[]).env("CODEX_HOME", "relative")),
+        "CODEX_HOME must be absolute",
+    );
+}
+
+#[test]
+fn codex_default_home_is_not_replaced_by_the_terminal_server_environment() {
+    let f = Fixture::new();
+    let provider = f.fake.join("provider");
+    fs::write(
+        &provider,
+        "#!/bin/sh\nprintf '%s\\n' \"${CODEX_HOME:-unset}\" > \"$MX_HOME/provider-home\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&provider, fs::Permissions::from_mode(0o755)).unwrap();
+    let cmux = install_fake_cmux(&f);
+    success(
+        f.spawn(&["--backend", "cmux"])
+            .env("MX_CMUX_FIXTURE", &f.fake)
+            .env("MX_CMUX_BIN", &cmux)
+            .env("MX_REAL_CODEX", &provider)
+            .env_remove("CODEX_HOME"),
+    );
+    success(
+        Command::new("/bin/sh")
+            .arg(f.fake.join("launch-script"))
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("CODEX_HOME", f.home.join("wrong-terminal-home")),
+    );
+    assert_eq!(
+        fs::read_to_string(f.home.join("provider-home"))
+            .unwrap()
+            .trim(),
+        "unset"
+    );
 }

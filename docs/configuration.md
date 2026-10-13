@@ -246,6 +246,8 @@ Codex Desktop event delivery is unverified and is not automatically activated by
 Queue activation also requires the tracked native SessionStart `--register` handshake to publish a readiness receipt matching the exact thread, `CODEX_HOME` and live session-lock owner.
 Complete the provider's native one-time hook trust review when prompted; skipped review or disabled hooks retain bounded foreground supervision, and the integration does not override disabled hooks or change private trust state.
 Managed primary and worker Codex launches use one canonical CLI hook bundle covering primary registration, Stop delivery, SessionEnd cleanup and task-guarded worker handlers.
+Managed Codex workers retain the caller's explicit absolute `CODEX_HOME` across terminal launches and deferred dispatch, so provider configuration and native hook approvals stay with the selected Codex home.
+An absent or empty caller value uses Codex's default home; unrelated provider environments are not copied into the worker launch.
 The first primary native review includes that bundle alongside any separately loaded project hooks; standing and nested workers using the same installed runtime reuse its native session-flag identity across working directories.
 The bundle hashes the actual observer, merge-check, idle bridge and turn-end wrapper scripts plus executed Rust binary bytes into every command definition, so owned runtime changes require native review again.
 Byte-identical public launcher and packaged runtime copies select the same stable package executable for hook identity; genuinely different explicit executable overrides keep separate identities.
