@@ -590,6 +590,140 @@ fn daemon_liveness(paths: &Paths, output: &mut String, verbose: bool) {
     );
 }
 
+/// A finished assignment does not authorize bringing its standing endpoint back.
+/// This gate only applies to automatic startup recovery; explicit spawn/resume
+/// continues through the existing lifecycle owner and its binding checks.
+fn completed_standing_assignment(id: &str, raw: &str) -> Result<bool, String> {
+    multplx_domain::lifecycle::subagent_model::read_meta(id, raw).map(|record| {
+        !record.legacy_unknown
+            && record.schedule.state
+                == multplx_domain::lifecycle::subagent_model::WorkState::Completed
+    })
+}
+
+fn retained_child_work(id: &str, raw: &str) -> Option<String> {
+    use multplx_domain::lifecycle::subagent_model::{WorkState, read_meta};
+    let record = read_meta(id, raw).ok()?;
+    let home = match Path::new(record.persistent_home.as_deref()?).canonicalize() {
+        Ok(home) => home,
+        Err(_) => return Some("child home is unavailable; child state is unknown".into()),
+    };
+    if multplx_core::agent_home::identity(&home)
+        .ok()
+        .flatten()
+        .as_deref()
+        != Some(id)
+    {
+        return Some("child home ownership is unverified".into());
+    }
+    let state = match home.join("state").canonicalize() {
+        Ok(state) if state.starts_with(&home) && state != home => state,
+        _ => return Some("child state containment is unverified".into()),
+    };
+    let entries = match fs::read_dir(&state) {
+        Ok(entries) => entries,
+        Err(_) => return Some("child state is unavailable".into()),
+    };
+    let mut unfinished = Vec::new();
+    let mut inspected = 0;
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => {
+                return Some("child directory observation failed; child state is unknown".into());
+            }
+        };
+        if !entry
+            .path()
+            .extension()
+            .is_some_and(|extension| extension == "meta")
+        {
+            continue;
+        }
+        inspected += 1;
+        if inspected > 100 {
+            return Some("child record bound reached; remaining child state is unknown".into());
+        }
+        let path = entry.path();
+        let Some(child_id) = path.file_stem().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let child = multplx_core::filesystem::read_bounded_regular(
+            &path,
+            multplx_core::filesystem::MAX_TASK_METADATA_BYTES,
+        )
+        .map_err(|error| error.to_string())
+        .and_then(|bytes| String::from_utf8(bytes).map_err(|error| error.to_string()))
+        .and_then(|text| read_meta(child_id, &text));
+        match child {
+            Ok(child) if !child.legacy_unknown => {
+                if child
+                    .owner_home
+                    .as_deref()
+                    .and_then(|path| Path::new(path).canonicalize().ok())
+                    != Some(home.clone())
+                    || child
+                        .owner_state
+                        .as_deref()
+                        .and_then(|path| Path::new(path).canonicalize().ok())
+                        != Some(state.clone())
+                {
+                    return Some(format!("child {child_id} ownership is unknown"));
+                }
+                let owned = child.parent_id.as_deref() == Some(id)
+                    && child.parent_home == record.owner_home
+                    || child.parent_id.as_deref()
+                        == Some(format!("root-home:{}", home.display()).as_str())
+                        && child.parent_home.as_deref() == home.to_str();
+                if owned && child.schedule.state != WorkState::Completed {
+                    unfinished.push(child_id.to_owned());
+                }
+            }
+            _ => return Some(format!("child {child_id} ownership or state is unknown")),
+        }
+    }
+    (!unfinished.is_empty()).then(|| {
+        format!(
+            "unfinished child assignments {}",
+            unfinished
+                .into_iter()
+                .take(5)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    })
+}
+
+fn spawn_failure_detail(stdout: &[u8], stderr: &[u8], status: std::process::ExitStatus) -> String {
+    let stderr = String::from_utf8_lossy(stderr);
+    let stdout = String::from_utf8_lossy(stdout);
+    let lines = stderr
+        .lines()
+        .chain(stdout.lines())
+        .map(str::trim)
+        .filter(|line| {
+            !line.is_empty() && !line.starts_with("NOTICE:") && !line.starts_with("BOOTSTRAP_INFO:")
+        })
+        .take(8)
+        .collect::<Vec<_>>();
+    let detail = if lines.is_empty() {
+        format!("spawn exited {status}; no failure detail returned")
+    } else {
+        format!("spawn exited {status}: {}", lines.join(" | "))
+    };
+    detail
+        .chars()
+        .take(4000)
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect()
+}
+
 fn daemon_liveness_with(
     paths: &Paths,
     output: &mut String,
@@ -638,6 +772,22 @@ fn daemon_liveness_with(
             output.push_str(&format!("AGENT_LIVENESS: standing agent {id}: skipped: endpoint probe unreadable (backend={backend_text})\n"));
             continue;
         };
+        match completed_standing_assignment(&id, &raw) {
+            Ok(true) => {
+                if let Some(pending) = retained_child_work(&id, &raw) {
+                    output.push_str(&format!("AGENT_LIVENESS: standing assignment {id} is completed and retained; {pending} require parent reconciliation; no automatic reengagement\n"));
+                }
+                if verbose {
+                    output.push_str(&format!("BOOTSTRAP_INFO: standing assignment {id} is completed; endpoint and home retained without automatic recovery; use the explicit spawn/resume owner for a user-directed follow-up\n"));
+                }
+                continue;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                output.push_str(&format!("AGENT_LIVENESS: standing agent {id}: skipped: assignment metadata cannot establish recovery authority; retained: {}\n",error.chars().take(1000).collect::<String>()));
+                continue;
+            }
+        }
         let state = agent_state(backend_name, &target);
         let harness = meta_value(&raw, "harness");
         let verified_harness = matches!(harness.as_str(), "claude" | "codex" | "cursor" | "pi");
@@ -661,9 +811,7 @@ fn daemon_liveness_with(
                 match spawned {
                     Ok(result) if result.status.success() => if verbose { output.push_str(&format!("BOOTSTRAP_INFO: standing agent {id} relaunched after {cause} (backend={backend_text})\n")); },
                     Ok(result) => {
-                        let stdout = String::from_utf8_lossy(&result.stdout);
-                        let stderr = String::from_utf8_lossy(&result.stderr);
-                        let detail = stdout.lines().next().or_else(|| stderr.lines().next()).unwrap_or("unknown error");
+                        let detail = spawn_failure_detail(&result.stdout,&result.stderr,result.status);
                         output.push_str(&format!("AGENT_LIVENESS: standing agent {id}: respawn failed after {cause}: {detail}\n"));
                     }
                     Err(error) => output.push_str(&format!("AGENT_LIVENESS: standing agent {id}: respawn failed after {cause}: {error}\n")),
@@ -733,6 +881,15 @@ fn send_nudge(
         output.push_str(&format!(
             "NUDGE_AGENTS: standing agent {id}: send failed: unsafe id\n"
         ));
+        return;
+    }
+    if let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(
+        paths.state.join(format!("{id}.meta")),
+        multplx_core::filesystem::MAX_TASK_METADATA_BYTES,
+    ) && let Ok(raw) = String::from_utf8(bytes)
+        && completed_standing_assignment(id, &raw).is_ok_and(|completed| completed)
+    {
+        output.push_str(&format!("BOOTSTRAP_INFO: runtime instruction nudge for completed standing assignment {id} skipped; retained pending marker requires explicit follow-up\n"));
         return;
     }
     if !write_nudge_marker(paths, id, home, commit, instructions) {
@@ -1459,7 +1616,7 @@ mod tests {
         fs::create_dir_all(fixture.root.join("bin")).expect("bin");
         executable_script(
             &fixture.root.join("bin/mx-spawn.sh"),
-            "printf 'spawn refused for fixture\\n'; exit 7",
+            "printf 'NOTICE: auto-detected herdr runtime\\n'; printf 'spawn refused for fixture\\n' >&2; exit 7",
         );
         fs::write(
             fixture.state.join("daemon.meta"),
@@ -1476,6 +1633,160 @@ mod tests {
         );
         assert!(output.contains("respawn failed after recorded endpoint confidently missing"));
         assert!(output.contains("spawn refused for fixture"));
+    }
+
+    #[test]
+    fn completed_standing_assignments_never_probe_kill_or_spawn_automatically() {
+        use multplx_domain::lifecycle::subagent_model::{
+            ArtifactKind, AssignmentRole, TaskRecord, WorkState, write_meta,
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let fixture = paths(temp.path());
+        fs::create_dir_all(&fixture.state).unwrap();
+        let mut record = TaskRecord::new(
+            "finished".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            true,
+            "root".into(),
+            "root".into(),
+            fixture.home.to_string_lossy().into_owned(),
+        );
+        record.runtime.provider = "tmux".into();
+        record.runtime.endpoint = Some("endpoint".into());
+        record.schedule.state = WorkState::Completed;
+        let child_home = temp.path().join("retained-home");
+        fs::create_dir_all(child_home.join("state")).unwrap();
+        fs::write(
+            child_home.join(multplx_core::agent_home::MARKER),
+            "finished\n",
+        )
+        .unwrap();
+        record.persistent_home = Some(child_home.to_string_lossy().into_owned());
+        let mut child = TaskRecord::new(
+            "child".into(),
+            AssignmentRole::Researcher,
+            ArtifactKind::Report,
+            false,
+            "finished".into(),
+            "root".into(),
+            child_home.to_string_lossy().into_owned(),
+        );
+        child.parent_home = record.owner_home.clone();
+        child.schedule.state = WorkState::Runnable;
+        let child_raw = write_meta("kind=scout\n", &child).unwrap();
+        fs::write(child_home.join("state/child.meta"), &child_raw).unwrap();
+        let raw = write_meta(
+            "kind=daemon\nwindow=endpoint\nbackend=tmux\nharness=codex\n",
+            &record,
+        )
+        .unwrap();
+        fs::write(fixture.state.join("finished.meta"), &raw).unwrap();
+        let mut output = String::new();
+        daemon_liveness_with(
+            &fixture,
+            &mut output,
+            true,
+            |_, _| panic!("completed assignment must not probe provider"),
+            |_, _| panic!("completed assignment must not kill endpoint"),
+        );
+        assert!(output.contains("completed"));
+        assert!(output.contains("explicit spawn/resume"));
+        assert!(output.contains("unfinished child assignments child"));
+        assert_eq!(
+            fs::read_to_string(child_home.join("state/child.meta")).unwrap(),
+            child_raw
+        );
+        assert_eq!(
+            fs::read_to_string(fixture.state.join("finished.meta")).unwrap(),
+            raw
+        );
+        send_nudge(
+            &fixture,
+            "finished",
+            &child_home,
+            "head",
+            &["AGENTS.md"],
+            &mut output,
+        );
+        assert!(!marker_path(&fixture, "finished").unwrap().exists());
+        assert!(output.contains("runtime instruction nudge for completed"));
+        assert!(write_nudge_marker(
+            &fixture,
+            "finished",
+            &child_home,
+            "head",
+            &["AGENTS.md"]
+        ));
+        let marker = marker_path(&fixture, "finished").unwrap();
+        let before_marker = fs::read(&marker).unwrap();
+        send_nudge(
+            &fixture,
+            "finished",
+            &child_home,
+            "head",
+            &["AGENTS.md"],
+            &mut output,
+        );
+        assert_eq!(fs::read(&marker).unwrap(), before_marker);
+        // An explicitly revised/reopened assignment is recoverable again;
+        // startup does not reopen or alter the finished canonical record itself.
+        record.schedule.state = WorkState::Runnable;
+        let raw = write_meta(
+            "kind=daemon\nwindow=endpoint\nbackend=tmux\nharness=codex\n",
+            &record,
+        )
+        .unwrap();
+        assert!(!completed_standing_assignment("finished", &raw).unwrap());
+        fs::write(fixture.state.join("finished.meta"), &raw).unwrap();
+        let mut observed = 0;
+        daemon_liveness_with(
+            &fixture,
+            &mut output,
+            false,
+            |_, _| {
+                observed += 1;
+                multplx_backend::facade::AgentState::Alive
+            },
+            |_, _| panic!("live reopened worker must not be killed"),
+        );
+        assert_eq!(observed, 1);
+        assert_eq!(
+            fs::read_to_string(fixture.state.join("finished.meta")).unwrap(),
+            raw
+        );
+    }
+
+    #[test]
+    fn invalid_canonical_assignment_cannot_trigger_recovery_and_diagnostics_are_bounded() {
+        let temp = tempfile::tempdir().unwrap();
+        let fixture = paths(temp.path());
+        fs::create_dir_all(&fixture.state).unwrap();
+        fs::write(
+            fixture.state.join("unknown.meta"),
+            "kind=daemon\nwindow=endpoint\nbackend=tmux\nharness=codex\ncanonical_model=bad\n",
+        )
+        .unwrap();
+        let mut output = String::new();
+        daemon_liveness_with(
+            &fixture,
+            &mut output,
+            false,
+            |_, _| panic!("invalid assignment must not probe"),
+            |_, _| panic!("invalid assignment must not kill"),
+        );
+        assert!(output.contains("assignment metadata cannot establish recovery authority"));
+        let status = Command::new("sh").args(["-c", "exit 7"]).status().unwrap();
+        let detail = spawn_failure_detail(
+            b"NOTICE: harmless\n",
+            format!("error: {}\n", "修復".repeat(5000)).as_bytes(),
+            status,
+        );
+        assert_eq!(detail.chars().count(), 4000);
+        assert!(detail.contains("error:"));
+        assert!(!detail.contains("NOTICE"));
+        assert!(!detail.chars().any(char::is_control));
+        assert!(spawn_failure_detail(b"", b"", status).contains("no failure detail"));
     }
 
     #[test]

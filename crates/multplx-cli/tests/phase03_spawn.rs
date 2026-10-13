@@ -1079,6 +1079,8 @@ fn primary_public_launcher_and_worker_package_fallback_share_exact_hook_argument
         "mx-lock.sh",
         "mx-native-observe.sh",
         "mx-subagent-pretool-check.sh",
+        "mx-codex-idle.sh",
+        "mx-turnend-guard.sh",
     ] {
         let path = runtime.join("bin").join(script);
         fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
@@ -1135,7 +1137,17 @@ fn primary_public_launcher_and_worker_package_fallback_share_exact_hook_argument
         .lines()
         .filter(|value| value.starts_with("hooks."))
         .collect::<Vec<_>>();
-    assert_eq!(definitions.len(), 4);
+    assert_eq!(definitions.len(), 6);
+    assert!(
+        definitions
+            .iter()
+            .any(|definition| definition.starts_with("hooks.Stop="))
+    );
+    assert!(
+        definitions
+            .iter()
+            .any(|definition| definition.starts_with("hooks.SessionEnd="))
+    );
     for definition in definitions {
         let quoted = format!("'{}'", definition.replace('\'', "'\\''"));
         assert!(

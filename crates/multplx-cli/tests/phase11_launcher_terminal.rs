@@ -85,7 +85,12 @@ fn harness_launch_rejects_invalid_boundaries_and_runs_a_short_lived_child() {
     std::fs::create_dir_all(runtime.join("bin")).unwrap();
     std::fs::create_dir_all(home.join("state")).unwrap();
     std::fs::write(runtime.join("AGENTS.md"), "fixture\n").unwrap();
-    for script in ["mx-native-observe.sh", "mx-subagent-pretool-check.sh"] {
+    for script in [
+        "mx-native-observe.sh",
+        "mx-subagent-pretool-check.sh",
+        "mx-codex-idle.sh",
+        "mx-turnend-guard.sh",
+    ] {
         std::fs::write(runtime.join("bin").join(script), "#!/bin/sh\nexit 0\n").unwrap();
     }
     std::fs::write(runtime.join("bin/mx-lock.sh"), "#!/bin/sh\n").unwrap();
@@ -169,7 +174,12 @@ fn managed_launch_enables_idle_bridge_only_for_codex() {
         std::fs::create_dir_all(path).unwrap();
     }
     std::fs::write(runtime.join("AGENTS.md"), "fixture\n").unwrap();
-    for script in ["mx-native-observe.sh", "mx-subagent-pretool-check.sh"] {
+    for script in [
+        "mx-native-observe.sh",
+        "mx-subagent-pretool-check.sh",
+        "mx-codex-idle.sh",
+        "mx-turnend-guard.sh",
+    ] {
         std::fs::write(runtime.join("bin").join(script), "#!/bin/sh\nexit 0\n").unwrap();
     }
     let lock = runtime.join("bin/mx-lock.sh");

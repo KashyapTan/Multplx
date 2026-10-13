@@ -17,7 +17,7 @@ mkdir -p "$RUNTIME/bin" "$HOME_DIR/data" "$HOME_DIR/state" "$HOME_DIR/config" "$
 SOURCE_CONTRACT="$ROOT/AGENTS.md"
 [ -f "$SOURCE_CONTRACT" ] || SOURCE_CONTRACT="$ROOT/AGENTS_E.md"
 cp "$SOURCE_CONTRACT" "$RUNTIME/AGENTS.md"
-cp "$ROOT/bin/mx-native-observe.sh" "$ROOT/bin/mx-subagent-pretool-check.sh" "$RUNTIME/bin/"
+cp "$ROOT/bin/mx-native-observe.sh" "$ROOT/bin/mx-subagent-pretool-check.sh" "$ROOT/bin/mx-codex-idle.sh" "$ROOT/bin/mx-turnend-guard.sh" "$RUNTIME/bin/"
 printf '%s\n' codex > "$HOME_DIR/config/daemon-harness"
 
 cat > "$FAKEBIN/tmux" <<'SH'

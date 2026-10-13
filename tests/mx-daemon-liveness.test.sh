@@ -28,8 +28,8 @@
 #   - The sweep is skipped entirely under MX_BOOTSTRAP_DETECT_ONLY=1 (the
 #     read-only session path), matching the other mutating sweeps.
 #   - The sweep is naturally scoped to the primary: with no kind=daemon
-#     meta present (a daemon's own state/ never holds one, since
-#     daemons never spawn daemons), it is a silent no-op.
+#     meta present, it is a silent no-op; standing workers can own
+#     managed descendants, each with its own canonical assignment.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -338,6 +338,35 @@ test_sweep_respawns_confirmed_dead_daemon() {
   pass "sweep: a confirmed-dead daemon endpoint is killed and respawned"
 }
 
+test_sweep_retains_completed_standing_assignment() {
+  local w fb tmuxfb log out meta binding attempt generation revision
+  w=$(new_world sweep-completed)
+  add_sm_home "$w" sm1 broker:mx-sm1
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+  meta="$w/home/state/sm1.meta"
+  binding=$(sed -n 's/^canonical_model=//p' "$meta")
+  attempt=$(printf '%s' "$binding" | jq -r '.attempt.id')
+  generation=$(printf '%s' "$binding" | jq -r '.attempt.generation')
+  revision=$(printf '%s' "$binding" | jq -r '.accepted_brief_revision')
+  printf 'Fixture accepted coordination result\n' > "$w/sm1/data/result.md"
+  PATH="$fb:$BASE_PATH" MX_HOME="$w/home" MX_STATE_OVERRIDE="$w/home/state" \
+    MX_TASK_ID=sm1 MX_ATTEMPT_ID="$attempt" MX_ATTEMPT_GENERATION="$generation" MX_BRIEF_REVISION="$revision" \
+    "$ROOT/bin/mx-report" --state done --message 'Fixture job finished' --artifact "$w/sm1/data/result.md" \
+    > "$w/completion.json" 2> "$w/completion.err" \
+    || fail "fixture canonical completion failed: $(cat "$w/completion.err")"
+  jq -e '.completion_proven == true' "$w/completion.json" >/dev/null \
+    || fail 'fixture did not prove canonical completion'
+  cp "$meta" "$w/completed-before.meta"
+  log="$w/calls.log"; : > "$log"
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
+  cmp "$meta" "$w/completed-before.meta" >/dev/null \
+    || fail 'bootstrap changed the completed assignment'
+  assert_not_contains "$(cat "$log")" 'kill-window' 'completed standing endpoint was killed'
+  assert_not_contains "$(cat "$log")" 'new-window' 'completed standing assignment was automatically relaunched'
+  [ -d "$w/sm1" ] || fail 'completed home was removed'
+  pass 'sweep: canonically completed standing assignment and home are retained without automatic reengagement'
+}
+
 test_sweep_leaves_alive_daemon_untouched() {
   local w fb tmuxfb log out
   w=$(new_world sweep-alive)
@@ -494,6 +523,7 @@ test_tmux_agent_state_rejects_malformed_targets_before_probe
 test_herdr_agent_state_preserves_husk_classifier
 test_agent_state_dispatcher_and_compatibility
 test_sweep_respawns_confirmed_dead_daemon
+test_sweep_retains_completed_standing_assignment
 test_sweep_leaves_alive_daemon_untouched
 test_sweep_respawns_authoritatively_missing_pi_daemon
 test_sweep_never_acts_on_ambiguous_existing_process

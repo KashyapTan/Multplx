@@ -31,6 +31,8 @@ Skipped native hook trust review or disabled hooks retain bounded foreground sup
 The bridge binds the hook-supplied exact thread UUID, canonical `CODEX_HOME`, and live session-lock process identity, owns a watcher child, and queues a marked input for a real actionable event.
 The Stop hook returns without an idle model tool call; subsequent handling turns end normally while the bridge owns watcher continuity.
 Queue receipts suppress repeated transport delivery but never claim, dispose or acknowledge canonical wakes.
+The bridge observes durable unacknowledged queue and inbox events while its watcher remains live, so an already published report wake does not depend on another status change to reach the idle thread.
+The shared watcher closes on a new current canonical report whose existing wake remains pending, without appending a second status wake; acknowledged reports and routine progress remain quiet.
 An uncertain queue result retains a failure and requires explicit same-session recovery with `--retry`; recovery may duplicate an already accepted input, so wake handling stays idempotent.
 Away mode, ownership loss, or no remaining supervision need retires the bridge and its tracked watcher.
 

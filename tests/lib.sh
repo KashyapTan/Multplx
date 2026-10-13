@@ -563,11 +563,11 @@ mx_fixture_remove_worktree() {
 owned_wake() { # <state> <command> [args...]
   local state=$1
   shift
-  python3 "$ROOT/tests/fixtures/codex-wake-owner.py" "$state" handle "$@"
+  python3 "$ROOT/tests/fixtures/codex.py" "$state" handle "$@"
 }
 
 owned_wake_retain() { # <state> <command> [args...]
   local state=$1
   shift
-  python3 "$ROOT/tests/fixtures/codex-wake-owner.py" "$state" retain "$@"
+  python3 "$ROOT/tests/fixtures/codex.py" "$state" retain "$@"
 }

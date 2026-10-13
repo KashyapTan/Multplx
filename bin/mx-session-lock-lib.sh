@@ -9,7 +9,46 @@
 # This file is sourced by scripts and has no side effects on source.
 
 # Known harness command names; extend when a new adapter is verified.
-MX_HARNESS_RE='claude|codex|cursor-agent|^pi$'
+MX_HARNESS_RE='^(claude|codex|codex-cli|cursor-agent|pi)(\.(js|py))?$'
+
+# Match a command or an interpreter's script basename, not directory names
+# or arbitrary tool payloads. Keep this sourced ABI aligned with the Rust owner.
+mx_harness_command_matches() {
+  local comm=$1 args=$2 script word interpreter known_re='^(claude|codex|codex-cli|cursor-agent|pi)(\.(js|py))?$'
+  local -a mx_harness_words
+  comm=$(basename "$comm")
+  if printf '%s' "$comm" | grep -qE "$known_re" && printf '%s' "$comm" | grep -qE "$MX_HARNESS_RE"; then return 0; fi
+  interpreter=$(printf '%s' "$comm" | tr '[:upper:]' '[:lower:]')
+  case "$interpreter" in
+    node|nodejs|sh|bash|zsh|dash|ksh) ;;
+    *) printf '%s' "$interpreter" | grep -qE '^python([23](\.[0-9]+)*)?$' || return 1 ;;
+  esac
+  read -r -a mx_harness_words <<< "$args"
+  script=
+  for word in "${mx_harness_words[@]:1}"; do
+    case "$interpreter:$word" in sh:-*|bash:-*|zsh:-*|dash:-*|ksh:-*) return 1 ;; esac
+    case "$interpreter" in
+      node|nodejs) case "$word" in --no-warnings|--enable-source-maps) continue ;; esac ;;
+      python*) case "$word" in -u|-B|-E|-I|-O|-OO) continue ;; esac ;;
+    esac
+    case "$word" in
+      -c|-m|-e|--eval|--module|-r|--require|--import) return 1 ;;
+      -*) return 1 ;;
+      *) script=$word; break ;;
+    esac
+  done
+  [ -n "$script" ] || return 1
+  case "$interpreter" in
+    sh|bash|zsh|dash|ksh)
+      case "$(basename "$script")" in codex|codex-cli|claude|cursor-agent|pi) ;; *) return 1 ;; esac ;;
+  esac
+  if printf '%s' "$(basename "$script")" | grep -qE "$known_re" && printf '%s' "$(basename "$script")" | grep -qE "$MX_HARNESS_RE"; then return 0; fi
+  case "$script" in
+    */@anthropic-ai/claude-code/cli.js) printf '%s' claude | grep -qE "$MX_HARNESS_RE" ;;
+    */@mariozechner/pi-coding-agent/dist/cli.js) printf '%s' pi | grep -qE "$MX_HARNESS_RE" ;;
+    *) return 1 ;;
+  esac
+}
 
 # Walk the current process ancestry (up to 8 hops) and print the first pid whose
 # command looks like a verified harness. The harness pid lives as long as the
@@ -19,13 +58,9 @@ mx_harness_ancestry_pid() {
   for _ in 1 2 3 4 5 6 7 8; do
     comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 1
     args=$(ps -o args= -p "$pid" 2>/dev/null)
-    if printf '%s' "$(basename "$comm")" | grep -qE "$MX_HARNESS_RE"; then
+    if mx_harness_command_matches "$comm" "$args"; then
       echo "$pid"; return 0
     fi
-    # Bare interpreter (e.g. node): match the harness name in its script path.
-    case "$comm" in
-      *node*|*python*) printf '%s' "$args" | grep -qE "$MX_HARNESS_RE" && { echo "$pid"; return 0; } ;;
-    esac
     pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
     [ -n "$pid" ] && [ "$pid" -gt 1 ] || return 1
   done
@@ -34,10 +69,11 @@ mx_harness_ancestry_pid() {
 
 # True if $1 is a live process that looks like a verified harness.
 mx_harness_pid_alive() {
-  local pid=$1 comm
+  local pid=$1 comm args
   kill -0 "$pid" 2>/dev/null || return 1
   comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 1
-  printf '%s' "$(basename "$comm") $(ps -o args= -p "$pid" 2>/dev/null)" | grep -qE "$MX_HARNESS_RE"
+  args=$(ps -o args= -p "$pid" 2>/dev/null) || return 1
+  mx_harness_command_matches "$comm" "$args"
 }
 
 # True when state dir $1 holds a session lock whose pid is the harness ancestor

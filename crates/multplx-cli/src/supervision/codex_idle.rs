@@ -49,26 +49,19 @@ fn owner_matches(state: &Path, target: &Target, probe: &impl ProcessProbe) -> bo
 }
 
 fn hook_owner(probe: &impl ProcessProbe) -> Result<u32, String> {
-    let matcher = multplx_core::session_lock::harness_regex();
-    let mut pid = std::process::id();
+    hook_owner_from(std::process::id(), probe)
+}
+
+fn hook_owner_from(mut pid: u32, probe: &impl ProcessProbe) -> Result<u32, String> {
+    let matcher =
+        regex::Regex::new(r"^(codex|codex-cli|codex\.js|codex\.py)$").expect("Codex owner matcher");
     for _ in 0..12 {
         let row = probe.ancestry_row(pid).map_err(|error| error.to_string())?;
-        let name = Path::new(&row.command)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("");
-        if name == "codex" || name == "codex-cli" {
-            return Ok(pid);
-        }
-        let interpreter = row.command.to_ascii_lowercase();
-        if (interpreter.contains("python") || interpreter.contains("node"))
-            && row.arguments.split_whitespace().skip(1).any(|argument| {
-                Path::new(argument)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| matcher.is_match(name))
-            })
-        {
+        if multplx_core::session_lock::harness_command_matches(
+            &row.command,
+            &row.arguments,
+            &matcher,
+        ) {
             return Ok(pid);
         }
         if row.parent_pid <= 1 {
@@ -179,18 +172,22 @@ fn notify_with(
     send: impl FnOnce(&Target, &str) -> BoundedCommandResult,
 ) -> Result<(), String> {
     let receipts_path = state.join(RECEIPTS);
-    let mut receipts: BTreeSet<String> = if receipts_path.exists() {
+    let existed = receipts_path.exists();
+    let mut receipts: BTreeSet<String> = if existed {
         read_json(&receipts_path)?
     } else {
         BTreeSet::new()
     };
     let outstanding = pending(state)?;
+    let before = receipts.clone();
     receipts.retain(|receipt| {
         outstanding
             .iter()
             .any(|key| receipt == &format!("{}:{key}", target.thread))
     });
-    write_json(&receipts_path, &receipts)?;
+    if !existed || before != receipts {
+        write_json(&receipts_path, &receipts)?;
+    }
     let unseen = outstanding
         .into_iter()
         .filter(|key| !receipts.contains(&format!("{}:{key}", target.thread)))
@@ -279,7 +276,14 @@ fn run_bridge(root: &Path, home: &Path, source_root: &Path, state: &Path) -> Res
                 match child.0.try_wait().map_err(|error| error.to_string())? {
                     Some(status) if status.success() => break,
                     Some(status) => return Err(format!("owned watcher exited {status}")),
-                    None => std::thread::sleep(Duration::from_millis(100)),
+                    None => {
+                        // Report publication can happen independently of status
+                        // scans, including after a watcher already marked the
+                        // status endpoint. Queue receipts deduplicate delivery;
+                        // observing does not claim or settle the model's wake.
+                        notify(state, &target)?;
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
                 }
             }
             notify(state, &target)?;
@@ -628,6 +632,75 @@ mod tests {
                 .identity(std::process::id())
                 .unwrap(),
         }
+    }
+
+    #[test]
+    fn hook_owner_skips_interpreter_payloads_and_other_providers() {
+        use multplx_core::process::AncestryRow;
+        struct Probe {
+            args: &'static str,
+        }
+        impl ProcessProbe for Probe {
+            fn is_alive(&self, _: u32) -> bool {
+                true
+            }
+            fn identity(&self, pid: u32) -> multplx_core::error::Result<ProcessIdentity> {
+                Ok(ProcessIdentity {
+                    pid,
+                    marker: "fixture".into(),
+                })
+            }
+            fn ancestry_row(&self, pid: u32) -> multplx_core::error::Result<AncestryRow> {
+                Ok(if pid == 2 {
+                    AncestryRow {
+                        parent_pid: 3,
+                        command: "python3".into(),
+                        arguments: self.args.into(),
+                    }
+                } else {
+                    AncestryRow {
+                        parent_pid: 1,
+                        command: "codex".into(),
+                        arguments: "codex app-server".into(),
+                    }
+                })
+            }
+        }
+        for args in [
+            "python3 /tmp/mx-codex-fixture/handle.py",
+            "python3 handle.py /tmp/codex",
+            "python3 -X codex handle.py",
+            "python3 /tmp/claude.py",
+        ] {
+            assert_eq!(hook_owner_from(2, &Probe { args }).unwrap(), 3, "{args}");
+        }
+        assert_eq!(
+            hook_owner_from(
+                2,
+                &Probe {
+                    args: "python3 /tmp/codex.py"
+                }
+            )
+            .unwrap(),
+            2
+        );
+    }
+
+    #[test]
+    fn quiet_notification_observation_does_not_rewrite_receipts() {
+        use std::os::unix::fs::MetadataExt;
+        let temp = tempfile::tempdir().unwrap();
+        let target = target(temp.path());
+        let call = || notify_with(temp.path(), &target, |_, _| panic!("quiet transport send"));
+        call().unwrap();
+        let path = temp.path().join(RECEIPTS);
+        let before = fs::metadata(&path).unwrap();
+        for _ in 0..4 {
+            call().unwrap();
+        }
+        let after = fs::metadata(path).unwrap();
+        assert_eq!(before.ino(), after.ino());
+        assert_eq!(before.modified().unwrap(), after.modified().unwrap());
     }
 
     #[test]

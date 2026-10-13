@@ -19,7 +19,84 @@ const MAX_ANCESTRY_HOPS: usize = 8;
 
 /// Current verified harness command-name matcher.
 pub fn harness_regex() -> Regex {
-    Regex::new(r"claude|codex|cursor-agent|^pi$").expect("static harness regex")
+    Regex::new(r"^(claude|codex|codex-cli|cursor-agent|pi)(\.(js|py))?$")
+        .expect("static harness regex")
+}
+
+fn supported_harness_name(name: &str) -> bool {
+    let base = name
+        .strip_suffix(".js")
+        .or_else(|| name.strip_suffix(".py"))
+        .unwrap_or(name);
+    matches!(
+        base,
+        "claude" | "codex" | "codex-cli" | "cursor-agent" | "pi"
+    )
+}
+
+/// Match the executable or an interpreter's executed script, never argument
+/// payloads or a directory whose spelling happens to contain a harness name.
+pub fn harness_command_matches(command: &str, arguments: &str, matcher: &Regex) -> bool {
+    let basename = Path::new(command)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(command);
+    if supported_harness_name(basename) && matcher.is_match(basename) {
+        return true;
+    }
+    let interpreter = basename.to_ascii_lowercase();
+    let shell = matches!(interpreter.as_str(), "sh" | "bash" | "zsh" | "dash" | "ksh");
+    let python = interpreter == "python"
+        || interpreter.strip_prefix("python").is_some_and(|version| {
+            let mut parts = version.split('.');
+            matches!(parts.next(), Some("2" | "3"))
+                && parts
+                    .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+        });
+    if !shell && !matches!(interpreter.as_str(), "node" | "nodejs") && !python {
+        return false;
+    }
+    let mut words = arguments.split_whitespace().skip(1);
+    let script = loop {
+        let Some(word) = words.next() else {
+            return false;
+        };
+        // Shell stdin/eval/options do not establish an executed script.
+        if shell && word.starts_with('-') {
+            return false;
+        }
+        if matches!(
+            word,
+            "-c" | "-m" | "-e" | "--eval" | "--module" | "-r" | "--require" | "--import"
+        ) {
+            return false;
+        }
+        if python && matches!(word, "-u" | "-B" | "-E" | "-I" | "-O" | "-OO")
+            || matches!(interpreter.as_str(), "node" | "nodejs")
+                && matches!(word, "--no-warnings" | "--enable-source-maps")
+        {
+            continue;
+        }
+        if word.starts_with('-') {
+            return false;
+        }
+        break word;
+    };
+    let script_name = Path::new(script)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    if shell
+        && !matches!(
+            script_name,
+            "codex" | "codex-cli" | "claude" | "cursor-agent" | "pi"
+        )
+    {
+        return false;
+    }
+    supported_harness_name(script_name) && matcher.is_match(script_name)
+        || script.ends_with("/@anthropic-ai/claude-code/cli.js") && matcher.is_match("claude")
+        || script.ends_with("/@mariozechner/pi-coding-agent/dist/cli.js") && matcher.is_match("pi")
 }
 
 /// Resolve the first verified harness in a bounded ancestry walk.
@@ -31,19 +108,7 @@ pub fn harness_ancestry_pid(
     let mut pid = start_pid;
     for _ in 0..MAX_ANCESTRY_HOPS {
         let row = processes.ancestry_row(pid)?;
-        let basename = Path::new(&row.command)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(&row.command);
-        let interpreter = format!(
-            "{} {}",
-            row.command,
-            row.arguments.split_whitespace().next().unwrap_or_default()
-        )
-        .to_ascii_lowercase();
-        let interpreter_match = (interpreter.contains("node") || interpreter.contains("python"))
-            && matcher.is_match(&row.arguments);
-        if matcher.is_match(basename) || interpreter_match {
+        if harness_command_matches(&row.command, &row.arguments, matcher) {
             return Ok(pid);
         }
         if row.parent_pid <= 1 {
@@ -62,13 +127,9 @@ pub fn harness_pid_alive(pid: u32, processes: &impl ProcessProbe, matcher: &Rege
     if !processes.is_alive(pid) {
         return false;
     }
-    processes.ancestry_row(pid).is_ok_and(|row| {
-        let basename = Path::new(&row.command)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(&row.command);
-        matcher.is_match(&format!("{basename} {}", row.arguments))
-    })
+    processes
+        .ancestry_row(pid)
+        .is_ok_and(|row| harness_command_matches(&row.command, &row.arguments, matcher))
 }
 
 /// Observable status for `mx-lock status`.
@@ -354,6 +415,128 @@ mod tests {
         fn wait_gone(&mut self, _process: &ProcessIdentity, _timeout: Duration) -> bool {
             self.wait_result
         }
+    }
+
+    #[test]
+    fn interpreter_identity_ignores_parent_directory_and_payload_names() {
+        let matcher = harness_regex();
+        let sourced_match = |command: &str, arguments: &str, pattern: &str| {
+            std::process::Command::new("bash")
+                .args([
+                    "-c",
+                    ". \"$1\"; MX_HARNESS_RE=$4; mx_harness_command_matches \"$2\" \"$3\"",
+                    "fixture",
+                ])
+                .arg(
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("../../bin/mx-session-lock-lib.sh"),
+                )
+                .args([command, arguments, pattern])
+                .status()
+                .unwrap()
+                .success()
+        };
+        for (command, args) in [
+            ("/usr/bin/sleep", "codex 30"),
+            ("/tmp/notcodex", "notcodex"),
+            ("/tmp/codex-helper", "codex-helper"),
+            ("/usr/bin/python3", "python3 /tmp/notcodex.py"),
+            ("/usr/bin/python3", "python3 /tmp/codex-helper.py"),
+            ("/usr/bin/node", "node /tmp/notcodex.js"),
+            ("/usr/bin/node", "node /tmp/codex-helper.js"),
+            ("/tmp/node-helper", "node-helper /tmp/codex.js"),
+            ("/tmp/python-helper", "python-helper /tmp/codex.py"),
+            ("/tmp/python3evil", "python3evil /tmp/codex.py"),
+            ("/usr/bin/node", "node -u /tmp/codex.js"),
+            ("/usr/bin/python3", "python3 --no-warnings /tmp/codex.py"),
+            ("/usr/bin/python3", "python3 /tmp/path with space/codex.py"),
+            ("/usr/bin/python3", "python3 /tmp/mx-codex-proof/handle.py"),
+            ("/usr/bin/python3", "python3 /tmp/handle.py codex"),
+            ("/usr/bin/python3", "python3 -c codex"),
+            ("/usr/bin/python3", "python3 -m codex"),
+            ("/usr/bin/python3", "python3 -X codex /tmp/handle.py"),
+            ("/usr/bin/node", "node --conditions codex /tmp/handle.js"),
+            ("/usr/bin/node", "node --require codex /tmp/handle.js"),
+            ("/usr/bin/node", "node --import codex /tmp/handle.js"),
+            ("/usr/bin/node", "node /tmp/handle.js --description claude"),
+            ("/bin/zsh", "zsh -c codex"),
+            ("/bin/bash", "bash -s /tmp/codex"),
+            ("/bin/bash", "bash /tmp/handle.sh --description codex"),
+            ("/bin/bash", "bash /tmp/mx-codex-helper.sh"),
+            ("/bin/sh", "sh /tmp/notcodex"),
+            ("/bin/sh", "sh /tmp/mx-codex-proof/handle.sh"),
+        ] {
+            assert!(
+                !super::harness_command_matches(command, args, &matcher),
+                "{args}"
+            );
+            assert!(
+                !sourced_match(command, args, matcher.as_str()),
+                "sourced ABI: {args}"
+            );
+        }
+        for (command, args) in [
+            ("/bin/codex", "codex app-server"),
+            ("/tmp/工具 space/codex", "/tmp/工具 space/codex app-server"),
+            ("/bin/bash", "bash /tmp/codex --config arbitrary-payload"),
+            ("/bin/zsh", "zsh /tmp/codex-cli"),
+            ("/bin/sh", "sh /tmp/claude"),
+            ("/bin/bash", "bash /tmp/cursor-agent"),
+            ("/bin/sh", "sh /tmp/pi"),
+            (
+                "/usr/bin/node",
+                "node /usr/lib/node_modules/@openai/codex/bin/codex.js",
+            ),
+            (
+                "/usr/bin/node",
+                "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+            ),
+            (
+                "/usr/bin/node",
+                "node /usr/lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js",
+            ),
+            ("/usr/bin/python3", "python3 -u /tmp/工具/codex.py"),
+            ("/usr/bin/python3.14", "python3.14 -u /tmp/codex.py"),
+            ("/usr/bin/nodejs", "nodejs /tmp/codex.js"),
+            (
+                "/usr/bin/node",
+                "node --no-warnings --enable-source-maps /tmp/codex.js",
+            ),
+            ("/usr/bin/node", "node cursor-agent"),
+            (
+                "/Library/Frameworks/Python.framework/Python",
+                "python3 /tmp/codex.py",
+            ),
+        ] {
+            assert!(
+                super::harness_command_matches(command, args, &matcher),
+                "{args}"
+            );
+            assert!(
+                sourced_match(command, args, matcher.as_str()),
+                "sourced ABI: {args}"
+            );
+        }
+        let codex_only = regex::Regex::new(r"^(codex|codex-cli|codex\.js|codex\.py)$").unwrap();
+        for (command, args) in [
+            ("claude", "claude"),
+            ("node", "node /tmp/claude.js"),
+            ("sh", "sh /tmp/claude"),
+        ] {
+            assert!(
+                !super::harness_command_matches(command, args, &codex_only),
+                "{args}"
+            );
+            assert!(
+                !sourced_match(command, args, codex_only.as_str()),
+                "sourced caller intersection: {args}"
+            );
+        }
+        let broad = regex::Regex::new(".*").unwrap();
+        assert!(!super::harness_command_matches(
+            "notcodex", "notcodex", &broad
+        ));
+        assert!(!sourced_match("notcodex", "notcodex", broad.as_str()));
     }
 
     #[test]

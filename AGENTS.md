@@ -106,6 +106,8 @@ Use `task-supervision` for wake disposition and current-state reconciliation, an
 ## 7. Decisions and blockers
 
 Keep unresolved human questions durable, visible and bound to the task and revision that need them.
+Before conveying a decision, record the exact question and accepted revision through `mx parent-channel answer` in the owning home; a send or worker `resolved` report does not record that answer.
+The parent may resolve ordinary implementation choices from the accepted scope; distinguish those judgments from choices that require new human input.
 Explain the concrete missing choice and its effect on the outcome; avoid approval requests for ordinary implementation decisions.
 When a worker is blocked, inspect its evidence, clarify or route the missing input, revise the assignment if necessary and retain its work.
 Workers report the concrete missing decision or blocker to the recorded parent with its task and current revision, while continuing independent authorized work.

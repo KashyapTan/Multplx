@@ -242,7 +242,12 @@ fn headroom_discovers_linux_signals_and_preserves_failed_queue_records() {
     ));
     let root = temp.path().join("spawn-root");
     fs::create_dir_all(root.join("bin")).expect("bin");
-    for script in ["mx-native-observe.sh", "mx-subagent-pretool-check.sh"] {
+    for script in [
+        "mx-native-observe.sh",
+        "mx-subagent-pretool-check.sh",
+        "mx-codex-idle.sh",
+        "mx-turnend-guard.sh",
+    ] {
         executable(&root.join("bin").join(script), "#!/bin/sh\nexit 0\n");
     }
     executable(&root.join("bin/mx-spawn.sh"), "#!/bin/sh\nexit 0\n");
@@ -473,7 +478,12 @@ fn launcher_validation_and_retired_installer_refusal_are_observable() {
 
     let root = temp.path().join("root");
     fs::create_dir_all(root.join("bin")).expect("bin");
-    for script in ["mx-native-observe.sh", "mx-subagent-pretool-check.sh"] {
+    for script in [
+        "mx-native-observe.sh",
+        "mx-subagent-pretool-check.sh",
+        "mx-codex-idle.sh",
+        "mx-turnend-guard.sh",
+    ] {
         executable(&root.join("bin").join(script), "#!/bin/sh\nexit 0\n");
     }
     fs::create_dir_all(root.join(".agents/skills")).expect("skills");
@@ -620,7 +630,12 @@ fn launcher_rejects_incomplete_roots_homes_reals_and_recursive_shims() {
         Some(2)
     );
     fs::create_dir_all(root.join("bin")).expect("bin");
-    for script in ["mx-native-observe.sh", "mx-subagent-pretool-check.sh"] {
+    for script in [
+        "mx-native-observe.sh",
+        "mx-subagent-pretool-check.sh",
+        "mx-codex-idle.sh",
+        "mx-turnend-guard.sh",
+    ] {
         executable(&root.join("bin").join(script), "#!/bin/sh\nexit 0\n");
     }
     fs::create_dir_all(root.join(".agents/skills")).expect("skills");
@@ -1000,7 +1015,12 @@ fn harness_headroom_queue_and_launcher_commands_cover_public_outcomes() {
     let root = temp.path().join("root");
     let launch_home = temp.path().join("launch-home");
     fs::create_dir_all(root.join("bin")).expect("bin");
-    for script in ["mx-native-observe.sh", "mx-subagent-pretool-check.sh"] {
+    for script in [
+        "mx-native-observe.sh",
+        "mx-subagent-pretool-check.sh",
+        "mx-codex-idle.sh",
+        "mx-turnend-guard.sh",
+    ] {
         executable(&root.join("bin").join(script), "#!/bin/sh\nexit 0\n");
     }
     fs::create_dir_all(root.join(".agents/skills")).expect("skills");

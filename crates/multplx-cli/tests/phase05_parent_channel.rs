@@ -471,6 +471,31 @@ fn needs_decision_report_records_revision_bound_question_and_answer() {
         Some("flow-7")
     );
 
+    let resolved = run(mx(&home)
+        .env("MX_TASK_ID", "decision-worker")
+        .env("MX_ATTEMPT_ID", &attempt.id)
+        .env("MX_ATTEMPT_GENERATION", attempt.generation.to_string())
+        .env("MX_BRIEF_REVISION", attempt.brief_revision.to_string())
+        .args([
+            "supervision",
+            "mx-report",
+            "--state",
+            "resolved",
+            "--key",
+            "api-choice",
+            "--message",
+            "Parent conveyed a choice",
+            "--message-id",
+            "resolved-before-answer",
+        ]));
+    assert!(resolved.status.success());
+    let unresolved: serde_json::Value = serde_json::from_slice(&resolved.stdout).unwrap();
+    assert_eq!(unresolved["pending_human_decisions"][0]["id"], "api-choice");
+    assert_eq!(
+        unresolved["decision_owner_state"],
+        home.join("state").display().to_string()
+    );
+    assert!(String::from_utf8_lossy(&resolved.stderr).contains("mx parent-channel answer"));
     let answer = |answer_id: &str, text: &str| {
         run(mx(&home).args([
             "parent-channel",

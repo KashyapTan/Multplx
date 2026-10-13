@@ -40,7 +40,7 @@ Codex Desktop event delivery is unverified.
 If native hook review was skipped or hooks are disabled, retain the readiness blocker until the provider's native hook trust review and SessionStart registration establish readiness.
 Do not repeat quiet checkpoints, sleeps or manual re-arm commands while waiting for that repair.
 The integration does not override disabled hooks or change private trust state.
-Primary and worker Codex launches share the same canonical worker-hook CLI bundle, including a fingerprint of the actual owned scripts and runtime executable.
+Primary and worker Codex launches share the same canonical primary/worker CLI hook bundle, including a fingerprint of the actual owned scripts and runtime executable.
 Complete its first native review at primary startup; unchanged standing/nested workers reuse that definition across homes, while owned bundle changes require review again.
 Tracked project hooks, historical home hook files and unrelated user hooks keep separate native review; CLI hook-array overrides that collide with the bundle receive a setup error.
 Claude/Pi native project or extension trust and Cursor primary workspace consent remain provider-owned; do not infer trust from ordinary permission flags.

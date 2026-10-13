@@ -347,8 +347,15 @@ fn accepted_information_preserves_actor_and_viz_state_without_hiding_real_work()
     ]);
     assert_projection("paused");
     let mut resurfaced = false;
+    let mut resurface_observations = Vec::new();
     for _ in 0..4 {
         let output = checkpoint();
+        resurface_observations.push(format!(
+            "status={:?} stdout={} stderr={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
         if String::from_utf8_lossy(&output.stdout)
             .contains("declared pause, rechecked on a long cadence")
         {
@@ -358,7 +365,12 @@ fn accepted_information_preserves_actor_and_viz_state_without_hiding_real_work()
     }
     assert!(
         resurfaced,
-        "informational status must retain the established pause resurfacing cadence"
+        "informational status must retain the established pause resurfacing cadence: observations={resurface_observations:?}, pause={:?}, hash={:?}, count={:?}, stale={:?}, resurface={:?}",
+        fs::read_to_string(&pause_marker),
+        fs::read_to_string(state.join(".hash-broker_mx-worker")),
+        fs::read_to_string(state.join(".count-broker_mx-worker")),
+        fs::read_to_string(state.join(".stale-broker_mx-worker")),
+        fs::metadata(&resurface_marker).and_then(|metadata| metadata.modified()),
     );
     assert_eq!(
         fs::metadata(&pause_marker).unwrap().modified().unwrap(),

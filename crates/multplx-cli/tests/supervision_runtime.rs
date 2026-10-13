@@ -15,8 +15,8 @@ fn mx() -> Command {
 }
 
 fn wake(state: &std::path::Path) -> Command {
-    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/codex-wake-owner.py");
+    let fixture =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/codex.py");
     let mut command = Command::new("python3");
     command
         .arg(fixture)
@@ -28,8 +28,8 @@ fn wake(state: &std::path::Path) -> Command {
 }
 
 fn wake_retain(state: &std::path::Path) -> Command {
-    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/codex-wake-owner.py");
+    let fixture =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/codex.py");
     let mut command = Command::new("python3");
     command
         .arg(fixture)

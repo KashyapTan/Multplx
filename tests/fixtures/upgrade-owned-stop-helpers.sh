@@ -201,15 +201,16 @@ PY
 run_upgrade_herdr_lock_checks() {
   local output before native_pid
   before=$(upgrade_runtime_identity)
-  cat >"$TMP_ROOT/upgrade-herdr-codex" <<'NATIVE'
+  mkdir -p "$TMP_ROOT/upgrade-herdr"
+  cat >"$TMP_ROOT/upgrade-herdr/codex" <<'NATIVE'
 #!/usr/bin/env bash
 sleep 300 &
 owned_child=$!
 trap 'kill "$owned_child" 2>/dev/null || true; wait "$owned_child" 2>/dev/null || true; exit 0' TERM
 wait "$owned_child"
 NATIVE
-  chmod +x "$TMP_ROOT/upgrade-herdr-codex"
-  "$TMP_ROOT/upgrade-herdr-codex" &
+  chmod +x "$TMP_ROOT/upgrade-herdr/codex"
+  "$TMP_ROOT/upgrade-herdr/codex" &
   native_pid=$!
   export MX_UPGRADE_PRIMARY_PID="$native_pid" MX_UPGRADE_NATIVE_PID="$native_pid"
   if [ -e "$standing_home/state/.lock" ]; then cp "$standing_home/state/.lock" "$TMP_ROOT/herdr-home-lock.before"; fi
@@ -287,15 +288,16 @@ PY
 }
 run_upgrade_primary_stop_check() {
   local pid output
-  cat >"$TMP_ROOT/upgrade-primary-codex" <<'PRIMARY'
+  mkdir -p "$TMP_ROOT/upgrade-primary"
+  cat >"$TMP_ROOT/upgrade-primary/codex" <<'PRIMARY'
 #!/usr/bin/env bash
 sleep 300 &
 owned_child=$!
 trap 'kill "$owned_child" 2>/dev/null || true; wait "$owned_child" 2>/dev/null || true; exit 0' TERM
 wait "$owned_child"
 PRIMARY
-  chmod +x "$TMP_ROOT/upgrade-primary-codex"
-  "$TMP_ROOT/upgrade-primary-codex" &
+  chmod +x "$TMP_ROOT/upgrade-primary/codex"
+  "$TMP_ROOT/upgrade-primary/codex" &
   pid=$!
   MX_UPGRADE_PRIMARY_PID=$pid
   export MX_UPGRADE_PRIMARY_PID

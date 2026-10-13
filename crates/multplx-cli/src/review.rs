@@ -1995,7 +1995,14 @@ struct DeliveryOutput {
     stdout: Vec<u8>,
 }
 
-fn delivery_output(mut command: Command) -> Result<DeliveryOutput, String> {
+fn delivery_output(command: Command) -> Result<DeliveryOutput, String> {
+    delivery_output_capture(command, false)
+}
+
+fn delivery_output_capture(
+    mut command: Command,
+    capture_stderr: bool,
+) -> Result<DeliveryOutput, String> {
     let timeout = std::env::var("MX_DELIVERY_COMMAND_TIMEOUT_SECONDS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
@@ -2006,7 +2013,7 @@ fn delivery_output(mut command: Command) -> Result<DeliveryOutput, String> {
         Duration::from_secs(timeout),
         None,
         None,
-        false,
+        capture_stderr,
     ) {
         crate::supervision::BoundedCommandResult::Completed { success, output } => {
             Ok(DeliveryOutput {
@@ -3224,8 +3231,21 @@ fn deliver_one(id: &str, state: &Path, credentials: &DeliveryCredentials) -> i32
         // registration must honor their frozen base rather than re-derive it.
         check.args(["--base", &record.base]);
     }
-    if !delivery_status(check).is_ok_and(|success| success) {
-        publication_failed(&format!("PR state recording failed for {task}"), Some(&url));
+    let registration_error = match delivery_output_capture(check, true) {
+        Ok(output) if output.success => None,
+        Ok(output) => Some(
+            String::from_utf8_lossy(&output.stdout)
+                .chars()
+                .take(4000)
+                .collect::<String>(),
+        ),
+        Err(error) => Some(error),
+    };
+    if let Some(error) = registration_error {
+        publication_failed(
+            &format!("PR state recording failed for {task}: {}", error.trim()),
+            Some(&url),
+        );
         return 1;
     }
     operation = match advance_publication_operation(
