@@ -418,6 +418,7 @@ mod tests {
                 .success()
         };
         for (command, args) in [
+            ("/usr/bin/sleep", "codex 30"),
             ("/usr/bin/python3", "python3 /tmp/mx-codex-proof/handle.py"),
             ("/usr/bin/python3", "python3 /tmp/handle.py codex"),
             ("/usr/bin/python3", "python3 -c codex"),

@@ -393,7 +393,16 @@ test_live_lock_refusal_and_stale_permission() {
   make_fake_harnesses "$fakebin"
   record="$case_dir/record"
 
-  bash -c 'exec -a codex sleep 30' &
+  mkdir -p "$case_dir/lock-owner"
+  cat >"$case_dir/lock-owner/codex" <<'OWNER'
+#!/usr/bin/env bash
+sleep 30 &
+owned_child=$!
+trap 'kill "$owned_child" 2>/dev/null || true; wait "$owned_child" 2>/dev/null || true; exit 0' TERM
+wait "$owned_child"
+OWNER
+  chmod +x "$case_dir/lock-owner/codex"
+  "$case_dir/lock-owner/codex" &
   holder=$!
   printf '%s\n' "$holder" >"$root/state/.lock"
   if PATH="$fakebin:/usr/bin:/bin" MX_FAKE_HARNESS_RECORD="$record" \
