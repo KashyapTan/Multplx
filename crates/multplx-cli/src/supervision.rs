@@ -3598,6 +3598,128 @@ fn install_watcher_signals() -> Result<
 
 /// Native watcher transaction under construction.
 #[allow(dead_code)]
+fn deliver_watcher_signals(
+    source_root: &Path,
+    state: &Path,
+    mut signals: Vec<SignalObservation>,
+) -> Result<Option<String>, ()> {
+    let absorbed = signals
+        .iter()
+        .filter(|signal| signal.routine_progress)
+        .cloned()
+        .collect::<Vec<_>>();
+    if publish_signal_markers(&absorbed).is_err() {
+        return Err(());
+    }
+    for observation in &absorbed {
+        mark_status_surfaced(state, &observation.path);
+    }
+    signals.retain(|signal| !signal.routine_progress);
+    if !signals.is_empty() {
+        let files = signals
+            .iter()
+            .map(|observation| format!(" {}", observation.path.display()))
+            .collect::<String>();
+        let reason = format!("signal:{files}");
+        let actionable = state.join(".afk").exists()
+            || signals
+                .iter()
+                .any(|observation| observation.maintainer_relevant)
+            || !signal_actors_provably_working(source_root, state, &signals);
+        if actionable {
+            for observation in &signals {
+                let key = observation
+                    .path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("signal");
+                if observation.append_legacy_wake
+                    && !append_wake(state, multplx_core::wake::WakeKind::Signal, key, &reason)
+                {
+                    return Err(());
+                }
+            }
+            // A native handoff can precede the next stale scan. Retain
+            // the verified pause's identity/cadence before closing, rather
+            // than delaying its bookkeeping until another watcher cycle.
+            let mut pause_reason = None;
+            for observation in signals.iter().filter(|signal| !signal.append_legacy_wake) {
+                let Some(task) = observation.path.file_stem().and_then(|name| name.to_str()) else {
+                    continue;
+                };
+                let paused = status_paused_or_held(&status_line(state, task));
+                let class = paused.then(|| actor_absorb_class(source_root, state, task));
+                for window in recorded_windows(state)
+                    .into_iter()
+                    .filter(|window| window.task == task)
+                {
+                    let key = window_key(&window.endpoint);
+                    if !paused {
+                        clear_pause_tracking(state, &key);
+                        continue;
+                    }
+                    if class != Some(ActorAbsorbClass::Paused) {
+                        // Retain the same explicit unknown fallback used
+                        // by stale scanning. An empty marker never proves
+                        // a pause identity or establishes its cadence.
+                        for prefix in [".paused-", ".paused-rechecked-", ".paused-resurfaced-"] {
+                            if !store_marker(&state.join(format!("{prefix}{key}")), "") {
+                                return Err(());
+                            }
+                        }
+                    } else if let Some((capture, _)) = backend_capture(&window)
+                        && let Some(hash) = pane_hash(&capture)
+                        && let Some(reminder) = handle_paused_stale(
+                            state,
+                            &window,
+                            &hash,
+                            Duration::from_secs(environment_u64("MX_PAUSE_RESURFACE_SECS", 21_600)),
+                        )
+                    {
+                        if reminder.is_empty() {
+                            return Err(());
+                        }
+                        pause_reason = Some(reminder);
+                    }
+                }
+            }
+            if publish_signal_markers(&signals).is_err() {
+                return Err(());
+            }
+            for observation in &signals {
+                mark_status_surfaced(state, &observation.path);
+            }
+            let _ = fs::write(state.join(".heartbeat-streak"), b"0\n");
+            return Ok(Some(pause_reason.unwrap_or(reason)));
+        }
+        if publish_signal_markers(&signals).is_err() {
+            return Err(());
+        }
+        triage_log(state, &format!("absorbed benign {reason}"));
+    }
+    Ok(None)
+}
+
+// Canonical publication already owns its wake. Deliver it before potentially
+// slow unrelated maintenance while retaining the same signal bookkeeping.
+fn pending_canonical_handoff(
+    source_root: &Path,
+    state: &Path,
+    grace: Duration,
+) -> Result<Option<String>, ()> {
+    let canonical = |signal: &SignalObservation| {
+        !signal.append_legacy_wake && !signal.routine_progress && signal.maintainer_relevant
+    };
+    if !scan_signals(state).iter().any(canonical) {
+        return Ok(None);
+    }
+    let signals = coalesce_signals(state, grace)
+        .into_iter()
+        .filter(canonical)
+        .collect();
+    deliver_watcher_signals(source_root, state, signals)
+}
+
 pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
     use std::sync::atomic::Ordering;
     let state = std::env::var_os("MX_STATE_OVERRIDE")
@@ -3713,6 +3835,14 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
             return 1;
         }
     }
+    match pending_canonical_handoff(source_root, &state, signal_grace) {
+        Ok(Some(reason)) => {
+            println!("{reason}");
+            return 0;
+        }
+        Ok(None) => {}
+        Err(()) => return 1,
+    }
     let rejected_retirements = recover_pr_poll_retirements(&state);
     if !rejected_retirements.is_empty() {
         let paths = rejected_retirements
@@ -3740,6 +3870,14 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
             return 0;
         }
         let _ = fs::write(state.join(".last-watcher-beat"), b"");
+        match pending_canonical_handoff(source_root, &state, signal_grace) {
+            Ok(Some(reason)) => {
+                println!("{reason}");
+                return 0;
+            }
+            Ok(None) => {}
+            Err(()) => return 1,
+        }
         let mut queue_command = Command::new(source_root.join("bin/mx-headroom.sh"));
         queue_command.arg("--queue-drain");
         let queue_result = run_bounded_command_result(
@@ -3942,106 +4080,13 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
                 let _ = fs::write(state.join(".last-check"), b"");
             }
         }
-        let mut signals = coalesce_signals(&state, signal_grace);
-        let absorbed = signals
-            .iter()
-            .filter(|signal| signal.routine_progress)
-            .cloned()
-            .collect::<Vec<_>>();
-        if publish_signal_markers(&absorbed).is_err() {
-            return 1;
-        }
-        for observation in &absorbed {
-            mark_status_surfaced(&state, &observation.path);
-        }
-        signals.retain(|signal| !signal.routine_progress);
-        if !signals.is_empty() {
-            let files = signals
-                .iter()
-                .map(|observation| format!(" {}", observation.path.display()))
-                .collect::<String>();
-            let reason = format!("signal:{files}");
-            let actionable = state.join(".afk").exists()
-                || signals
-                    .iter()
-                    .any(|observation| observation.maintainer_relevant)
-                || !signal_actors_provably_working(source_root, &state, &signals);
-            if actionable {
-                for observation in &signals {
-                    let key = observation
-                        .path
-                        .file_name()
-                        .and_then(|value| value.to_str())
-                        .unwrap_or("signal");
-                    if observation.append_legacy_wake
-                        && !append_wake(&state, multplx_core::wake::WakeKind::Signal, key, &reason)
-                    {
-                        return 1;
-                    }
-                }
-                // A native handoff can precede the next stale scan. Retain
-                // the verified pause's identity/cadence before closing, rather
-                // than delaying its bookkeeping until another watcher cycle.
-                let mut pause_reason = None;
-                for observation in signals.iter().filter(|signal| !signal.append_legacy_wake) {
-                    let Some(task) = observation.path.file_stem().and_then(|name| name.to_str())
-                    else {
-                        continue;
-                    };
-                    let paused = status_paused_or_held(&status_line(&state, task));
-                    let class = paused.then(|| actor_absorb_class(source_root, &state, task));
-                    for window in recorded_windows(&state)
-                        .into_iter()
-                        .filter(|window| window.task == task)
-                    {
-                        let key = window_key(&window.endpoint);
-                        if !paused {
-                            clear_pause_tracking(&state, &key);
-                            continue;
-                        }
-                        if class != Some(ActorAbsorbClass::Paused) {
-                            // Retain the same explicit unknown fallback used
-                            // by stale scanning. An empty marker never proves
-                            // a pause identity or establishes its cadence.
-                            for prefix in [".paused-", ".paused-rechecked-", ".paused-resurfaced-"]
-                            {
-                                if !store_marker(&state.join(format!("{prefix}{key}")), "") {
-                                    return 1;
-                                }
-                            }
-                        } else if let Some((capture, _)) = backend_capture(&window)
-                            && let Some(hash) = pane_hash(&capture)
-                            && let Some(reminder) = handle_paused_stale(
-                                &state,
-                                &window,
-                                &hash,
-                                Duration::from_secs(environment_u64(
-                                    "MX_PAUSE_RESURFACE_SECS",
-                                    21_600,
-                                )),
-                            )
-                        {
-                            if reminder.is_empty() {
-                                return 1;
-                            }
-                            pause_reason = Some(reminder);
-                        }
-                    }
-                }
-                if publish_signal_markers(&signals).is_err() {
-                    return 1;
-                }
-                for observation in &signals {
-                    mark_status_surfaced(&state, &observation.path);
-                }
-                let _ = fs::write(state.join(".heartbeat-streak"), b"0\n");
-                println!("{}", pause_reason.as_deref().unwrap_or(&reason));
+        match deliver_watcher_signals(source_root, &state, coalesce_signals(&state, signal_grace)) {
+            Ok(Some(reason)) => {
+                println!("{reason}");
                 return 0;
             }
-            if publish_signal_markers(&signals).is_err() {
-                return 1;
-            }
-            triage_log(&state, &format!("absorbed benign {reason}"));
+            Ok(None) => {}
+            Err(()) => return 1,
         }
         if let Some(reason) = stale_scan(source_root, &state) {
             if reason.is_empty() {

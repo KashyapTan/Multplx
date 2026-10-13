@@ -315,3 +315,15 @@ Codex instrumented runtime fixtures verify exact-session status, unsupported que
 Claude was unavailable on this host; its unchanged Stop mechanism retains the earlier evidence and current protocol contract checks without a new live qualification.
 Cursor `2026.10.01-e373342` was available; its unchanged interactive stop park and print-mode limit retain the earlier evidence without a new authenticated interactive trial.
 Private operational homes, installed global providers, hook trust settings and user configuration were unchanged.
+
+## Canonical report handoff before maintenance
+
+An accepted current canonical report owns its durable wake and must reach the native watcher consumer before unrelated dispatch or PR maintenance.
+The watcher checks that handoff only after acquiring its own lock and reconciling accepted-report publication and parent relay.
+Early handoff and the ordinary signal pass share the same delivery owner, including signal markers, pause bookkeeping and publication deduplication.
+Routine, acknowledged, historical and legacy observations remain available to their ordinary scan without early marker advancement.
+
+The canonical notification runtime regression uses the real report owner and one-second foreground checkpoint with an isolated dispatch maintenance command that blocks.
+The base ordering returned 124 after entering maintenance despite an already durable completion wake.
+The corrected ordering returns the existing signal before that maintenance starts, keeps the wake queue byte-for-byte, and preserves the original question/completion and acknowledged replay assertions.
+This is deterministic runtime evidence with injected maintenance; it does not claim a fresh authenticated harness trial.
