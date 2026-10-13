@@ -45,7 +45,7 @@ for name in ['state', 'bin', 'home']: (root/name).mkdir()
 (root/'.mx-daemon-home').write_text('codex-idle-fixture\n')
 state = root/'state'; (state/'.lock').write_text(str(os.getpid()))
 watch = root/'bin/mx-watch.sh'
-watch.write_text('#!/bin/sh\nwhile [ ! -f "$MX_STATE_OVERRIDE/trigger" ]; do sleep .05; done\nrm -f "$MX_STATE_OVERRIDE/trigger"\n'); watch.chmod(0o755)
+watch.write_text('#!/bin/sh\ntouch "$MX_STATE_OVERRIDE/watch-live"\ntrap \'rm -f "$MX_STATE_OVERRIDE/watch-live"; exit 0\' TERM INT\nwhile [ ! -f "$MX_STATE_OVERRIDE/trigger" ]; do sleep .05; done\nrm -f "$MX_STATE_OVERRIDE/trigger" "$MX_STATE_OVERRIDE/watch-live"\n'); watch.chmod(0o755)
 codex = root/'bin/codex'
 def transport(mode='good'):
     text = '#!/bin/sh\n'
@@ -75,6 +75,11 @@ def sends():
 def append(n):
     with (state/'.wake-queue').open('a') as f: f.write(f'1\t{n}\tsignal\tchild-{n}\tdone\n')
 atexit.register(lambda: call(['--end'], extra={'CODEX_THREAD_ID':thread}))
+meta = {'schema_version':2,'task_id':'standing','role':'researcher','artifact':'report','persistent':True,'private_home':True,'legacy_unknown':False,'accepted_brief_revision':1,'attempt':{'id':'attempt-1','generation':1,'brief_revision':1},'schedule':{'state':'running'}}
+def task_state(value):
+    meta['schedule']['state']=value
+    (state/'standing.meta').write_text('schema_version=2\nkind=daemon\ncanonical_model='+json.dumps(meta)+'\n')
+task_state('running')
 append(1)
 status=json.loads(call(['--status'],extra={'CODEX_THREAD_ID':thread}))
 assert status['mode']=='degraded-checkpoint' and not status['native_hook_ready']
@@ -101,6 +106,19 @@ first=json.loads((state/'.codex-idle-process.json').read_text())
 assert call().strip() == '{}'
 assert json.loads((state/'.codex-idle-process.json').read_text())==first
 assert len(sends())==1
+# Completion is committed before its wake is published. Acknowledging the
+# previous progress wake can leave a real no-work window between these writes.
+# The exact-session bridge must park through it without another Stop callback.
+wait(lambda:(state/'watch-live').exists())
+(state/'.wake-queue').write_text('')
+wait(lambda:json.loads((state/'.codex-idle-receipts.json').read_text())==[])
+task_state('completed')
+wait(lambda:not (state/'watch-live').exists())
+assert json.loads(call(['--status'],extra={'CODEX_THREAD_ID':thread}))['mode']=='idle-no-work'
+time.sleep(.25)
+assert (state/'.codex-idle.lock').exists(), 'completion publication gap retired bridge'
+assert json.loads((state/'.codex-idle-process.json').read_text())==first
+assert len(sends())==1, 'no-work interval must not wake the model'
 assert str(root/'home') in sends()[0] and '--thread '+thread in sends()[0]
 assert 'MULTPLX_OP:' in sends()[0] and (state/'.wake-queue').exists()
 assert 'already bound' in call(payload={'session_id':'123e4567-e89b-12d3-a456-426614174001'})
@@ -111,6 +129,15 @@ append(2)
 wait(lambda:len(sends())==2)
 assert json.loads((state/'.codex-idle-process.json').read_text())==first
 assert call().strip() == '{}'
+time.sleep(.15); assert len(sends())==2
+# Away mode retires the owned bridge; resuming the same session must not replay
+# the already transported completion wake or launch another model turn.
+(state/'.afk').write_text('away')
+wait(lambda:not (state/'.codex-idle.lock').exists())
+assert len(sends())==2
+(state/'.afk').unlink()
+assert call().strip()=='{}'
+wait(lambda:(state/'.codex-idle.lock').exists())
 time.sleep(.15); assert len(sends())==2
 assert 'already bound' in call(['--end'],extra={'CODEX_THREAD_ID':'123e4567-e89b-12d3-a456-426614174001'})
 assert call(['--end'],extra={'CODEX_THREAD_ID':thread}).strip() == '{}'

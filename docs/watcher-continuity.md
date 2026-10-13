@@ -34,7 +34,8 @@ Queue receipts suppress repeated transport delivery but never claim, dispose or 
 The bridge observes durable unacknowledged queue and inbox events while its watcher remains live, so an already published report wake does not depend on another status change to reach the idle thread.
 The shared watcher closes on a new current canonical report whose existing wake remains pending, without appending a second status wake; acknowledged reports and routine progress remain quiet.
 An uncertain queue result retains a failure and requires explicit same-session recovery with `--retry`; recovery may duplicate an already accepted input, so wake handling stays idempotent.
-Away mode, ownership loss, or no remaining supervision need retires the bridge and its tracked watcher.
+Away mode, ownership loss, or exact-session end retires the bridge and its tracked watcher.
+When no supervision work remains, the activated bridge stops its watcher child and waits without model input, retaining its exact-session binding through the task-completion to wake-publication window.
 
 ## Actionable wake ordering
 
