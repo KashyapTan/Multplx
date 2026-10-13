@@ -218,7 +218,10 @@ mod tests {
         fn binding(&self) -> PathBuf {
             self.root
                 .join("state/herdr-project-workspaces")
-                .join(format!("{}.json", key(&self.root, &self.common, "named")))
+                .join(format!(
+                    "{}.json",
+                    key(&self.root, &self.common, "named").unwrap()
+                ))
         }
     }
     fn git(cwd: &Path, args: &[&str]) {
@@ -237,6 +240,7 @@ mod tests {
     #[test]
     fn worktrees_share_identity_and_same_basename_repositories_do_not() {
         let f = Fixture::new();
+        let before_key = key(&f.root, &f.common, "named").unwrap();
         let linked = f.temp.path().join("detached");
         git(
             &f.repo,
@@ -249,6 +253,7 @@ mod tests {
             ],
         );
         assert_eq!(repository(&linked).unwrap(), Some(f.common.clone()));
+        assert_eq!(key(&f.root, &f.common, "named").unwrap(), before_key);
         let alias = f.temp.path().join("alias");
         symlink(&linked, &alias).unwrap();
         assert_eq!(repository(&alias).unwrap(), Some(f.common.clone()));
@@ -597,8 +602,80 @@ mod tests {
     }
 
     #[test]
+    fn repository_replacement_at_same_path_never_adopts_predecessor_workspace() {
+        let f = Fixture::new();
+        let (first, _, lock) = f.create(&f.root, "mx-before").unwrap();
+        drop(lock);
+        fs::rename(&f.common, f.temp.path().join("retained-git")).unwrap();
+        git(&f.repo, &["init", "-q"]);
+        let (second, _, lock) = f.create(&f.root, "mx-after").unwrap();
+        drop(lock);
+        assert_ne!(first, second);
+        assert_eq!(f.fake.0.lock().unwrap().spaces.len(), 3);
+    }
+
+    #[test]
+    fn explicit_grouped_teardown_closes_only_owned_active_pane() {
+        let f = Fixture::new();
+        let (_, endpoint, lock) = f.create(&f.root, "mx-close").unwrap();
+        drop(lock);
+        fs::write(
+            f.root.join("state/close.meta"),
+            format!(
+                "backend=herdr\nwindow={}\nherdr_project_workspace=1\n",
+                endpoint.target.endpoint()
+            ),
+        )
+        .unwrap();
+        {
+            let mut world = f.fake.0.lock().unwrap();
+            world.spaces[0]["focused"] = json!(false);
+            world.spaces[1]["focused"] = json!(true);
+            world.spaces[1]["active_tab_id"] = json!(endpoint.tab_id);
+            for tab in &mut world.tabs {
+                tab["focused"] = json!(tab["tab_id"] == endpoint.tab_id);
+            }
+        }
+        let automatic = HerdrBackend::new(f.fake.clone(), "herdr", "named", f.root.clone())
+            .kill_verified(&endpoint.target);
+        assert_eq!(automatic, crate::facade::KillOutcome::StillPresent);
+        assert!(
+            f.fake
+                .0
+                .lock()
+                .unwrap()
+                .tabs
+                .iter()
+                .any(|tab| tab["tab_id"] == endpoint.tab_id)
+        );
+        let outcome = HerdrBackend::new(
+            f.fake.clone(),
+            "herdr",
+            "named",
+            f.temp.path().join("different-owner-home"),
+        )
+        .kill_explicit_owned(&endpoint.target, &f.root.join("state/close.meta"));
+        assert_eq!(outcome, crate::facade::KillOutcome::Gone);
+        let world = f.fake.0.lock().unwrap();
+        assert!(world.tabs.iter().any(|tab| tab["tab_id"] == "human:t"));
+        assert!(
+            !world
+                .calls
+                .iter()
+                .any(|args| args[0] == "workspace" && args[1] == "close")
+        );
+        assert!(
+            !world
+                .calls
+                .iter()
+                .any(|args| args[0] == "tab" && args[1] == "close")
+        );
+    }
+
+    #[test]
     fn empty_session_and_unsafe_private_namespace_have_explicit_outcomes() {
         let f = Fixture::new();
+        assert!(key(&f.root, &f.root.join("missing"), "named").is_err());
         {
             let mut world = f.fake.0.lock().unwrap();
             world.spaces.clear();
@@ -657,7 +734,7 @@ fn metadata(error: impl std::fmt::Display) -> BackendError {
     BackendError::Metadata(error.to_string())
 }
 
-fn key(root: &Path, repository: &Path, session: &str) -> String {
+fn key(root: &Path, repository: &Path, session: &str) -> Result<String, BackendError> {
     let mut hash = Sha256::new();
     for bytes in [
         root.as_os_str().as_encoded_bytes(),
@@ -667,7 +744,18 @@ fn key(root: &Path, repository: &Path, session: &str) -> String {
         hash.update((bytes.len() as u64).to_be_bytes());
         hash.update(bytes);
     }
-    format!("{:x}", hash.finalize())
+    // Match the registry's physical repository identity so replacement at the
+    // same pathname cannot adopt a predecessor's workspace.
+    let info = fs::metadata(repository).map_err(metadata)?;
+    {
+        let created = info
+            .created()
+            .ok()
+            .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|value| value.as_nanos());
+        hash.update(format!("{}:{}:{created:?}", info.dev(), info.ino()).as_bytes());
+    }
+    Ok(format!("{:x}", hash.finalize()))
 }
 
 fn private_directory(path: &Path) -> Result<(), BackendError> {
@@ -724,7 +812,8 @@ impl<R: CommandRunner> HerdrBackend<R> {
         }
         let directory = root.join("state/herdr-project-workspaces");
         private_directory(&directory)?;
-        let path = directory.join(format!("{}.json", key(&root, &common, &session)));
+        let project_key = key(&root, &common, &session)?;
+        let path = directory.join(format!("{project_key}.json"));
         let existing_intent = fs::symlink_metadata(&path).is_ok();
         let mut binding = match fs::symlink_metadata(&path) {
             Ok(info) => {
@@ -896,7 +985,7 @@ impl<R: CommandRunner> HerdrBackend<R> {
             field(value, "/label") == Some(repo_name)
                 && field(value, "/workspace_id") != Some(workspace.as_str())
         }) {
-            format!("{repo_name} ({})", &key(&root, &common, &session)[..8])
+            format!("{repo_name} ({})", &project_key[..8])
         } else {
             repo_name.to_owned()
         };
@@ -904,7 +993,7 @@ impl<R: CommandRunner> HerdrBackend<R> {
             let _ = self.run_scoped(&session, ["workspace", "rename", &workspace, &title]);
         }
         let owner = fs::canonicalize(owner_home).map_err(metadata)?;
-        let owner_key = key(&root, &owner, &session);
+        let owner_key = key(&root, &owner, &session)?;
         let qualified = TaskSpec {
             label: format!("{} [{}]", task.label, &owner_key[..12]),
             working_directory: task.working_directory.clone(),

@@ -252,3 +252,6 @@ mx_backend_herdr_kill "$SESSION:$SM_PANE"
 
 cleanup_all
 trap - EXIT
+# Exercise the default repository layout as part of the same owned Herdr
+# resource suite, retaining every legacy and default safety assertion.
+bash "$ROOT/tests/herdr-project-grouping-e2e.sh"

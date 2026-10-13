@@ -112,5 +112,21 @@ done
 lab pane get "$FOREIGN_PANE" | jq -e '.result.pane.pane_id' >/dev/null || fail 'cleanup touched foreign pane'
 [ "$(focus)" = "$CONTROL_TAB" ] || fail 'cleanup moved focus'
 pass 'exact owned cleanup preserves sibling, nested, foreign panes and human focus'
+OLD_STANDING_PANE=$(field "$STANDING_META" herdr_pane_id)
+OLD_NESTED_PANE=$(field "$NESTED_META" herdr_pane_id)
+mx_herdr_lab_stop "$SESSION"
+. "$ROOT/bin/mx-backend.sh"
+mx_backend_source herdr
+mx_backend_herdr_server_ensure "$SESSION"
+MX_HOME="$HOME_DIR" MX_ROOT_OVERRIDE="$ROOT" MX_SPAWN_NO_GUARD=1 MX_SPAWN_RECOVERY=1 \
+  "$ROOT/bin/mx-spawn.sh" standing "$PRIVATE_HOME" --persistent --role researcher --output report \
+  --harness codex --backend herdr > "$TMP_ROOT/restart.out" 2> "$TMP_ROOT/restart.err" \
+  || fail "exact grouped restart: $(cat "$TMP_ROOT/restart.err")"
+[ "$(field "$STANDING_META" herdr_workspace_id)" = "$WORKSPACE" ] || fail 'restart moved repository workspace'
+[ "$(field "$STANDING_META" herdr_pane_id)" != "$OLD_STANDING_PANE" ] || fail 'restart did not replace exact owned shell husk'
+lab pane get "$OLD_NESTED_PANE" | jq -e '.result.pane.pane_id' >/dev/null || fail 'restart closed nested sibling husk'
+lab pane get "$FOREIGN_PANE" | jq -e '.result.pane.pane_id' >/dev/null || fail 'restart closed foreign pane'
+[ "$(focus)" = "$CONTROL_TAB" ] || fail 'restart moved human focus'
+pass 'named-server restart reuses exact repo workspace and replaces only its metadata-bound owned husk'
 cleanup
 trap - EXIT

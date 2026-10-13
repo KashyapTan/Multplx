@@ -31,6 +31,7 @@ FOCUS_AUDIT_LOG="$TMP_ROOT/focus-audit.log"
 ACTIVE_SEEDED_CONTROL="$TMP_ROOT/active-seeded-control"
 POST_CREATE_ABORT_CONTROL="$TMP_ROOT/post-create-abort-control"
 PROJECTION_CLEANUP_LOCK_CONTROL="$TMP_ROOT/projection-cleanup-lock-control"
+FOCUS_STEAL_CONTROL="$TMP_ROOT/focus-steal-control"
 mkdir -p "$FAKEBIN" "$HARNESS_BIN"
 : > "$HERDR_CALL_LOG"
 : > "$TREEHOUSE_CALL_LOG"
@@ -38,7 +39,7 @@ mkdir -p "$FAKEBIN" "$HARNESS_BIN"
 : > "$FOCUS_AUDIT_LOG"
 REAL_MOVER="$ROOT/bin/backends/herdr-workspace-move"
 export REAL_HERDR REAL_MOVER HERDR_CALL_LOG TREEHOUSE_CALL_LOG MOVE_CALL_LOG FOCUS_AUDIT_LOG HERDR_ORIGINAL_PATH HERDR_LAB_HELPER
-export ACTIVE_SEEDED_CONTROL POST_CREATE_ABORT_CONTROL PROJECTION_CLEANUP_LOCK_CONTROL TMP_ROOT
+export ACTIVE_SEEDED_CONTROL POST_CREATE_ABORT_CONTROL PROJECTION_CLEANUP_LOCK_CONTROL FOCUS_STEAL_CONTROL TMP_ROOT
 
 # Herdr panes need a verified executable harness. Keep it outside FAKEBIN so
 # the real lab helper still reaches the real Herdr binary while provisioning
@@ -206,6 +207,15 @@ if [ "$status" -eq 0 ] && [ "${1:-} ${2:-}" = "pane get" ] && [ -d "$POST_CREATE
     out=$(printf '%s' "$out" | jq --arg cwd "$POST_CREATE_ABORT_CONTROL/not-a-worktree" '.result.pane.foreground_cwd = $cwd')
     break
   done
+fi
+if [ "$status" -eq 0 ] && [ "$mutation" = pane-close ] \
+   && [ -f "$FOCUS_STEAL_CONTROL/pane" ] \
+   && [ "$(cat "$FOCUS_STEAL_CONTROL/pane")" = "$mutation_target" ]; then
+  # Current Herdr can preserve focus natively. Inject this one exact lab-only
+  # historical drift so the existing restoration assertion always exercises
+  # the runtime's recovery path against real tab focus operations.
+  env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" \
+    tab focus "$(cat "$FOCUS_STEAL_CONTROL/tab")" >/dev/null || exit 1
 fi
 if [ -n "$mutation" ]; then
   after=$(focus_snapshot || printf ambiguous/ambiguous)
@@ -891,10 +901,14 @@ rm -f "$HOME_DIR/state/abort-a.herdr-presentation" "$HOME_DIR/state/abort-b.herd
 pass "real Herdr lab: concurrent post-create abort cleanup stays serialized with exact focus restoration"
 
 SHAPE_CLEANUP_AUDIT_START=$(focus_audit_line_count)
+mkdir -p "$FOCUS_STEAL_CONTROL"
+printf '%s\n' "$PROJECTED_PANE" > "$FOCUS_STEAL_CONTROL/pane"
+printf '%s\n' "$(printf '%s' "$SECOND_ONE_OUT" | jq -r '.result.tab.tab_id')" > "$FOCUS_STEAL_CONTROL/tab"
 teardown_task shape "$HOME_DIR" > "$TMP_ROOT/on-teardown.out" 2> "$TMP_ROOT/on-teardown.err" \
   || fail "projected teardown failed: $(cat "$TMP_ROOT/on-teardown.err")"
 assert_focus_is "$MAINTAINER_FOCUS" "projected teardown"
 assert_cleanup_focus_steal_was_restored "$SHAPE_CLEANUP_AUDIT_START" "$PROJECTED_PANE" "$MAINTAINER_FOCUS"
+rm -rf "$FOCUS_STEAL_CONTROL"
 pass "real Herdr lab: no external provider is invoked; normalized metadata matches and fresh allocation/container identities differ"
 if lab workspace get "$PROJECTED_WSID" >/dev/null 2>&1; then
   fail "closing the exact projected task pane did not remove its last-tab workspace"
@@ -902,7 +916,7 @@ fi
 lab pane get "$SECOND_TWO_PANE" >/dev/null 2>&1 \
   || fail "projected teardown affected the focused daemon workspace"
 [ ! -e "$JOURNAL" ] || fail "confirmed projected teardown did not retire its presentation journal"
-pass "real Herdr lab: exact task-pane close restores the exact maintainer workspace/tab after Herdr's raw focus steal"
+pass "real Herdr lab: exact task-pane close restores maintainer workspace/tab after forced historical focus drift"
 
 teardown_task order-a "$HOME_DIR" > "$TMP_ROOT/order-a-teardown.out" 2> "$TMP_ROOT/order-a-teardown.err" &
 ORDER_A_TEARDOWN_PID=$!
@@ -985,7 +999,7 @@ touch "$SECOND_HOME_A/state/.last-watcher-beat" "$SECOND_HOME_B/state/.last-watc
 # may write config/herdr-presentation-spaces.
 git -C "$SECOND_HOME_A" init -q
 git -C "$SECOND_HOME_B" init -q
-printf 'config/herdr-presentation-spaces\nconfig/actor-harness\nconfig/actor-dispatch.json\nconfig/backlog-backend\n' \
+printf 'config/herdr-presentation-spaces\nconfig/herdr-workspace-layout\nconfig/actor-harness\nconfig/actor-dispatch.json\nconfig/backlog-backend\n' \
   > "$SECOND_HOME_A/.gitignore"
 cp "$SECOND_HOME_A/.gitignore" "$SECOND_HOME_B/.gitignore"
 git -C "$SECOND_HOME_A" add .gitignore

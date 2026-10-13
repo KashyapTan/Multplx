@@ -59,7 +59,8 @@ Corrupt, foreign or ambiguous bindings and inventories refuse mutation.
 Concurrent launches hold the shared named-session lock through endpoint publication.
 Fresh task-label collisions require exact endpoint reconciliation and never authorize deleting another tab.
 Grouped restart recovery validates the metadata-bound tab and its sole exact pane before replacing an agent-free husk.
-Cleanup closes only the recorded pane under that same lock and preserves the human's exact prior focus; an active cleanup target is retained when focus cannot be preserved.
+Cleanup closes only the recorded pane under that same lock and preserves unrelated exact prior focus.
+Explicit teardown can close its own active pane, whose removed tab cannot remain focused; restart and rollback retain active targets rather than changing the human's focus.
 
 Repository-free tasks and explicit `home` layout use one durable workspace per Multplx home.
 New primary workspaces use `primary`; the existing `broker` workspace is adopted as an exact legacy alias.
@@ -310,7 +311,7 @@ tests/mx-backend-herdr-smoke.test.sh
 tests/mx-backend-herdr-prune-safety-e2e.test.sh
 tests/mx-backend-herdr-respawn-idem-e2e.test.sh
 tests/mx-backend-herdr-workspace-per-home-e2e.test.sh
-tests/mx-backend-herdr-project-e2e.test.sh
+tests/herdr-project-grouping-e2e.sh
 tests/mx-backend-herdr-presentation-e2e.test.sh
 tests/mx-backend-herdr-eventwait-smoke.test.sh
 tests/mx-herdr-session-cleanup.test.sh

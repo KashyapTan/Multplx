@@ -913,6 +913,99 @@ impl<R: CommandRunner> HerdrBackend<R> {
     }
 }
 
+impl<R: CommandRunner> HerdrBackend<R> {
+    /// List only this home's recorded grouped endpoints and legacy container in one session.
+    pub fn list_live_scoped(&mut self, session: &str) -> Result<Vec<LiveTarget>, BackendError> {
+        let previous = std::mem::replace(&mut self.session, session.to_owned());
+        let result = RuntimeBackend::list_live(self, None);
+        self.session = previous;
+        result
+    }
+
+    /// Explicit metadata-bound teardown may close its own active pane.
+    /// Automatic liveness cleanup and rollback must use conservative kill_verified.
+    pub fn kill_explicit_owned(&mut self, target: &BackendTarget, metadata: &Path) -> KillOutcome {
+        self.kill_policy(target, Some(metadata))
+    }
+
+    fn kill_policy(
+        &mut self,
+        target: &BackendTarget,
+        explicit_metadata: Option<&Path>,
+    ) -> KillOutcome {
+        let Ok((session, pane)) = self.ensure_target(target) else {
+            return KillOutcome::Unknown;
+        };
+        let session = session.to_owned();
+        let pane = pane.to_owned();
+        let state = std::env::var_os("MX_STATE_OVERRIDE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.home.join("state"));
+        let metadata = if let Some(path) = explicit_metadata {
+            if crate::facade::target_of_meta(path)
+                .ok()
+                .flatten()
+                .as_deref()
+                != Some(target.endpoint())
+                || crate::facade::backend_of_meta(path).ok() != Some(BackendName::Herdr)
+            {
+                return KillOutcome::Unknown;
+            }
+            Some(path.to_path_buf())
+        } else {
+            match crate::facade::meta_for_target(&state, target.endpoint()) {
+                Ok(path) => path,
+                Err(_) => return KillOutcome::Unknown,
+            }
+        };
+        let grouped = if let Some(path) = metadata {
+            let Ok(text) = fs::read_to_string(path) else {
+                return KillOutcome::Unknown;
+            };
+            text.lines().any(|line| line == "herdr_project_workspace=1")
+        } else {
+            false
+        };
+        if grouped {
+            let Ok(lock_path) = self.presentation_session_lock_path(&session) else {
+                return KillOutcome::Unknown;
+            };
+            let Ok(_lock) = multplx_core::locks::DirectoryLock::acquire_wait(
+                lock_path,
+                &multplx_core::process::SystemProcessProbe::default(),
+                Duration::from_secs(15),
+            ) else {
+                return KillOutcome::Unknown;
+            };
+            // Explicit teardown may close its own active pane. Its former tab
+            // cannot remain focused once removed; unrelated focus is restored
+            // only for a non-active target. Never close a workspace or tab.
+            let Ok(before) = self.focus_snapshot(&session) else {
+                return KillOutcome::Unknown;
+            };
+            let Ok(exact) = self.json_any_status(&session, ["pane", "get", &pane]) else {
+                return KillOutcome::Unknown;
+            };
+            if explicit_metadata.is_some()
+                && string_at(&exact, "/result/pane/pane_id") == Some(pane.as_str())
+                && string_at(&exact, "/result/pane/tab_id") == Some(before.tab_id.as_str())
+            {
+                let _ = self.run_scoped(&session, ["pane", "close", &pane]);
+                return self.post_kill(&session, &pane);
+            }
+            if self
+                .close_pane_focus_preserving(&session, &pane, None)
+                .is_err()
+            {
+                return self.post_kill(&session, &pane);
+            }
+            return self.post_kill(&session, &pane);
+        }
+        let _ = self.run_scoped(&session, ["pane", "close", &pane]);
+        self.post_kill(&session, &pane)
+    }
+}
+
 impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
     fn name(&self) -> BackendName {
         BackendName::Herdr
@@ -1113,40 +1206,7 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
     }
 
     fn kill_verified(&mut self, target: &BackendTarget) -> KillOutcome {
-        let Ok((session, pane)) = self.ensure_target(target) else {
-            return KillOutcome::Unknown;
-        };
-        let session = session.to_owned();
-        let pane = pane.to_owned();
-        let state = std::env::var_os("MX_STATE_OVERRIDE")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| self.home.join("state"));
-        let grouped = crate::facade::meta_for_target(&state, target.endpoint())
-            .ok()
-            .flatten()
-            .and_then(|path| fs::read_to_string(path).ok())
-            .is_some_and(|text| text.lines().any(|line| line == "herdr_project_workspace=1"));
-        if grouped {
-            let Ok(lock_path) = self.presentation_session_lock_path(&session) else {
-                return KillOutcome::Unknown;
-            };
-            let Ok(_lock) = multplx_core::locks::DirectoryLock::acquire_wait(
-                lock_path,
-                &multplx_core::process::SystemProcessProbe::default(),
-                Duration::from_secs(15),
-            ) else {
-                return KillOutcome::Unknown;
-            };
-            if self
-                .close_pane_focus_preserving(&session, &pane, None)
-                .is_err()
-            {
-                return self.post_kill(&session, &pane);
-            }
-            return self.post_kill(&session, &pane);
-        }
-        let _ = self.run_scoped(&session, ["pane", "close", &pane]);
-        self.post_kill(&session, &pane)
+        self.kill_policy(target, None)
     }
 
     fn list_live(
@@ -1177,6 +1237,9 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
                     };
                     let target =
                         BackendTarget::new(BackendName::Herdr, endpoint, Some(label.to_owned()))?;
+                    if self.ensure_target(&target)?.0 != self.session() {
+                        continue;
+                    }
                     if self.observe_target(&target).is_ok() {
                         live.push(LiveTarget {
                             target,

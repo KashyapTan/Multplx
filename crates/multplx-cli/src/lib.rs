@@ -6272,7 +6272,9 @@ pub(crate) fn kill_teardown_endpoint(meta: &Path) -> Result<(), String> {
         .map_err(|error_value| error_value.to_string())?;
     let outcome = match backend {
         BackendName::Tmux => multplx_backend::tmux::TmuxBackend::system().kill_verified(&target),
-        BackendName::Herdr => multplx_backend::herdr::HerdrBackend::system().kill_verified(&target),
+        BackendName::Herdr => {
+            multplx_backend::herdr::HerdrBackend::system().kill_explicit_owned(&target, meta)
+        }
         BackendName::Cmux => multplx_backend::cmux::CmuxBackend::system().kill_verified(&target),
     };
     if backend == BackendName::Herdr {
@@ -7393,14 +7395,8 @@ fn run_herdr(args: &[OsString]) -> i32 {
                     .unwrap_or(backend.session())
                     .to_owned();
                 require_len(args, if args.get(1).is_some() { 2 } else { 1 })?;
-                let Some(workspace) = backend.workspace_find(&session) else {
-                    return Ok(0);
-                };
-                let container =
-                    ContainerId::for_backend(BackendName::Herdr, format!("{session}:{workspace}"))
-                        .map_err(|error| error.to_string())?;
                 for live in backend
-                    .list_live(Some(&container))
+                    .list_live_scoped(&session)
                     .map_err(|error| error.to_string())?
                 {
                     println!("{}\t{}", live.target.endpoint(), live.label);

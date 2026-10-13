@@ -182,11 +182,13 @@ The compatibility floor is protocol 14.
 The latest repository-grouping verification uses Herdr 0.9.3 protocol 22 on macOS aarch64, with earlier 0.7.5, 0.7.4, protocol-14, and 0.7.3 evidence retained where they define current behavior or fallbacks.
 The required CI pin remains 0.7.4, and the runtime protocol floor remains 14.
 
-On 2026-10-12, `tests/mx-backend-herdr-project-e2e.test.sh` passed against installed Herdr 0.9.3 in a guarded non-default named lab using inert Python harnesses.
+On 2026-10-12, `tests/herdr-project-grouping-e2e.sh` passed against installed Herdr 0.9.3 in a guarded non-default named lab using inert Python harnesses.
 The fixture used an isolated `XDG_CONFIG_HOME`, a PID-owned temporary default server for the tripwire, and guarded named-session teardown; no user session or private operational state was changed.
 The test proved default grouping despite the old presentation flag, preservation of a foreign same-title workspace, detached-worktree reuse, separate same-basename repositories, seeded standing and validated nested-worker grouping, concurrent convergence, unchanged human focus and exact cleanup preserving every sibling and foreign pane.
-The twelve deterministic repository tests additionally cover private binding and inventory corruption, contradictory create responses, uncertain-create nonce reconciliation without adoption seed pruning, root isolation, and exact shared restart replacement versus foreign, renamed, split or active targets.
+The fourteen deterministic repository tests additionally cover private binding and inventory corruption, contradictory create responses, uncertain-create nonce reconciliation without adoption seed pruning, root isolation, repository replacement at the same path, explicit active-pane teardown, and exact shared restart replacement versus foreign, renamed, split or active targets.
 Legacy per-home topology remains verified through its explicitly selected `home` layout.
+The legacy presentation test injects one historical focus drift after closing an exact lab pane, using real guarded tab-focus calls, and retains every original restoration and locking assertion.
+Herdr 0.9.3 can preserve focus natively; this particular assertion proves fault recovery and does not claim that the current version naturally reproduces the older focus-steal bug.
 Primary upstream contracts are the [Herdr CLI reference](https://herdr.dev/docs/cli-reference/) and [agent automation guide](https://herdr.dev/docs/agent-automation/); live version evidence takes precedence over assuming every current documented capability exists in the older CI pin.
 
 On 2026-10-03, Herdr 0.7.4 on macOS arm64 was tested through guarded named labs with an inert Python harness and a synthetic long PATH.
