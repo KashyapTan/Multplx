@@ -11,6 +11,7 @@ tests/mx-backend-cmux-smoke.test.sh	cmux-app
 tests/mx-backend-cmux.test.sh	none
 tests/mx-backend-herdr-eventwait-smoke.test.sh	herdr-session
 tests/mx-backend-herdr-presentation-e2e.test.sh	herdr-session
+tests/mx-backend-herdr-project-e2e.test.sh	herdr-session
 tests/mx-backend-herdr-prune-safety-e2e.test.sh	herdr-session
 tests/mx-backend-herdr-respawn-idem-e2e.test.sh	herdr-session
 tests/mx-backend-herdr-smoke.test.sh	herdr-session

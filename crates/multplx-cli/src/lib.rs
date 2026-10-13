@@ -3183,7 +3183,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
     use multplx_backend::facade::{BackendName, KillOutcome, RuntimeBackend, TaskSpec};
     if args.len() == 1 && matches!(args[0].to_str(), Some("--help" | "-h")) {
         println!(
-            "Usage: mx spawn <id> <project-path> [--role researcher|implementer|reviewer] [--output report|implementation] [--backend tmux|herdr|cmux] [--harness H] [--model M] [--effort E] [--request-id STABLE_ID] [--resource NAME=UNITS]... [--replace-attempt CURRENT_ID] [--authority-state ABSOLUTE_PATH]\n       mx spawn <id> --persistent --role implementer --output implementation --project PROJECT --base COMMIT [common options]\n       mx spawn <id> --persistent --role researcher|reviewer --output report [common options]\n       mx spawn <id> --sub-orchestrator (--project PROJECT)... --scope TEXT [--persistent] [--json] [common options]\n       mx spawn <id> --sub-orchestrator --idea IDEA --scope TEXT [--persistent] [--json] [common options]\nPersistent workers require a filled brief and a seeded home. Persistent implementation requires one project already referenced in that home and an explicit accepted base; spawn acquires its separate project worktree and binds exact delivery identity. Omission of --persistent remains task-scoped for low-level compatibility. The named coordinator form transactionally provisions a private home and canonical parent/domain binding before endpoint launch. --project is repeatable; --idea starts repository-free research and requires an explicit later project binding before implementation. --persistent makes the domain a standing assignment; private-home ownership is independent. --request-id makes creation repeat-safe for the same frozen identity. --json emits one unambiguous result envelope on stdout. --authority-state resumes a transferred task from its retained canonical owner only after validating the caller's current coordinator route. --resource requests positive root-scoped capacity units. Roles describe assignments and do not restrict delegation. Legacy --scout, --daemon, --mode and --yolo aliases remain bounded readers; yolo never grants merge authority. Existing task identity and accepted brief are preserved; --replace-attempt checks the current identity, isolates its endpoint and creates a new generation."
+            "Usage: mx spawn <id> <project-path> [--role researcher|implementer|reviewer] [--output report|implementation] [--backend tmux|herdr|cmux] [--harness H] [--model M] [--effort E] [--request-id STABLE_ID] [--resource NAME=UNITS]... [--replace-attempt CURRENT_ID] [--authority-state ABSOLUTE_PATH]\n       mx spawn <id> --persistent --role implementer --output implementation --project PROJECT --base COMMIT [common options]\n       mx spawn <id> --persistent --role researcher|reviewer --output report [common options]\n       mx spawn <id> --sub-orchestrator (--project PROJECT)... --scope TEXT [--persistent] [--json] [common options]\n       mx spawn <id> --sub-orchestrator --idea IDEA --scope TEXT [--persistent] [--json] [common options]\nPersistent workers require a filled brief and a seeded home. Persistent implementation requires one project already referenced in that home and an explicit accepted base; spawn acquires its separate project worktree and binds exact delivery identity. Omission of --persistent remains task-scoped for low-level compatibility. The named coordinator form transactionally provisions a private home and canonical parent/domain binding before endpoint launch. --project is repeatable; --idea starts repository-free research and requires an explicit later project binding before implementation. --persistent makes the domain a standing assignment; private-home ownership is independent. --request-id makes creation repeat-safe for the same frozen identity. --json emits one unambiguous result envelope on stdout. --authority-state resumes a transferred task from its retained canonical owner only after validating the caller's current coordinator route. --resource requests positive root-scoped capacity units. Roles describe assignments and do not restrict delegation. Herdr fresh Git tasks share a repository workspace across worktrees and private homes; config/herdr-workspace-layout=home explicitly selects legacy home placement. Repository layout takes precedence over the old presentation-spaces flag for fresh Git tasks. Legacy --scout, --daemon, --mode and --yolo aliases remain bounded readers; yolo never grants merge authority. Existing task identity and accepted brief are preserved; --replace-attempt checks the current identity, isolates its endpoint and creates a new generation."
         );
         return 0;
     }
@@ -4008,8 +4008,85 @@ fn run_spawn(args: &[OsString]) -> i32 {
     let recovering_daemon = request.private_home
         && std::env::var("MX_SPAWN_RECOVERY").as_deref() == Ok("1")
         && context.state.join(format!("{}.meta", request.id)).is_file();
+    // A single-project coordinator's launch cwd is its private home, while its
+    // visual project comes from the accepted domain. Multi-project/idea homes
+    // remain control workspaces rather than guessing a selected repository.
+    let herdr_project_checkout = if request.backend == "herdr" {
+        if let Some(domain) = &request.domain {
+            if domain.projects.len() == 1 {
+                match multplx_domain::project_registry::read_catalog(&context.home) {
+                    Ok(catalog) => catalog
+                        .projects
+                        .iter()
+                        .find(|project| project.project_id == domain.projects[0])
+                        .and_then(|project| {
+                            project.checkouts.iter().find_map(|checkout| {
+                                multplx_domain::project_registry::resolve_checkout(
+                                    &context.home,
+                                    &checkout.checkout_id,
+                                )
+                                .ok()
+                                .map(|binding| binding.canonical_path)
+                            })
+                        }),
+                    Err(error) => {
+                        eprintln!("error: {error}");
+                        return 1;
+                    }
+                }
+            } else {
+                None
+            }
+        } else if request.private_home && request.project == request.home {
+            match multplx_domain::project_registry::read_catalog(&request.home) {
+                Ok(catalog) if catalog.projects.len() == 1 => {
+                    // Any verified remembered checkout has the same repository identity;
+                    // this chooses visual placement, never the task's execution checkout.
+                    catalog.projects[0].checkouts.iter().find_map(|checkout| {
+                        multplx_domain::project_registry::resolve_checkout(
+                            &request.home,
+                            &checkout.checkout_id,
+                        )
+                        .ok()
+                        .map(|project| project.canonical_path)
+                    })
+                }
+                Ok(_) => None,
+                Err(error) => {
+                    eprintln!("error: {error}");
+                    return 1;
+                }
+            }
+        } else {
+            Some(request.project.clone())
+        }
+    } else {
+        None
+    };
+    let herdr_repository = if request.backend == "herdr" {
+        match multplx_backend::herdr_project::repository_layout(&config).and_then(|grouped| {
+            if grouped && let Some(checkout) = &herdr_project_checkout {
+                multplx_backend::herdr_project::repository(checkout)
+            } else {
+                Ok(None)
+            }
+        }) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        }
+    } else {
+        None
+    };
     let presentation_enabled = request.backend == "herdr"
         && !request.private_home
+        && (herdr_repository.is_none()
+            || context
+                .state
+                .join(format!("{}.herdr-presentation", request.id))
+                .exists())
         && config.join("herdr-presentation-spaces").is_file();
     let presentation_journal =
         multplx_backend::herdr_presentation::journal_path(&context.state, &request.id);
@@ -4889,6 +4966,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
     let mut created_target = None;
     let mut launch_submission_attempted = false;
     let mut herdr_endpoint = None;
+    let mut grouped_herdr_label = None;
     let mut projected_endpoint = None;
     let mut presentation_lock = None;
     let herdr_backend = || {
@@ -4917,6 +4995,31 @@ fn run_spawn(args: &[OsString]) -> i32 {
             }
             "herdr" => 'herdr: {
                 let mut backend = herdr_backend();
+                if let Some(common_dir) = &herdr_repository
+                    && !recovering_daemon
+                    && !recovering_projection
+                {
+                    let (workspace, endpoint, lock) = backend
+                        .project_task_create(
+                            &admission_record.root_home,
+                            common_dir,
+                            herdr_project_checkout
+                                .as_ref()
+                                .expect("repository checkout"),
+                            &context.home,
+                            &spec,
+                        )
+                        .map_err(|error_value| error_value.to_string())?;
+                    presentation_lock = Some(lock);
+                    let session = backend.session().to_owned();
+                    let named_endpoint = endpoint.target.endpoint().to_owned();
+                    grouped_herdr_label = endpoint.target.expected_label().map(str::to_owned);
+                    herdr_endpoint = Some((session, workspace, endpoint.tab_id, endpoint.pane_id));
+                    projected_endpoint = herdr_endpoint
+                        .as_ref()
+                        .map(|(session, _, _, pane)| (session.clone(), pane.clone()));
+                    break 'herdr (endpoint.target, named_endpoint);
+                }
                 if presentation_enabled {
                     use multplx_backend::herdr_presentation::{
                         ProjectionSpawnOutcome, ProjectionSpawnRequest, spawn_projection,
@@ -4985,9 +5088,45 @@ fn run_spawn(args: &[OsString]) -> i32 {
                         .map_err(|error_value| error_value.to_string())?
                 };
                 let seeded_tab = backend.seeded_tab_id().map(str::to_owned);
-                let endpoint = backend
-                    .create_task_full(&container, &spec, seeded_tab.as_deref())
-                    .map_err(|error_value| error_value.to_string())?;
+                let prior = fs::read_to_string(context.state.join(format!("{}.meta", request.id)))
+                    .unwrap_or_default();
+                let prior_field =
+                    |key: &str| prior.lines().rev().find_map(|line| line.strip_prefix(key));
+                let endpoint = if recovering_daemon
+                    && prior_field("herdr_project_workspace=") == Some("1")
+                {
+                    let session = container
+                        .as_str()
+                        .split_once(':')
+                        .ok_or("missing session")?
+                        .0;
+                    presentation_lock = Some(
+                        multplx_core::locks::DirectoryLock::acquire_wait(
+                            backend
+                                .presentation_session_lock_path(session)
+                                .map_err(|error| error.to_string())?,
+                            &SystemProcessProbe::default(),
+                            Duration::from_secs(15),
+                        )
+                        .map_err(|error| error.to_string())?,
+                    );
+                    let label = prior_field("herdr_task_label=")
+                        .ok_or("grouped recovery has no exact label")?;
+                    grouped_herdr_label = Some(label.to_owned());
+                    backend.create_task_recover_owned(
+                        &container,
+                        &TaskSpec {
+                            label: label.to_owned(),
+                            working_directory: spec.working_directory.clone(),
+                        },
+                        prior_field("herdr_tab_id=").ok_or("grouped recovery has no exact tab")?,
+                        prior_field("herdr_pane_id=")
+                            .ok_or("grouped recovery has no exact pane")?,
+                    )
+                } else {
+                    backend.create_task_full(&container, &spec, seeded_tab.as_deref())
+                }
+                .map_err(|error_value| error_value.to_string())?;
                 let named_endpoint = endpoint.target.endpoint().to_owned();
                 let (session, workspace) = container
                     .as_str()
@@ -4999,6 +5138,11 @@ fn run_spawn(args: &[OsString]) -> i32 {
                     endpoint.tab_id,
                     endpoint.pane_id,
                 ));
+                if grouped_herdr_label.is_some() {
+                    projected_endpoint = herdr_endpoint
+                        .as_ref()
+                        .map(|(session, _, _, pane)| (session.clone(), pane.clone()));
+                }
                 (endpoint.target, named_endpoint)
             }
             "cmux" => {
@@ -5052,6 +5196,11 @@ fn run_spawn(args: &[OsString]) -> i32 {
             meta.push_str(&format!(
                 "herdr_session={session}\nherdr_workspace_id={workspace}\nherdr_tab_id={tab}\nherdr_pane_id={pane}\n"
             ));
+            if let Some(label) = &grouped_herdr_label {
+                meta.push_str(&format!(
+                    "herdr_project_workspace=1\nherdr_task_label={label}\n"
+                ));
+            }
             multplx_core::filesystem::atomic_replace(&meta_path, meta.as_bytes(), 0o600)
                 .map_err(|error_value| error_value.to_string())?;
         }

@@ -214,6 +214,7 @@ fn family(path: &str) -> &'static str {
         | "mx-backend-autodetect-smoke.test.sh"
         | "mx-backend-herdr-eventwait-smoke.test.sh"
         | "mx-backend-herdr-presentation-e2e.test.sh"
+        | "mx-backend-herdr-project-e2e.test.sh"
         | "mx-backend-herdr-prune-safety-e2e.test.sh"
         | "mx-backend-herdr-respawn-idem-e2e.test.sh"
         | "mx-herdr-session-cleanup-e2e.test.sh"

@@ -16,7 +16,7 @@ use multplx_core::process::SystemProcessProbe;
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 
-pub const DEFAULT_ALLOWLIST: [&str; 8] = [
+pub const DEFAULT_ALLOWLIST: [&str; 9] = [
     "subagent-dispatch.json",
     "subagent-harness",
     "standing-agent-harness",
@@ -25,6 +25,7 @@ pub const DEFAULT_ALLOWLIST: [&str; 8] = [
     "actor-harness",
     "backlog-backend",
     "herdr-presentation-spaces",
+    "herdr-workspace-layout",
 ];
 pub const SHARED_FILE: &str = "maintainer-shared.md";
 pub const SHARED_REL: &str = "data/maintainer-shared.md";

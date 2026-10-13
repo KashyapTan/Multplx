@@ -40,7 +40,7 @@ MX_SHARED_MAINTAINER_MODE="444"
 # callers while Rust owns all active behavior.
 # Items are space-separated config-dir-relative paths and must not contain
 # whitespace.
-MX_INHERITABLE_CONFIG="${MX_INHERITABLE_CONFIG:-subagent-dispatch.json subagent-harness standing-agent-harness persistent-subagent-harness actor-dispatch.json actor-harness backlog-backend herdr-presentation-spaces}"
+MX_INHERITABLE_CONFIG="${MX_INHERITABLE_CONFIG:-subagent-dispatch.json subagent-harness standing-agent-harness persistent-subagent-harness actor-dispatch.json actor-harness backlog-backend herdr-presentation-spaces herdr-workspace-layout}"
 
 mx_inherit_file_mode() {
   if [ "$(uname)" = Darwin ]; then

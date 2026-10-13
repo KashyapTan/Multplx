@@ -122,9 +122,12 @@ A metadata-routed selector returns the recorded backend target (`window=`), and 
 Only metadata-routed task selectors carry persistent-home-marker and Codex-harness context; explicit endpoint escape hatches do not.
 These five sentences are the single owner of the task-selector vocabulary; backend guides and other documents point here instead of restating the resolution order.
 `mx-teardown.sh <id>` takes a task id directly and uses the same recorded backend target fields after loading `state/<id>.meta`.
-By default, Herdr workspaces are derived from `MX_HOME`: the primary home uses `primary`, and a standing-agent home marked by `.mx-agent-home` uses `agent-<agent-id>`; exact historical labels are adopted for existing containers.
-The default-container spawn, list-live, and recovery paths read that label from the active home, so a persistent sub-agent's children stay inside that sub-agent home's Herdr space.
-The optional local `config/herdr-presentation-spaces` presence flag instead enables Herdr's default-off disposable single-task visual projection; [Optional presentation spaces](herdr-backend.md#optional-presentation-spaces) owns its behavior, safety limits, recovery contract, and narrow locked session-start cleanup of exact restored idle-shell children.
+By default, fresh Herdr Git tasks share a repository workspace across linked worktrees, standing homes and nested workers within their validated root operational context.
+The primary conversation remains a separate control workspace, and repository-free tasks retain home-based placement.
+Local gitignored `config/herdr-workspace-layout` accepts `repository` (default) or `home` (explicit legacy layout); invalid values refuse launches.
+The optional local `config/herdr-presentation-spaces` presence flag enables disposable single-task projection for repository-free tasks or explicit `home` layout.
+Default repository grouping takes precedence for fresh Git tasks, while existing exact endpoint recovery preserves placement.
+[The Herdr backend guide](herdr-backend.md#watching-and-task-containers) owns binding, concurrency, focus and cleanup safety; [Optional presentation spaces](herdr-backend.md#optional-presentation-spaces) owns the legacy projection contract.
 The flag is default-off and inherited into persistent-sub-agent homes under the primary-authoritative contract owned by [inherited configuration](configuration.md#persistent-home-inheritance).
 For normal herdr operations, `HERDR_SESSION` selects the named session, but destructive test cleanup must not rely on `HERDR_SESSION` alone.
 Use the explicit guarded cleanup path described in [`docs/herdr-backend.md`](herdr-backend.md) instead of `herdr server stop`.
@@ -223,7 +226,7 @@ When `MX_HOME` is unset, it also behaves as the old whole-root override.
 `bin/mx-send.sh` is intentionally stricter than that general fallback: it requires `MX_HOME` to be set before resolving a target, so operator steers cannot silently resolve against the wrong home.
 `MX_STATE_OVERRIDE`, `MX_DATA_OVERRIDE`, `MX_PROJECTS_OVERRIDE`, and `MX_CONFIG_OVERRIDE` override individual operational directories for tests and specialized harness setup.
 Scoped parent routing accepts a root state override outside its home only while a live watcher lock proves the exact root home and process identity; accepted child facts remain queued when that proof is unavailable.
-For the herdr backend, `MX_HOME` also determines the workspace label used by the adapter.
+For Herdr, `MX_HOME` determines legacy/control workspace labels; repository task grouping uses the canonical root admission context and Git common-directory identity.
 For the cmux backend, `MX_CONFIG_OVERRIDE` overrides where `config/cmux-socket-password` is read from, while `MX_HOME` determines the default config path and readable home prefix embedded in workspace titles.
 The full cmux home label also includes a short hash of the resolved `MX_ROOT` path, and there is no per-home container split.
 
@@ -547,7 +550,7 @@ The shared staleness proof lives in `multplx-core`; the Rust teardown and system
 ## Persistent-home inheritance
 
 The [inheritance module](../crates/multplx-domain/src/inheritance.rs) owns the allowlist, byte validation, per-home lock and generation publication.
-The current allowlist contains `config/subagent-dispatch.json`, `config/subagent-harness`, `config/standing-agent-harness`, `config/persistent-subagent-harness`, the legacy `config/actor-dispatch.json` and `config/actor-harness` aliases, `config/backlog-backend`, `config/herdr-presentation-spaces` and `data/maintainer-shared.md`.
+The current allowlist contains `config/subagent-dispatch.json`, `config/subagent-harness`, `config/standing-agent-harness`, `config/persistent-subagent-harness`, the legacy `config/actor-dispatch.json` and `config/actor-harness` aliases, `config/backlog-backend`, `config/herdr-presentation-spaces`, `config/herdr-workspace-layout` and `data/maintainer-shared.md`.
 `config/daemon-harness` and `data/learnings.md` remain home-local.
 An inherited literal `default` harness resolves against the child's own harness, not the parent's effective choice.
 Shared preference copies are read-only in children; divergent bytes are quarantined before replacement and are never copied back to the parent.

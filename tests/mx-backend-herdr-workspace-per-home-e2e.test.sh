@@ -94,6 +94,7 @@ mx_backend_source herdr || fail "mx_backend_source herdr failed"
 
 PRIMARY_HOME="$TMP_ROOT/primary-home"
 mkdir -p "$PRIMARY_HOME/state" "$PRIMARY_HOME/data/cm1" "$PRIMARY_HOME/config"
+printf 'home\n' > "$PRIMARY_HOME/config/herdr-workspace-layout"
 printf 'trivial e2e primary actor brief: nothing to do.\n' > "$PRIMARY_HOME/data/cm1/brief.md"
 
 SM_HOME="$TMP_ROOT/daemon-home"

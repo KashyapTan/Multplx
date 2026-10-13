@@ -524,6 +524,7 @@ mkdir -p "$HOME_DIR/state" "$HOME_DIR/config" \
 mkdir -p "$HOME_DIR/data/active-seeded" "$HOME_DIR/data/abort-a" "$HOME_DIR/data/abort-b" \
   "$HOME_DIR/data/lock-contended"
 touch "$HOME_DIR/state/.last-watcher-beat"
+printf 'home\n' > "$HOME_DIR/config/herdr-workspace-layout"
 printf 'Projection anchor fixture.\n' > "$HOME_DIR/data/anchor/brief.md"
 printf 'Projection E2E fixture.\n' > "$HOME_DIR/data/shape/brief.md"
 printf 'Projection ordering fixture A.\n' > "$HOME_DIR/data/order-a/brief.md"

@@ -449,7 +449,7 @@ pub fn target_of_meta(path: &Path) -> Result<Option<String>, BackendError> {
     meta_get(path, "window")
 }
 
-fn metadata_paths(state: &Path) -> Result<Vec<PathBuf>, BackendError> {
+pub(crate) fn metadata_paths(state: &Path) -> Result<Vec<PathBuf>, BackendError> {
     let mut paths = fs::read_dir(state)
         .map_err(|error| BackendError::Metadata(error.to_string()))?
         .filter_map(Result::ok)

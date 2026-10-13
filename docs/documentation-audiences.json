@@ -552,5 +552,9 @@
       "path": "plans/actionable-wake-supervision.md",
       "audience": "maintainer-architecture"
     }
+    ,{
+      "path": "HERDR_WORKSPACE_FOLLOWUP_2026-10-12.md",
+      "audience": "maintainer-verification"
+    }
   ]
 }

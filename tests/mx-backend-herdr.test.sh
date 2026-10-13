@@ -3098,6 +3098,7 @@ test_native_herdr_allocation_failure_and_recovery() (
   dir=$(cd "$dir" && pwd -P)
   home="$dir/home"; project="$dir/project"; state="$dir/state.json"; log="$dir/log"
   mkdir -p "$home/state" "$home/config" "$home/data/retained" "$home/data/healthy"
+  printf 'home\n' > "$home/config/herdr-workspace-layout"
   printf 'Keep this task isolated.\n' > "$home/data/retained/brief.md"
   printf 'Keep this task isolated.\n' > "$home/data/healthy/brief.md"
   mx_git_init_commit "$project"
