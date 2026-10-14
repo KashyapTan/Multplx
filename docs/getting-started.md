@@ -196,6 +196,7 @@ The installer writes a private snapshot backup under `state/.upgrade-cleanup/` b
 Interrupted retirement resumes its exact lifecycle journal after fresh consent, excluding live or unknown session owners and preserving any changed task revision.
 If runtime installation fails, cleanup does not run.
 If cleanup fails after installation, the command reports that the runtime was upgraded, retains recovery evidence and asks you to rerun the same upgrade.
+Items that appear after preview remain for a later upgrade; cleanup does not broaden the approved selection.
 A clean upgrade adds no cleanup confirmation.
 Upgrade never marks unfinished work complete or manufactures a human decision.
 Exact retired-home receipts and unsubmitted successor reservations can be retained as stopped historical ownership only when their predecessor, route, lease and fresh endpoint checks agree.

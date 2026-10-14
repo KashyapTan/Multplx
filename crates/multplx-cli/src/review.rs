@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
@@ -1423,8 +1424,13 @@ pub(crate) fn dangling_pr_artifacts(state: &Path) -> Result<Vec<PathBuf>, String
         else {
             continue;
         };
-        if OperationalTaskId::parse(task).is_err() || state.join(format!("{task}.meta")).exists() {
+        if OperationalTaskId::parse(task).is_err() {
             continue;
+        }
+        match fs::symlink_metadata(state.join(format!("{task}.meta"))) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
+            Ok(_) => continue,
         }
         for suffix in ["check.sh", "pr-poll", "pr-poll-registration"] {
             let artifact = state.join(format!("{task}.{suffix}"));
@@ -1438,14 +1444,39 @@ pub(crate) fn dangling_pr_artifacts(state: &Path) -> Result<Vec<PathBuf>, String
     Ok(paths)
 }
 
-pub(crate) fn quarantine_dangling_pr_artifacts(state: &Path) -> Result<usize, String> {
-    let paths = dangling_pr_artifacts(state)?;
-    for path in &paths {
+pub(crate) fn quarantine_dangling_pr_artifacts(
+    state: &Path,
+    paths: &BTreeMap<PathBuf, Vec<u8>>,
+) -> Result<usize, String> {
+    // Caller holds these task identity locks. Never rescan into an unapproved
+    // namespace that appeared after the maintenance preview.
+    for (path, expected) in paths {
+        if path.parent() != Some(state) {
+            return Err("foreign poll artifact retained".into());
+        }
         let name = path
             .file_name()
             .and_then(|name| name.to_str())
             .ok_or("invalid poll artifact")?;
-        let (task, kind) = name.split_once('.').ok_or("invalid poll namespace")?;
+        let (task, kind) = ["check.sh", "pr-poll", "pr-poll-registration"]
+            .into_iter()
+            .find_map(|kind| {
+                name.strip_suffix(&format!(".{kind}"))
+                    .map(|task| (task, kind))
+            })
+            .ok_or("invalid poll namespace")?;
+        OperationalTaskId::parse(task).map_err(|e| e.to_string())?;
+        match fs::symlink_metadata(state.join(format!("{task}.meta"))) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
+            Ok(_) => return Err("poll task metadata appeared; retained".into()),
+        }
+        if multplx_core::filesystem::read_bounded_regular(path, 16 * 1024 * 1024)
+            .map_err(|e| e.to_string())?
+            != *expected
+        {
+            return Err("poll artifact changed after preview; retained".into());
+        }
         quarantine_one(state, path, task, kind).map_err(|_| {
             format!(
                 "cannot quarantine {}; original evidence retained",

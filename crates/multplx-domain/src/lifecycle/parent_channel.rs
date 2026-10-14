@@ -6,7 +6,7 @@
 //! the current task's recorded parent identity and the original event remains
 //! byte-for-byte stable all the way to the root projection.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -1262,6 +1262,7 @@ pub fn maintenance_event_settled(state: &Path, event: &MessageEnvelope) -> bool 
 pub fn settle_local_outcomes(
     state: &Path,
     guard: &multplx_core::session_lock::MaintenanceGuard,
+    task_ids: &BTreeSet<String>,
 ) -> Result<usize, String> {
     guard.require_state(state).map_err(|e| e.to_string())?;
     let _lock = DirectoryLock::acquire_wait(
@@ -1271,8 +1272,12 @@ pub fn settle_local_outcomes(
     )
     .map_err(|e| e.to_string())?;
     let paths = settled_local_outcomes(state)?;
+    let mut settled = 0;
     for path in &paths {
         let mut outcome = read_outcome(path)?;
+        if !task_ids.contains(&outcome.event.task_id) {
+            continue;
+        }
         crate::operational_input::publish_message_wake(
             state,
             &outcome.event,
@@ -1293,8 +1298,9 @@ pub fn settle_local_outcomes(
             rewrite(path, &outcome)?;
         }
         archive_delivered(path, &outcome)?;
+        settled += 1;
     }
-    Ok(paths.len())
+    Ok(settled)
 }
 
 /// Number of active channel records that prevent coordinator-home retirement.

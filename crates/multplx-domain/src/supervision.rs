@@ -542,15 +542,20 @@ pub fn completed_report_repairs(state: &Path) -> Result<Vec<PathBuf>, String> {
 pub fn repair_completed_report_wakes(
     state: &Path,
     guard: &multplx_core::session_lock::MaintenanceGuard,
+    task_ids: &std::collections::BTreeSet<String>,
 ) -> Result<usize, String> {
     guard.require_state(state).map_err(|e| e.to_string())?;
     let paths = completed_report_repairs(state)?;
+    let mut repaired = 0;
     for path in &paths {
         let bytes = multplx_core::filesystem::read_bounded_regular(path, 1024 * 1024)
             .map_err(|e| e.to_string())?;
         let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
         let event: crate::lifecycle::subagent_model::MessageEnvelope =
             serde_json::from_value(value["envelope"].clone()).map_err(|e| e.to_string())?;
+        if !task_ids.contains(&event.task_id) {
+            continue;
+        }
         if let Some(frozen) = value.get("parent_outcome") {
             let frozen = serde_json::from_value::<crate::lifecycle::parent_channel::ParentOutcome>(
                 frozen.clone(),
@@ -565,8 +570,9 @@ pub fn repair_completed_report_wakes(
             crate::lifecycle::parent_channel::record_report(state, &event)?;
         }
         publish_report_wake(state, &event)?;
+        repaired += 1;
     }
-    Ok(paths.len())
+    Ok(repaired)
 }
 
 pub fn reconcile_report_wakes(state: &Path) -> Result<usize, String> {

@@ -21,6 +21,8 @@ use std::{
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub(crate) struct Plan {
+    task_ids: BTreeSet<String>,
+    pr_artifacts: BTreeMap<PathBuf, Vec<u8>>,
     tasks: BTreeMap<String, Vec<u8>>,
     snapshots: BTreeMap<PathBuf, Vec<u8>>,
     retained: BTreeMap<String, String>,
@@ -96,6 +98,17 @@ fn settled_wake(state: &Path, record: &WakeRecord) -> bool {
             .is_some_and(|task| evidence::completed_record(state, task).is_ok())
 }
 
+fn settled_wake_for_tasks(state: &Path, record: &WakeRecord, task_ids: &BTreeSet<String>) -> bool {
+    let task = if let Some(message) = record.key.strip_prefix("message-") {
+        multplx_domain::operational_input::read_message_envelope(state, message)
+            .ok()
+            .map(|event| event.task_id)
+    } else {
+        record.task_target().map(str::to_owned)
+    };
+    task.is_some_and(|task| task_ids.contains(&task)) && settled_wake(state, record)
+}
+
 pub(crate) fn inspect(root: &Path, home: &Path) -> Result<Plan, String> {
     let ctx = context(root, home);
     let state = &ctx.state;
@@ -117,6 +130,8 @@ pub(crate) fn inspect(root: &Path, home: &Path) -> Result<Plan, String> {
             .file_stem()
             .and_then(|s| s.to_str())
             .ok_or("invalid task filename")?;
+        multplx_core::identifiers::TaskId::parse(task).map_err(|e| e.to_string())?;
+        plan.task_ids.insert(task.into());
         let bytes = read_bounded_regular(&path, subagent_model::MAX_TASK_METADATA_BYTES)
             .map_err(|e| e.to_string())?;
         let record = subagent_model::read_meta(
@@ -206,6 +221,7 @@ pub(crate) fn inspect(root: &Path, home: &Path) -> Result<Plan, String> {
                 .and_then(|s| s.to_str())
                 .ok_or("invalid retirement filename")?;
             let receipt = evidence::read_retirement(state, task)?;
+            plan.task_ids.insert(task.into());
             if !receipt.committed {
                 let record = subagent_model::read_meta(
                     task,
@@ -320,7 +336,19 @@ pub(crate) fn inspect(root: &Path, home: &Path) -> Result<Plan, String> {
             usize::from(item.acknowledged_at.is_none() && settled_wake(state, &item.record));
     }
     for path in crate::review::dangling_pr_artifacts(state)? {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("invalid poll filename")?;
+        let task = [".check.sh", ".pr-poll", ".pr-poll-registration"]
+            .into_iter()
+            .find_map(|suffix| name.strip_suffix(suffix))
+            .ok_or("invalid poll namespace")?;
+        multplx_core::identifiers::TaskId::parse(task).map_err(|e| e.to_string())?;
+        plan.task_ids.insert(task.into());
         snapshot(&mut plan, &path)?;
+        plan.pr_artifacts
+            .insert(path.clone(), plan.snapshots[&path].clone());
         plan.checks += 1;
     }
     for name in ["agents.md", "daemons.md"] {
@@ -370,24 +398,9 @@ pub(crate) fn apply(root: &Path, home: &Path, approved: &Plan) -> Result<(), Str
     let mut task_locks = Vec::new();
     let mut child_guards = Vec::new();
     // Nonblocking locks use the lifecycle's teardown-before-identity order.
-    // Include retained tasks: wake/outcome-only repair still relies on their facts.
-    let mut task_ids: BTreeSet<String> = approved.tasks.keys().cloned().collect();
-    for (index, entry) in fs::read_dir(state).map_err(|e| e.to_string())?.enumerate() {
-        if index >= 4096 {
-            return Err("upgrade state exceeds bounded maintenance apply; retained".into());
-        }
-        let path = entry.map_err(|e| e.to_string())?.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("meta") {
-            continue;
-        }
-        let task = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .ok_or("invalid task filename")?;
-        multplx_core::identifiers::TaskId::parse(task).map_err(|e| e.to_string())?;
-        task_ids.insert(task.into());
-    }
-    for task in task_ids {
+    // Current, prepared/committed retirement and dangling artifact identities
+    // all participate: even metadata-absent repair must exclude a new writer.
+    for task in &approved.task_ids {
         for name in [
             format!(".teardown.{task}.lock"),
             format!(".{task}.identity.lock"),
@@ -454,11 +467,11 @@ pub(crate) fn apply(root: &Path, home: &Path, approved: &Plan) -> Result<(), Str
     }
     // Local outcomes first produce stable notifications; retirement never
     // discards an undelivered private-home obligation or a foreign packet.
-    multplx_domain::supervision::repair_completed_report_wakes(state, &guard)?;
-    parent_channel::settle_local_outcomes(state, &guard)?;
+    multplx_domain::supervision::repair_completed_report_wakes(state, &guard, &approved.task_ids)?;
+    parent_channel::settle_local_outcomes(state, &guard, &approved.task_ids)?;
     WakeQueue::new(state)
         .settle_maintenance(&guard, &processes, SystemTime::now(), |record| {
-            settled_wake(state, record)
+            settled_wake_for_tasks(state, record, &approved.task_ids)
         })
         .map_err(|e| e.to_string())?;
     for (task, original_meta) in &approved.tasks {
@@ -492,7 +505,7 @@ pub(crate) fn apply(root: &Path, home: &Path, approved: &Plan) -> Result<(), Str
         receipt.committed = true;
         evidence::write_retirement(state, &receipt)?;
     }
-    crate::review::quarantine_dangling_pr_artifacts(state)?;
+    crate::review::quarantine_dangling_pr_artifacts(state, &approved.pr_artifacts)?;
     atomic_replace(audit.join("complete"), b"completed\n", 0o600).map_err(|e| e.to_string())?;
     eprintln!(
         "Upgrade cleanup complete; private backup and receipts: {}",
@@ -1199,7 +1212,12 @@ mod tests {
                     .is_empty()
             );
             let guard = MaintenanceGuard::acquire(&state, &SystemProcessProbe::default()).unwrap();
-            multplx_domain::supervision::repair_completed_report_wakes(&state, &guard).unwrap();
+            multplx_domain::supervision::repair_completed_report_wakes(
+                &state,
+                &guard,
+                &BTreeSet::from(["done".into()]),
+            )
+            .unwrap();
             assert_eq!(parent_channel::pending_outcomes(&state).unwrap(), 0);
             assert_eq!(
                 WakeQueue::new(&state).observe_unfinished_count().unwrap(),
@@ -1341,7 +1359,12 @@ mod tests {
         );
         let guard = MaintenanceGuard::acquire(&state, &SystemProcessProbe::default()).unwrap();
         assert_eq!(
-            multplx_domain::supervision::repair_completed_report_wakes(&state, &guard).unwrap(),
+            multplx_domain::supervision::repair_completed_report_wakes(
+                &state,
+                &guard,
+                &BTreeSet::from(["done".into()])
+            )
+            .unwrap(),
             1
         );
         assert_eq!(parent_channel::pending_outcomes(&state).unwrap(), 1);
@@ -1355,7 +1378,8 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
-        parent_channel::settle_local_outcomes(&state, &guard).unwrap();
+        parent_channel::settle_local_outcomes(&state, &guard, &BTreeSet::from(["done".into()]))
+            .unwrap();
         WakeQueue::new(&state)
             .settle_maintenance(
                 &guard,
@@ -1431,6 +1455,208 @@ mod tests {
         assert_eq!(
             fs::read(saved_archive.join("unfinished.txt")).unwrap(),
             retained
+        );
+    }
+
+    #[test]
+    fn dangling_namespace_writer_and_broken_meta_link_retain_artifacts() {
+        use std::os::unix::fs::symlink;
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        fs::write(fixture.private.join("state/child.meta"), "retained child").unwrap();
+        for suffix in ["pr-poll", "pr-poll-registration", "check.sh"] {
+            fs::write(
+                state.join(format!("missing.{suffix}")),
+                format!("original {suffix}"),
+            )
+            .unwrap();
+        }
+        let plan = inspect(&fixture.root, &fixture.home).unwrap();
+        assert_eq!(plan.checks, 3);
+        assert!(plan.tasks.is_empty());
+        let lock = DirectoryLock::try_acquire(
+            state.join(".missing.identity.lock"),
+            &SystemProcessProbe::default(),
+        )
+        .unwrap();
+        assert!(apply(&fixture.root, &fixture.home, &plan).is_err());
+        assert!(!state.join(".upgrade-cleanup").exists());
+        assert!(!state.join(".pr-check-quarantine").exists());
+        for suffix in ["pr-poll", "pr-poll-registration", "check.sh"] {
+            assert_eq!(
+                fs::read_to_string(state.join(format!("missing.{suffix}"))).unwrap(),
+                format!("original {suffix}")
+            );
+        }
+        drop(lock);
+        let check = state.join("missing.check.sh");
+        fs::write(&check, "newer check evidence").unwrap();
+        assert!(
+            crate::review::quarantine_dangling_pr_artifacts(&state, &plan.pr_artifacts).is_err()
+        );
+        assert_eq!(fs::read_to_string(&check).unwrap(), "newer check evidence");
+        assert!(state.join("missing.pr-poll").exists());
+        let foreign = fixture.private.join("foreign.pr-poll");
+        fs::write(&foreign, "foreign evidence").unwrap();
+        assert!(
+            crate::review::quarantine_dangling_pr_artifacts(
+                &state,
+                &BTreeMap::from([(foreign.clone(), b"foreign evidence".to_vec())])
+            )
+            .is_err()
+        );
+        assert_eq!(fs::read_to_string(&foreign).unwrap(), "foreign evidence");
+        fs::write(&check, "original check.sh").unwrap();
+        symlink(state.join("missing-target"), state.join("missing.meta")).unwrap();
+        assert!(
+            crate::review::dangling_pr_artifacts(&state)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            crate::review::quarantine_dangling_pr_artifacts(&state, &plan.pr_artifacts).is_err()
+        );
+        assert!(inspect(&fixture.root, &fixture.home).is_err());
+        assert!(state.join("missing.check.sh").exists());
+        fs::remove_file(state.join("missing.meta")).unwrap();
+        apply(&fixture.root, &fixture.home, &plan).unwrap();
+        assert!(!state.join("missing.check.sh").exists());
+        assert!(fixture.private.exists());
+    }
+
+    #[test]
+    fn retired_wake_only_repair_excludes_new_writer_of_same_task_identity() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        let plan = inspect(&fixture.root, &fixture.home).unwrap();
+        apply(&fixture.root, &fixture.home, &plan).unwrap();
+        fixture.wake("done.status", "done: historical result");
+        let plan = inspect(&fixture.root, &fixture.home).unwrap();
+        assert!(plan.tasks.is_empty());
+        assert_eq!(plan.wakes, 1);
+        let lock = DirectoryLock::try_acquire(
+            state.join(".done.identity.lock"),
+            &SystemProcessProbe::default(),
+        )
+        .unwrap();
+        assert!(apply(&fixture.root, &fixture.home, &plan).is_err());
+        assert_eq!(
+            WakeQueue::new(&state).observe_unfinished_count().unwrap(),
+            1
+        );
+        assert!(evidence::read_retirement(&state, "done").unwrap().committed);
+        drop(lock);
+        apply(&fixture.root, &fixture.home, &plan).unwrap();
+        assert_eq!(
+            WakeQueue::new(&state).observe_unfinished_count().unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn maintenance_owners_keep_late_unapproved_namespaces_and_notifications() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        let original_meta = fs::read(state.join("done.meta")).unwrap();
+        fs::remove_file(state.join("done.meta")).unwrap();
+        let approved = inspect(&fixture.root, &fixture.home).unwrap();
+        assert!(approved.task_ids.is_empty());
+        fs::write(state.join("done.meta"), original_meta).unwrap();
+        let event = fixture.envelope("report-after-preview", "done");
+        multplx_domain::operational_input::persist_message_envelope(&state, &event).unwrap();
+        let outcome = parent_channel::prepare_outcome(&state, &event).unwrap();
+        parent_channel::persist_prepared(&state, &outcome).unwrap();
+        let outbox = state.join("parent-outbox/report-after-preview.json");
+        let pending = fs::read(&outbox).unwrap();
+        fs::create_dir(state.join("evidence")).unwrap();
+        let accepted = state.join("evidence/done-report-after-preview.json");
+        let accepted_bytes = serde_json::to_vec(
+            &serde_json::json!({"accepted":true,"envelope":event,"parent_outcome":outcome}),
+        )
+        .unwrap();
+        fs::write(&accepted, &accepted_bytes).unwrap();
+        let guard = MaintenanceGuard::acquire(&state, &SystemProcessProbe::default()).unwrap();
+        assert_eq!(
+            multplx_domain::supervision::repair_completed_report_wakes(
+                &state,
+                &guard,
+                &approved.task_ids
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            parent_channel::settle_local_outcomes(&state, &guard, &approved.task_ids).unwrap(),
+            0
+        );
+        assert_eq!(fs::read(&outbox).unwrap(), pending);
+        assert_eq!(
+            WakeQueue::new(&state).observe_unfinished_count().unwrap(),
+            0
+        );
+        fs::write(state.join("late.pr-poll"), "late poll").unwrap();
+        assert_eq!(
+            crate::review::quarantine_dangling_pr_artifacts(&state, &approved.pr_artifacts)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            fs::read_to_string(state.join("late.pr-poll")).unwrap(),
+            "late poll"
+        );
+        // Scope uses the accepted envelope's task, never a misleading payload.
+        fixture.wake(
+            "message-report-after-preview",
+            &format!("report: message=report-after-preview task=done state=done brief={} summary=accepted outcome", fixture.record().accepted_brief_revision.unwrap()),
+        );
+        let other = BTreeSet::from(["other".into()]);
+        let mut misleading = WakeQueue::new(&state)
+            .observe_once(
+                multplx_core::wake::WakeKind::Signal,
+                "message-report-after-preview",
+            )
+            .unwrap()
+            .unwrap();
+        misleading.payload = "report: task=other state=done".into();
+        assert!(!settled_wake_for_tasks(&state, &misleading, &other));
+        WakeQueue::new(&state)
+            .settle_maintenance(
+                &guard,
+                &SystemProcessProbe::default(),
+                SystemTime::now(),
+                |record| settled_wake_for_tasks(&state, record, &other),
+            )
+            .unwrap();
+        assert_eq!(
+            WakeQueue::new(&state).observe_unfinished_count().unwrap(),
+            1
+        );
+        let allowed = BTreeSet::from(["done".into()]);
+        let _task = DirectoryLock::try_acquire(
+            state.join(".done.identity.lock"),
+            &SystemProcessProbe::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            parent_channel::settle_local_outcomes(&state, &guard, &allowed).unwrap(),
+            1
+        );
+        WakeQueue::new(&state)
+            .settle_maintenance(
+                &guard,
+                &SystemProcessProbe::default(),
+                SystemTime::now(),
+                |record| settled_wake_for_tasks(&state, record, &allowed),
+            )
+            .unwrap();
+        assert_eq!(
+            WakeQueue::new(&state).observe_unfinished_count().unwrap(),
+            0
+        );
+        assert_eq!(fs::read(accepted).unwrap(), accepted_bytes);
+        assert_eq!(
+            fs::read_to_string(state.join("late.pr-poll")).unwrap(),
+            "late poll"
         );
     }
 
