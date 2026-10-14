@@ -720,8 +720,22 @@ env={k:v for k,v in os.environ.items() if not k.startswith('MX_')}
 opener=case/'open.sh'; opened=case/'opened-url'
 opener.write_text('#!/bin/sh\nprintf \'%s\\n\' "$1" > "'+str(opened)+'"\n');opener.chmod(0o700)
 env.update(MX_VIZ_SNAPSHOT_BIN=str(reader),MX_VIZ_OPEN_BIN=str(opener),TERM='xterm-256color')
-with socket.socket() as sock:
-    sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
+def available_probe_start():
+    # Reserve the complete documented twenty-port probe band while selecting
+    # fixture input; an arbitrary OS ephemeral port can exceed its start limit.
+    for start in range(40000,65517,20):
+        sockets=[]
+        try:
+            for offset in range(20):
+                sock=socket.socket();sockets.append(sock)
+                sock.bind(('127.0.0.1',start+offset))
+            return start
+        except OSError:
+            continue
+        finally:
+            for sock in sockets: sock.close()
+    raise AssertionError('no valid contiguous Viz fixture probe band available')
+port=available_probe_start()
 env['MX_VIZ_PORT']=str(port)
 mx=case/'bin/mx'; multplx=case/'bin/multplx'
 def run(binary,args,extra={}):
@@ -810,7 +824,7 @@ test_upgrade_stale_state_preview_decline_explicit_consent_and_failure() {
       --config-dir "$case_dir/config" --data-dir "$case_dir/data" \
       > "$case_dir/no-consent.log" 2>&1; then status=0; else status=$?; fi
   expect_code 2 "$status" 'noninteractive stale cleanup requires explicit consent'
-  assert_contains "$(cat "$case_dir/no-consent.log")" '3 dangling PR artifacts' 'upgrade previews concrete cleanup'
+  assert_contains "$(cat "$case_dir/no-consent.log")" '3 stale PR artifacts' 'upgrade previews concrete cleanup'
   [ -f "$root/state/retired.check.sh" ] && [ ! -e "$root/state/.upgrade-cleanup" ] \
     || fail 'missing consent mutated private stale artifacts'
   python3 - "$INSTALLER" "$root" "$case_dir" <<'PY'
