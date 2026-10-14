@@ -46,7 +46,7 @@ impl Plan {
     }
     pub(crate) fn preview(&self) {
         eprintln!(
-            "Upgrade stale-state cleanup: {} completed private homes to archive, {} settled local outcomes, {} obsolete wakes, {} dangling PR artifacts to quarantine.",
+            "Upgrade stale-state cleanup: {} completed private homes to archive, {} settled local outcomes, {} obsolete wakes, {} stale PR artifacts to quarantine.",
             self.tasks.len(),
             self.packets,
             self.wakes,
@@ -349,7 +349,6 @@ pub(crate) fn inspect(root: &Path, home: &Path) -> Result<Plan, String> {
         snapshot(&mut plan, &path)?;
         plan.pr_artifacts
             .insert(path.clone(), plan.snapshots[&path].clone());
-        plan.checks += 1;
     }
     for name in ["agents.md", "daemons.md"] {
         let path = ctx.data.join(name);
@@ -378,11 +377,28 @@ pub(crate) fn inspect(root: &Path, home: &Path) -> Result<Plan, String> {
                 snapshot(&mut plan, &path)?;
             }
         }
+        // These existing PR files become dangling through the approved
+        // retirement itself. Include their exact bytes now, never by rescan.
+        if ["pr-poll", "pr-poll-registration"]
+            .into_iter()
+            .any(|suffix| {
+                plan.snapshots
+                    .contains_key(&state.join(format!("{task}.{suffix}")))
+            })
+        {
+            for suffix in ["check.sh", "pr-poll", "pr-poll-registration"] {
+                let path = state.join(format!("{task}.{suffix}"));
+                if let Some(bytes) = plan.snapshots.get(&path) {
+                    plan.pr_artifacts.insert(path, bytes.clone());
+                }
+            }
+        }
         let path = state.join(format!(".teardown.transaction.{task}"));
         if path.exists() {
             snapshot(&mut plan, &path)?;
         }
     }
+    plan.checks = plan.pr_artifacts.len();
     Ok(plan)
 }
 
@@ -1657,6 +1673,109 @@ mod tests {
         assert_eq!(
             fs::read_to_string(state.join("late.pr-poll")).unwrap(),
             "late poll"
+        );
+    }
+
+    #[test]
+    fn one_upgrade_retires_settles_quarantines_and_cannot_replay_on_startup() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        let mut active = fixture.record();
+        active.task_id = "active".into();
+        active.home_allocation = None;
+        active.persistent_home = None;
+        active.schedule.state = WorkState::Running;
+        active.attempt.as_mut().unwrap().id = "attempt-active".into();
+        let active_meta = subagent_model::write_meta("", &active).unwrap();
+        fs::write(state.join("active.meta"), &active_meta).unwrap();
+        let mut original_checks = BTreeMap::new();
+        for task in ["done", "active"] {
+            for suffix in ["check.sh", "pr-poll", "pr-poll-registration"] {
+                let path = state.join(format!("{task}.{suffix}"));
+                let bytes = format!("retained {task} {suffix}; never execute").into_bytes();
+                fs::write(&path, &bytes).unwrap();
+                original_checks.insert(path, bytes);
+            }
+        }
+        let event = fixture.envelope("report-one-upgrade", "done");
+        multplx_domain::operational_input::persist_message_envelope(&state, &event).unwrap();
+        let outcome = parent_channel::prepare_outcome(&state, &event).unwrap();
+        parent_channel::persist_prepared(&state, &outcome).unwrap();
+        fs::create_dir(state.join("evidence")).unwrap();
+        let accepted_path = state.join("evidence/done-report-one-upgrade.json");
+        let accepted = serde_json::to_vec(
+            &serde_json::json!({"accepted":true,"envelope":event,"parent_outcome":outcome}),
+        )
+        .unwrap();
+        fs::write(&accepted_path, &accepted).unwrap();
+        fixture.wake("done.status", "done: historical result");
+        let plan = inspect(&fixture.root, &fixture.home).unwrap();
+        assert_eq!(plan.tasks.len(), 1);
+        assert_eq!(plan.packets, 1);
+        assert_eq!(plan.report_repairs, 1);
+        assert_eq!(plan.checks, 3);
+        apply(&fixture.root, &fixture.home, &plan).unwrap();
+        assert!(!state.join("done.meta").exists());
+        assert!(!fixture.private.exists());
+        assert!(evidence::read_retirement(&state, "done").unwrap().committed);
+        let allocation = multplx_domain::lifecycle::home_seed::read_home_allocation(
+            &fixture.home.join("data"),
+            "done",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(allocation.retained_path.unwrap().join("unfinished.txt")).unwrap(),
+            "uncommitted private bytes"
+        );
+        assert_eq!(parent_channel::pending_outcomes(&state).unwrap(), 0);
+        assert_eq!(
+            WakeQueue::new(&state).observe_unfinished_count().unwrap(),
+            0
+        );
+        assert_eq!(fs::read(&accepted_path).unwrap(), accepted);
+        let quarantined = fs::read_dir(state.join(".pr-check-quarantine"))
+            .unwrap()
+            .map(|entry| fs::read(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(quarantined.len(), 3);
+        for (path, bytes) in &original_checks {
+            if path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("done.")
+            {
+                assert!(!path.exists());
+                assert!(quarantined.contains(bytes));
+            } else {
+                assert_eq!(fs::read(path).unwrap(), *bytes);
+            }
+        }
+        assert_eq!(
+            fs::read_to_string(state.join("active.meta")).unwrap(),
+            active_meta
+        );
+        let next = inspect(&fixture.root, &fixture.home).unwrap();
+        assert!(!next.actionable());
+        apply(&fixture.root, &fixture.home, &next).unwrap();
+        multplx_domain::supervision::reconcile_report_wakes(&state).unwrap();
+        assert_eq!(parent_channel::pending_outcomes(&state).unwrap(), 0);
+        assert_eq!(
+            WakeQueue::new(&state).observe_unfinished_count().unwrap(),
+            0
+        );
+        assert_eq!(fs::read(accepted_path).unwrap(), accepted);
+        assert_eq!(
+            fs::read_dir(state.join(".pr-check-quarantine"))
+                .unwrap()
+                .count(),
+            3
+        );
+        assert!(!inspect(&fixture.root, &fixture.home).unwrap().actionable());
+        assert_eq!(
+            fs::read_to_string(state.join("active.meta")).unwrap(),
+            active_meta
         );
     }
 
