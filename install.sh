@@ -10,7 +10,7 @@ usage() {
 Build and install Multplx from this checkout.
 
 Usage:
-  ./install.sh [--upgrade] [--recover-stale-launch] [--allow-stopped-agents] [--stop-managed-sessions] [--home PATH] [--bin-dir PATH]
+  ./install.sh [--upgrade] [--recover-stale-launch] [--allow-stopped-agents] [--stop-managed-sessions] [--cleanup-stale-state] [--home PATH] [--bin-dir PATH]
                [--config-dir PATH] [--data-dir PATH]
 
 This builds the locked Rust workspace, packages the matching runtime assets,
@@ -21,8 +21,12 @@ verified stale workspace launch reservation for a previous process lifetime, it 
 One default-No confirmation previews exact owned live task endpoints and primary
 sessions, warns that stopping them interrupts active work, and also covers stopped
 standing agents and verified stale launch reservations. On yes, the owner stops
-only the approved executions, verifies quiescence, then upgrades while preserving
-task records, private homes, transcripts and worktrees. No or EOF leaves sessions
+only the approved executions, verifies quiescence, then upgrades and offers safe
+stale-state cleanup. Completed idle private homes are archived with task evidence;
+settled same-home outcomes and obsolete wakes retain durable receipts, dangling
+PR polls are quarantined without executing them, and project worktrees survive.
+Unfinished work, unanswered decisions, children and uncertain ownership remain
+visible. --cleanup-stale-state explicitly consents to that preview in automation. No or EOF leaves sessions
 untouched. Unknown or foreign ownership remains refused. For noninteractive use,
 --stop-managed-sessions explicitly authorizes verified live stops; the separate
 --recover-stale-launch and --allow-stopped-agents flags cover only their named cases. The supported forwarded options are --home, --bin-dir, --config-dir
@@ -48,7 +52,7 @@ while [ "$index" -lt "${#install_args[@]}" ]; do
     --upgrade)
       index=$((index + 1))
       ;;
-    --recover-stale-launch|--allow-stopped-agents|--stop-managed-sessions)
+    --recover-stale-launch|--allow-stopped-agents|--stop-managed-sessions|--cleanup-stale-state)
       index=$((index + 1))
       ;;
     --home|--bin-dir|--config-dir|--data-dir)

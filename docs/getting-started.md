@@ -178,11 +178,26 @@ If it finds a verified stale workspace launch reservation for a previous process
 Stale-launch recovery alone never authorizes stopping a live process.
 An uncertain launch owner remains refused.
 Stopped standing workers require confirmation after the installer verifies their canonical ownership, exact endpoint absence and leased private home, including recorded child routes.
-One default-No prompt previews exact owned task endpoints, primary sessions, stopped records and any verified stale launcher reservation.
+One default-No prompt previews exact owned task endpoints, primary sessions, stopped records, any verified stale launcher reservation and safely repairable historical state.
 The preview warns that stopping live sessions interrupts active work.
 Yes stops only the verified approved executions through their owners, checks quiescence again, then replaces the runtime.
 No or EOF leaves live sessions and durable task state untouched.
-Upgrade preserves every task record, pending task, private home and worktree; it does not retire agents or mark work complete.
+With cleanup consent, upgrade archives canonical completed idle private homes through the lifecycle owner and retains their original task metadata as typed retirement evidence.
+It preserves private bytes and every separately allocated project worktree, including uncommitted work.
+Current dependencies, unanswered decisions, incomplete attempts, children, foreign parent routes, undelivered private outcomes and uncertain ownership remain visible with a retention reason.
+Malformed, linked, unreadable or unknown pending-reply records retain task authority rather than being treated as an empty queue.
+An absent endpoint or prose describing a later successful job never proves completion or answers a question.
+Historical same-home root outcomes are delivered only when exact accepted envelopes and canonical completed task facts prove that they are settled; delivery and archive receipts preserve their original identities.
+Obsolete wakes retain their stable event, durable superseded disposition and acknowledgement; pending waiting continuations remain untouched.
+Retired task wakes can also be repaired independently using committed retirement evidence.
+Dangling PR poll artifacts are quarantined without executing checks or querying the forge, even when an earlier migration scan marker exists.
+A queued backlog item for a completed retired task is held through the backlog owner so it cannot redispatch accidentally; a manual backlog instead shows the required action.
+The installer writes a private snapshot backup under `state/.upgrade-cleanup/` before cleanup and stores revision-bound retirement evidence under `state/.upgrade-retirements/`.
+Interrupted retirement resumes its exact lifecycle journal after fresh consent, excluding live or unknown session owners and preserving any changed task revision.
+If runtime installation fails, cleanup does not run.
+If cleanup fails after installation, the command reports that the runtime was upgraded, retains recovery evidence and asks you to rerun the same upgrade.
+A clean upgrade adds no cleanup confirmation.
+Upgrade never marks unfinished work complete or manufactures a human decision.
 Exact retired-home receipts and unsubmitted successor reservations can be retained as stopped historical ownership only when their predecessor, route, lease and fresh endpoint checks agree.
 A preallocation Reserved successor also requires its exact owner intent, frozen replacement operation and matching root admission, a proven absent creator process lifetime, and no matching live task in backend inventory.
 The preview identifies this as an unsubmitted successor preserved for explicit spawn recovery; upgrade neither deletes its retry boundary nor launches it.
@@ -202,6 +217,8 @@ Use `MX_HOME=/exact/owner/home multplx task-model inspect TASK_ID` to inspect a 
 For a noninteractive upgrade, pass `--recover-stale-launch` and/or `--allow-stopped-agents` with `--upgrade` to confirm the corresponding verified cases.
 These flags never authorize stopping live sessions.
 Add `--stop-managed-sessions` to explicitly authorize verified live stops in noninteractive use.
+Add `--cleanup-stale-state` to explicitly consent to the previewed cleanup during a noninteractive upgrade.
+It does not authorize live stops or remove ambiguous work.
 Each flag confirms only its named case; none overrides uncertain or foreign ownership.
 A partial or uncertain stop leaves the runtime unchanged and retains task records and stop receipts; rerun the same upgrade to review remaining users.
 Keep the listed terminal windows unchanged until upgrade finishes; backend UI replacement cannot be serialized by Multplx lifecycle locks.

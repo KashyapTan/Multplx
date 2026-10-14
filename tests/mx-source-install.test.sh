@@ -16,6 +16,9 @@ assert_contains "$install_help" "--data-dir PATH" \
 assert_contains "$install_help" "--allow-stopped-agents" \
   "source installer help should describe stopped standing-agent consent"
 
+assert_contains "$install_help" "--cleanup-stale-state" \
+  "source installer help should describe explicit cleanup consent"
+
 bootstrap_help=$("$ROOT/install-from-github.sh" --help)
 assert_contains "$bootstrap_help" "raw.githubusercontent.com/KashyapTan/Multplx/main/install-from-github.sh" \
   "bootstrap help should show the public source command"

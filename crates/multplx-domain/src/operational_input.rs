@@ -238,6 +238,16 @@ pub fn publish_report_notification_from(
     processes: &impl multplx_core::process::ProcessProbe,
 ) -> Result<Option<String>, String> {
     persist_message_envelope(state, envelope)?;
+    // Committed retirement preserves canonical history without regenerating
+    // old automatic outcomes when notification repair runs after upgrade.
+    if crate::lifecycle::upgrade_cleanup::read_retirement(report_state, &envelope.task_id)
+        .is_ok_and(|receipt| receipt.committed)
+        && !report_state
+            .join(format!("{}.meta", envelope.task_id))
+            .exists()
+    {
+        return Ok(None);
+    }
     // Old revisions remain durable history. Repair must not turn an unpublished
     // historical report into a fresh automatic parent notification.
     let metadata = report_state.join(format!("{}.meta", envelope.task_id));

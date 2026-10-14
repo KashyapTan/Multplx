@@ -1132,7 +1132,8 @@ fn poll_valid(state: &Path, task: &OperationalTaskId, template: &[u8]) -> bool {
     let Ok(identity) = PrIdentity::parse_sidecar(&data.bytes) else {
         return false;
     };
-    registration.task == *task
+    state.join(format!("{task}.meta")).is_file()
+        && registration.task == *task
         && registration.identity == identity
         && registration.data_hash == data.digest
         && registration.template_hash == check.digest
@@ -1407,6 +1408,54 @@ fn quarantine_one(state: &Path, source: &Path, prefix: &str, kind: &str) -> Resu
     Ok(true)
 }
 
+/// Nonexecuting quarantine used by upgrade maintenance after lifecycle exclusion.
+/// Only dangling PR namespaces qualify; ordinary registered checks are retained.
+pub(crate) fn dangling_pr_artifacts(state: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut paths = Vec::new();
+    for entry in fs::read_dir(state).map_err(|e| e.to_string())? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let Some(task) = name
+            .strip_suffix(".pr-poll")
+            .or_else(|| name.strip_suffix(".pr-poll-registration"))
+        else {
+            continue;
+        };
+        if OperationalTaskId::parse(task).is_err() || state.join(format!("{task}.meta")).exists() {
+            continue;
+        }
+        for suffix in ["check.sh", "pr-poll", "pr-poll-registration"] {
+            let artifact = state.join(format!("{task}.{suffix}"));
+            if artifact.exists() {
+                paths.push(artifact);
+            }
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
+pub(crate) fn quarantine_dangling_pr_artifacts(state: &Path) -> Result<usize, String> {
+    let paths = dangling_pr_artifacts(state)?;
+    for path in &paths {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("invalid poll artifact")?;
+        let (task, kind) = name.split_once('.').ok_or("invalid poll namespace")?;
+        quarantine_one(state, path, task, kind).map_err(|_| {
+            format!(
+                "cannot quarantine {}; original evidence retained",
+                path.display()
+            )
+        })?;
+    }
+    Ok(paths.len())
+}
+
 pub(crate) fn quarantine_rejected_check(state: &Path, check: &Path) -> Result<(), ()> {
     let name = check
         .file_name()
@@ -1660,6 +1709,9 @@ fn pr_check_migrate(args: &[OsString]) -> i32 {
         );
         return 1;
     }
+    // A prior scan marker cannot vouch for task metadata removed since then.
+    // Let the existing nonexecuting migration owner quarantine these namespaces.
+    let dangling_pending = dangling_pr_artifacts(&state).map_or(true, |paths| !paths.is_empty());
     let marker = state.join(".pr-check-migration-v1");
     let scan_marker = state.join(".pr-check-migration-scan-v1");
     let marker_valid = |path: &Path, expected: &[u8]| {
@@ -1713,6 +1765,7 @@ fn pr_check_migrate(args: &[OsString]) -> i32 {
     if marker_valid(&marker, MIGRATION_MARKER.as_bytes())
         && marker_valid(&scan_marker, MIGRATION_SCAN_MARKER.as_bytes())
         && !pending_or_failure
+        && !dangling_pending
         && marker_paths_safe
         && private_boundaries_safe
         && quarantine_content_safe
@@ -1750,6 +1803,7 @@ fn pr_check_migrate(args: &[OsString]) -> i32 {
             })
         });
     if checks_safe
+        && !dangling_pending
         && marker_valid(&scan_marker, MIGRATION_SCAN_MARKER.as_bytes())
         && !legacy_namespace
     {

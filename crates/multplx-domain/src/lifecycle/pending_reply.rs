@@ -3,7 +3,7 @@
 use std::env;
 use std::fs;
 use std::io::Read;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -225,7 +225,120 @@ pub fn pending_correlations_readonly(state: &Path, task_id: &str) -> Result<Vec<
     Ok(ids)
 }
 
-#[must_use]
+/// Installer-only, bounded read-only proof. Unknown files or phases are never
+/// interpreted as an empty queue. None requires every private-home request to
+/// be settled; Some retains only that task's identified pending obligations.
+pub fn maintenance_retirement_clear(state: &Path, task_id: Option<&str>) -> Result<(), String> {
+    let directory = directory(state);
+    if !directory.starts_with(state) {
+        return Err("foreign pending-reply directory retained".into());
+    }
+    match fs::symlink_metadata(&directory) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+        Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => {
+            return Err("ambiguous pending-reply directory retained".into());
+        }
+        Ok(_) => {}
+    }
+    let correlation = Regex::new(r"^[A-Fa-f0-9]{16}$").expect("static id regex");
+    for (index, entry) in fs::read_dir(&directory)
+        .map_err(|e| e.to_string())?
+        .enumerate()
+    {
+        if index >= 4096 {
+            return Err("pending replies exceed bounded maintenance preview; retained".into());
+        }
+        let path = entry.map_err(|e| e.to_string())?.path();
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("ambiguous pending-reply filename retained")?;
+        let metadata = fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+        if !correlation.is_match(name)
+            || !metadata.is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.nlink() != 1
+            || metadata.uid() != rustix::process::geteuid().as_raw()
+            || metadata.mode() & 0o400 == 0
+        {
+            return Err(format!(
+                "ambiguous or unreadable pending-reply artifact {}; retained",
+                path.display()
+            ));
+        }
+        let bytes = multplx_core::filesystem::read_bounded_regular(&path, 64 * 1024)
+            .map_err(|e| e.to_string())?;
+        let text = std::str::from_utf8(&bytes).map_err(|e| e.to_string())?;
+        let mut fields = std::collections::BTreeMap::new();
+        for line in text.lines() {
+            let (key, value) = line
+                .split_once('=')
+                .ok_or("malformed pending-reply record retained")?;
+            if fields.insert(key, value).is_some() {
+                return Err("duplicate pending-reply fields retained".into());
+            }
+        }
+        let get = |key: &str| fields.get(key).copied().unwrap_or("");
+        let phase = get("phase");
+        if get("schema") != SCHEMA
+            || get("corr_id") != name
+            || multplx_core::identifiers::TaskId::parse(get("task_id")).is_err()
+            || !matches!(
+                phase,
+                "awaiting_report"
+                    | "delivery_unknown"
+                    | "recovery_sending"
+                    | "recovery_sent"
+                    | "recovery_failed"
+                    | "recovery_unknown"
+                    | "escalated"
+                    | "resolved"
+                    | "stale_binding"
+            )
+        {
+            return Err(format!(
+                "unknown pending-reply identity or phase {}; retained",
+                path.display()
+            ));
+        }
+        if get("request_id") != name
+            || get("created_epoch").parse::<u64>().is_err()
+            || (!get("message_id").is_empty()
+                && multplx_core::identifiers::TaskId::parse(get("message_id")).is_err())
+            || (!get("attempt_id").is_empty()
+                && (!get("attempt_generation")
+                    .parse::<u64>()
+                    .is_ok_and(|value| value > 0)
+                    || !get("brief_revision")
+                        .parse::<u64>()
+                        .is_ok_and(|value| value > 0)
+                    || multplx_core::identifiers::TaskId::parse(get("parent_task_id")).is_err()
+                    || multplx_core::identifiers::TaskId::parse(get("recipient_task_id")).is_err()
+                    || !Path::new(get("recipient_home")).is_absolute()))
+        {
+            return Err("malformed pending-reply binding retained".into());
+        }
+        if phase == "resolved"
+            && get("resolved_epoch")
+                .parse::<u64>()
+                .is_ok_and(|epoch| epoch > 0)
+        {
+            continue;
+        }
+        if phase == "stale_binding"
+            && !get("attempt_id").is_empty()
+            && !binding_is_current(state, &path)
+        {
+            continue;
+        }
+        if task_id.is_none_or(|task| get("task_id") == task || get("recipient_task_id") == task) {
+            return Err(format!("pending request {name} in phase {phase}; retained"));
+        }
+    }
+    Ok(())
+}
+
 pub fn embed(message: &str, correlation: &str) -> String {
     let marked = crate::operational_input::mark_from_parent(message);
     let body = marked.strip_prefix(FROM_PARENT_MARK).unwrap_or(&marked);

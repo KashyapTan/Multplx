@@ -797,3 +797,78 @@ PY
   pass 'mx viz, multplx viz and actual TUI v resolve configured home from unrelated cwd and avoid occupied wrong-home URL'
 }
 test_viz_global_home_and_tui_url
+
+test_upgrade_stale_state_preview_decline_explicit_consent_and_failure() {
+  local case_dir="$TMP_ROOT/stale-cleanup" root="$TMP_ROOT/stale-cleanup-runtime" status
+  make_runtime "$root"
+  install_fixture "$case_dir" "$root"
+  printf 'retained poll identity\n' > "$root/state/retired.pr-poll"
+  printf 'retained registration\n' > "$root/state/retired.pr-poll-registration"
+  printf '#!/bin/sh\nprintf forbidden > "%s"\n' "$case_dir/executed" > "$root/state/retired.check.sh"
+  printf 'already scanned\n' > "$root/state/.pr-check-migration-scan-v1"
+  if "$INSTALLER" --upgrade --root "$root" --bin-dir "$case_dir/bin" \
+      --config-dir "$case_dir/config" --data-dir "$case_dir/data" \
+      > "$case_dir/no-consent.log" 2>&1; then status=0; else status=$?; fi
+  expect_code 2 "$status" 'noninteractive stale cleanup requires explicit consent'
+  assert_contains "$(cat "$case_dir/no-consent.log")" '3 dangling PR artifacts' 'upgrade previews concrete cleanup'
+  [ -f "$root/state/retired.check.sh" ] && [ ! -e "$root/state/.upgrade-cleanup" ] \
+    || fail 'missing consent mutated private stale artifacts'
+  python3 - "$INSTALLER" "$root" "$case_dir" <<'PY'
+import os, pty, select, time, sys
+installer, root, case = sys.argv[1:]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execv(installer, [installer, '--upgrade', '--root', root, '--bin-dir', case+'/bin', '--config-dir', case+'/config', '--data-dir', case+'/data'])
+capture = b''
+try:
+    deadline = time.monotonic()+20
+    answered = False
+    while time.monotonic() < deadline:
+        if select.select([fd], [], [], .1)[0]:
+            try: chunk = os.read(fd, 65536)
+            except OSError: break
+            if not chunk: break
+            capture += chunk
+            if b'[y/N]' in capture and not answered:
+                os.write(fd, b'n\n'); answered = True
+        child, status = os.waitpid(pid, os.WNOHANG)
+        if child:
+            assert os.waitstatus_to_exitcode(status) == 2, capture
+            break
+    else:
+        raise AssertionError('upgrade decline did not exit within deadline')
+    assert answered and capture.count(b'[y/N]') == 1, capture
+    assert b'cancelled' in capture, capture
+finally:
+    try: os.kill(pid, 9)
+    except ProcessLookupError: pass
+    try: os.waitpid(pid, 0)
+    except ChildProcessError: pass
+    os.close(fd)
+PY
+  [ "$?" -eq 0 ] || fail 'interactive cleanup decline failed'
+  [ -f "$root/state/retired.check.sh" ] && [ ! -e "$root/state/.upgrade-cleanup" ] \
+    || fail 'declining cleanup mutated stale state'
+  if MX_LAUNCHER_INSTALL_FAIL_AFTER=multplx "$INSTALLER" --upgrade --cleanup-stale-state --root "$root" \
+      --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" --data-dir "$case_dir/data" \
+      > "$case_dir/failure.log" 2>&1; then status=0; else status=$?; fi
+  expect_code 1 "$status" 'runtime upgrade failure leaves cleanup unapplied'
+  [ -f "$root/state/retired.check.sh" ] && [ ! -e "$root/state/.upgrade-cleanup" ] \
+    || fail 'failed runtime generation consumed cleanup state'
+  "$INSTALLER" --upgrade --cleanup-stale-state --root "$root" --bin-dir "$case_dir/bin" \
+    --config-dir "$case_dir/config" --data-dir "$case_dir/data" > "$case_dir/cleanup.log" 2>&1 \
+    || fail "explicit stale cleanup failed: $(cat "$case_dir/cleanup.log")"
+  [ ! -e "$root/state/retired.check.sh" ] && [ ! -e "$root/state/retired.pr-poll" ] \
+    && [ ! -e "$root/state/retired.pr-poll-registration" ] || fail 'dangling poll namespace not quarantined'
+  [ ! -e "$case_dir/executed" ] || fail 'upgrade executed a historical check script'
+  [ "$(find "$root/state/.pr-check-quarantine" -type f | wc -l | tr -d ' ')" -eq 3 ] \
+    || fail 'quarantine did not retain every original artifact'
+  [ "$(find "$root/state/.upgrade-cleanup" -name backup.json | wc -l | tr -d ' ')" -eq 1 ] \
+    || fail 'cleanup backup absent or duplicated'
+  "$INSTALLER" --upgrade --root "$root" --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" \
+    --data-dir "$case_dir/data" > "$case_dir/repeated.log" 2>&1 || fail 'clean repeat upgrade requires no confirmation'
+  [ "$(find "$root/state/.upgrade-cleanup" -name backup.json | wc -l | tr -d ' ')" -eq 1 ] \
+    || fail 'repeat upgrade duplicated maintenance'
+  pass 'upgrade preview, default-no decline, explicit consent, failure preservation and idempotent nonexecuting quarantine'
+}
+test_upgrade_stale_state_preview_decline_explicit_consent_and_failure
