@@ -266,6 +266,30 @@ impl WakeRecord {
         ))
     }
 
+    /// Diagnostic task target. Modern message keys are transport identities;
+    /// their explicit task field replaces the historical status filename.
+    /// This is not completion or retirement authority.
+    pub fn task_target(&self) -> Option<&str> {
+        let target = if self.key.starts_with("message-") || self.key.starts_with("request-") {
+            let mut targets = self
+                .payload
+                .split_whitespace()
+                .filter_map(|word| word.strip_prefix("task="));
+            let target = targets.next()?;
+            if targets.next().is_some() {
+                return None;
+            }
+            target
+        } else {
+            self.key
+                .strip_suffix(".status")
+                .or_else(|| self.key.strip_suffix(".turn-ended"))?
+        };
+        crate::identifiers::TaskId::parse(target)
+            .ok()
+            .map(|_| target)
+    }
+
     /// Render exact line bytes with a trailing newline.
     #[must_use]
     pub fn render(&self) -> String {
@@ -769,6 +793,58 @@ impl WakeQueue {
         Ok(recovered)
     }
 
+    /// Settle only selected obsolete observations under installer exclusion.
+    /// Original records, stable keys and prior dispositions remain durable.
+    pub fn settle_maintenance<F>(
+        &self,
+        guard: &crate::session_lock::MaintenanceGuard,
+        processes: &impl ProcessProbe,
+        now: SystemTime,
+        mut obsolete: F,
+    ) -> Result<usize>
+    where
+        F: FnMut(&WakeRecord) -> bool,
+    {
+        guard.require_state(&self.state)?;
+        let _lock = DirectoryLock::acquire_wait(&self.lock, processes, Duration::from_secs(5))?;
+        self.ingest_queue_locked()?;
+        let mut settled = 0;
+        for (_, mut item) in self.scan_items_locked()? {
+            if item.acknowledged_at.is_some() || !obsolete(&item.record) {
+                continue;
+            }
+            if let Some(claim) = &item.claim
+                && Self::owner_is_current(&claim.owner, processes)?
+            {
+                return Err(CoreError::LockHeld {
+                    owner: "live wake handler retained".into(),
+                });
+            }
+            if item.disposition.as_ref().is_some_and(|d| {
+                !matches!(
+                    d.kind,
+                    WakeDispositionKind::Handled | WakeDispositionKind::Superseded
+                )
+            }) {
+                continue;
+            }
+            if item.disposition.is_none() {
+                item.disposition = Some(WakeDisposition {
+                    kind: WakeDispositionKind::Superseded,
+                    detail: "upgrade maintenance: canonical completed retirement supersedes this observation".into(),
+                    recorded_at: now.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+                    condition: None, resume_trigger: None, recheck_after_epoch: None, follow_up_id: None,
+                });
+                self.write_item(&item)?;
+            }
+            item.acknowledged_at =
+                Some(now.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs());
+            self.write_item(&item)?;
+            settled += 1;
+        }
+        Ok(settled)
+    }
+
     /// Record one claim owner's disposition before acknowledgement.
     pub fn record_disposition(
         &self,
@@ -947,6 +1023,27 @@ impl WakeQueue {
             .into_iter()
             .map(|(_, item)| item)
             .collect())
+    }
+
+    /// Observe one stable key without ingestion or claim mutation.
+    pub fn observe_once(&self, kind: WakeKind, key: &str) -> Result<Option<WakeRecord>> {
+        match read_bounded_regular(&self.queue, MAX_QUEUE_BYTES) {
+            Ok(bytes) => {
+                if let Some(record) = parse_queue_bytes(&bytes)?
+                    .into_iter()
+                    .find(|record| record.kind == kind && record.key == key)
+                {
+                    return Ok(Some(record));
+                }
+            }
+            Err(CoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        Ok(self
+            .scan_items_locked()?
+            .into_iter()
+            .map(|(_, item)| item.record)
+            .find(|record| record.kind == kind && record.key == key))
     }
 
     /// Observe durable inbox history without acquiring a lock or changing
@@ -2548,5 +2645,88 @@ mod tests {
             recheck_after_epoch: None,
             follow_up_id: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod maintenance_tests {
+    use super::*;
+    use crate::{process::SystemProcessProbe, session_lock::MaintenanceGuard};
+    #[test]
+    fn modern_task_targets_parse_explicit_task_and_retain_ambiguous_rows() {
+        for (key, payload, expected) in [
+            (
+                "message-report-123",
+                "report: message=report-123 task=NBA_UI_PLAYER_1012 state=done",
+                Some("NBA_UI_PLAYER_1012"),
+            ),
+            (
+                "NBA_UI_PLAYER_1012.status",
+                "done",
+                Some("NBA_UI_PLAYER_1012"),
+            ),
+            ("message-report-123", "task=a task=b", None),
+            ("message-report-123", "task=../../other", None),
+            ("heartbeat", "tick", None),
+        ] {
+            assert_eq!(
+                WakeRecord::new(1, 1, WakeKind::Signal, key, payload).task_target(),
+                expected
+            );
+        }
+    }
+    #[test]
+    fn maintenance_settlement_preserves_receipts_and_retains_named_waits_and_live_claims() {
+        let temp = tempfile::tempdir().unwrap();
+        let processes = SystemProcessProbe::default();
+        let queue = WakeQueue::new(temp.path());
+        let record = queue
+            .append_once(
+                WakeKind::Signal,
+                "done.status",
+                "done",
+                SystemTime::now(),
+                &processes,
+            )
+            .unwrap()
+            .0;
+        let owner = processes.identity(std::process::id()).unwrap();
+        let items = queue
+            .claim_available(&owner, SystemTime::now(), 1, &processes)
+            .unwrap();
+        assert_eq!(items.len(), 1);
+        let guard = MaintenanceGuard::acquire(temp.path(), &processes).unwrap();
+        assert!(
+            queue
+                .settle_maintenance(&guard, &processes, SystemTime::now(), |_| true)
+                .is_err()
+        );
+        queue
+            .record_disposition(
+                &items[0].event_id,
+                &owner,
+                WakeDisposition {
+                    kind: WakeDispositionKind::Waiting,
+                    recorded_at: 1,
+                    detail: "pending human".into(),
+                    condition: Some("question".into()),
+                    resume_trigger: Some("answer".into()),
+                    recheck_after_epoch: None,
+                    follow_up_id: None,
+                },
+                &processes,
+            )
+            .unwrap();
+        queue
+            .acknowledge(&items[0].event_id, &owner, SystemTime::now(), &processes)
+            .unwrap();
+        assert_eq!(
+            queue
+                .settle_maintenance(&guard, &processes, SystemTime::now(), |_| true)
+                .unwrap(),
+            0
+        );
+        assert_eq!(queue.observe_unfinished_count().unwrap(), 1);
+        assert_eq!(queue.observe_inbox_items().unwrap()[0].record, record);
     }
 }

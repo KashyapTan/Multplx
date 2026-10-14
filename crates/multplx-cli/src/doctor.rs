@@ -447,9 +447,16 @@ fn check(name: &'static str, paths: &Paths, fix: bool, fixes: &mut Vec<String>) 
             let mut kept = Vec::new();
             let mut orphan = 0;
             for line in raw.lines() {
-                let target = line.split('\t').nth(3).unwrap_or("");
-                let id = target.trim_end_matches(".status");
-                if !id.is_empty() && !paths.state.join(format!("{id}.meta")).is_file() {
+                let record = multplx_core::wake::WakeRecord::parse(line).ok();
+                let id = record.as_ref().and_then(|record| record.task_target());
+                if id.is_some_and(|id| {
+                    !paths.state.join(format!("{id}.meta")).is_file()
+                        && multplx_domain::lifecycle::upgrade_cleanup::completed_record(
+                            &paths.state,
+                            id,
+                        )
+                        .is_err()
+                }) {
                     orphan += 1;
                 } else {
                     kept.push(line);

@@ -448,6 +448,133 @@ fn first_current_report(
 
 /// Repair the report-commit to wake-publication window from retained accepted
 /// evidence. Watcher startup invokes this before it begins signal ingestion.
+/// Read-only bounded inventory of accepted completed reports whose stable
+/// automatic notification is absent. Foreign routes and questions are retained.
+pub fn completed_report_repairs(state: &Path) -> Result<Vec<PathBuf>, String> {
+    use crate::lifecycle::{parent_channel::ParentOutcome, subagent_model::MessageEnvelope};
+    let directory = state.join("evidence");
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut repairs = Vec::new();
+    for (index, entry) in fs::read_dir(directory)
+        .map_err(|e| e.to_string())?
+        .enumerate()
+    {
+        if index >= 4096 {
+            return Err("accepted report inventory exceeds bounded upgrade preview".into());
+        }
+        let path = entry.map_err(|e| e.to_string())?.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        let bytes = multplx_core::filesystem::read_bounded_regular(&path, 1024 * 1024)
+            .map_err(|e| e.to_string())?;
+        let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        if value["accepted"] != true {
+            continue;
+        }
+        let Ok(event) = serde_json::from_value::<MessageEnvelope>(value["envelope"].clone()) else {
+            continue;
+        };
+        if !matches!(
+            event.kind.as_str(),
+            "working" | "paused" | "blocked" | "done" | "failed" | "resolved"
+        ) || event.kind == "working" && event.automatic_wake == Some(false)
+        {
+            continue;
+        }
+        let Ok(record) = crate::lifecycle::upgrade_cleanup::completed_record(state, &event.task_id)
+        else {
+            continue;
+        };
+        if crate::lifecycle::upgrade_cleanup::read_retirement(state, &event.task_id)
+            .is_ok_and(|receipt| receipt.committed)
+        {
+            continue;
+        }
+        if event
+            .validate_current(
+                &record,
+                &event.task_id,
+                record.parent_id.as_deref().unwrap_or(""),
+            )
+            .is_err()
+        {
+            continue;
+        }
+        let frozen = match value.get("parent_outcome") {
+            Some(value) => match serde_json::from_value::<ParentOutcome>(value.clone()) {
+                Ok(outcome) => Some(outcome),
+                Err(_) => continue,
+            },
+            None => None,
+        };
+        if frozen.as_ref().is_some_and(|outcome| {
+            outcome.event != event
+                || crate::lifecycle::parent_channel::validate_prepared(state, outcome).is_err()
+                || outcome.route.recipient_state != state.to_string_lossy()
+                || outcome.route.sender_state != state.to_string_lossy()
+                || outcome.route.recipient_id != outcome.route.root_id
+        }) {
+            continue;
+        }
+        if record.parent_state.as_deref() != state.to_str() {
+            continue;
+        }
+        if multplx_core::wake::WakeQueue::new(state)
+            .observe_once(
+                multplx_core::wake::WakeKind::Signal,
+                &format!("message-{}", event.message_id),
+            )
+            .map_err(|e| e.to_string())?
+            .is_none()
+        {
+            repairs.push(path);
+        }
+    }
+    Ok(repairs)
+}
+
+/// Restore only the completed, same-home accepted-report notification window.
+/// Caller holds bounded installer exclusion; ordinary startup retains its full
+/// recovery contract for every other outstanding report.
+pub fn repair_completed_report_wakes(
+    state: &Path,
+    guard: &multplx_core::session_lock::MaintenanceGuard,
+    task_ids: &std::collections::BTreeSet<String>,
+) -> Result<usize, String> {
+    guard.require_state(state).map_err(|e| e.to_string())?;
+    let paths = completed_report_repairs(state)?;
+    let mut repaired = 0;
+    for path in &paths {
+        let bytes = multplx_core::filesystem::read_bounded_regular(path, 1024 * 1024)
+            .map_err(|e| e.to_string())?;
+        let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        let event: crate::lifecycle::subagent_model::MessageEnvelope =
+            serde_json::from_value(value["envelope"].clone()).map_err(|e| e.to_string())?;
+        if !task_ids.contains(&event.task_id) {
+            continue;
+        }
+        if let Some(frozen) = value.get("parent_outcome") {
+            let frozen = serde_json::from_value::<crate::lifecycle::parent_channel::ParentOutcome>(
+                frozen.clone(),
+            )
+            .map_err(|e| e.to_string())?;
+            if frozen.event != event {
+                return Err("accepted completed report frozen event changed; retained".into());
+            }
+            crate::lifecycle::parent_channel::validate_prepared(state, &frozen)?;
+            crate::lifecycle::parent_channel::persist_prepared(state, &frozen)?;
+        } else {
+            crate::lifecycle::parent_channel::record_report(state, &event)?;
+        }
+        publish_report_wake(state, &event)?;
+        repaired += 1;
+    }
+    Ok(repaired)
+}
+
 pub fn reconcile_report_wakes(state: &Path) -> Result<usize, String> {
     let mut paths = fs::read_dir(state.join("evidence"))
         .into_iter()
@@ -1712,6 +1839,30 @@ fn native_observation_key(
         observation.parent_session_id.as_deref().unwrap_or("-"),
         correlation,
     )
+}
+
+/// Unsettled native child lifetimes prevent parent-home retirement. A missing
+/// endpoint or completed parent report never substitutes for a matching terminal
+/// observation of the child's exact provider/session/attempt identity.
+pub fn has_unsettled_native_children(
+    record: &crate::lifecycle::subagent_model::TaskRecord,
+) -> bool {
+    use crate::lifecycle::subagent_model::NativeObservationState;
+    let terminal = record
+        .native_observations
+        .iter()
+        .filter(|observation| {
+            matches!(
+                observation.state,
+                NativeObservationState::Result | NativeObservationState::Interrupted
+            )
+        })
+        .map(native_observation_key)
+        .collect::<std::collections::BTreeSet<_>>();
+    record.native_observations.iter().any(|observation| {
+        observation.state == NativeObservationState::Started
+            && !terminal.contains(&native_observation_key(observation))
+    })
 }
 
 fn interrupted_observation(

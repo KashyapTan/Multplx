@@ -308,6 +308,57 @@ fn verify_home_directory(allocation: &HomeAllocation, path: &Path) -> Result<(),
     Ok(())
 }
 
+/// Locate an exact leased home during active, interrupted or committed archive.
+/// A reoccupied original path never inherits the former home's cleanup authority.
+pub fn inspect_retirement_home(allocation: &HomeAllocation) -> Result<PathBuf, String> {
+    match allocation.state.as_str() {
+        "active" => {
+            verify_active_home(allocation)?;
+            Ok(allocation.binding.path.clone())
+        }
+        "archiving" if allocation.binding.path.exists() => {
+            verify_home_directory(allocation, &allocation.binding.path)?;
+            Ok(allocation.binding.path.clone())
+        }
+        "archiving" => {
+            let retained = allocation
+                .retained_path
+                .as_ref()
+                .ok_or("interrupted archive lacks retained path")?;
+            verify_home_directory(allocation, retained)?;
+            Ok(retained.clone())
+        }
+        "retired" => {
+            verify_retired_home(allocation)?;
+            let retained = allocation.retained_path.as_ref().expect("verified archive");
+            if retained != &allocation.binding.path && allocation.binding.path.exists() {
+                return Err("original private home path was reoccupied; retained".into());
+            }
+            Ok(retained.clone())
+        }
+        _ => Err("private home disposition is not retirement-ready; retained".into()),
+    }
+}
+
+/// Verify an archived private home through its exact retained allocation.
+pub fn verify_retired_home(allocation: &HomeAllocation) -> Result<(), String> {
+    if allocation.state != "retired" {
+        return Err("private home retirement is not committed; retained".into());
+    }
+    let path = allocation
+        .retained_path
+        .as_ref()
+        .ok_or("retired home lacks retained path")?;
+    verify_home_directory(allocation, path)?;
+    let marker = multplx_core::agent_home::marker_path(path).map_err(|e| e.to_string())?;
+    let bytes =
+        multplx_core::filesystem::read_bounded_regular(marker, 4096).map_err(|e| e.to_string())?;
+    if std::str::from_utf8(&bytes).ok().map(str::trim) != Some(allocation.binding.id.as_str()) {
+        return Err("retired home marker identity changed; retained".into());
+    }
+    Ok(())
+}
+
 /// Verify the leased directory before starting a new persistent process.
 pub fn verify_active_home(allocation: &HomeAllocation) -> Result<(), String> {
     if allocation.state != "active" {

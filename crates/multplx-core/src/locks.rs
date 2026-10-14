@@ -133,6 +133,14 @@ fn try_publish_owner(lock_path: &Path) -> Result<Option<PathBuf>> {
         path: lock_path.to_path_buf(),
         reason: "lock has no parent directory",
     })?;
+    try_publish_owner_in(lock_path, parent)
+}
+
+fn try_publish_owner_in(lock_path: &Path, owner_root: &Path) -> Result<Option<PathBuf>> {
+    let _parent = lock_path.parent().ok_or_else(|| CoreError::UnsafePath {
+        path: lock_path.to_path_buf(),
+        reason: "lock has no parent directory",
+    })?;
     let base = lock_path
         .file_name()
         .and_then(|name| name.to_str())
@@ -142,8 +150,8 @@ fn try_publish_owner(lock_path: &Path) -> Result<Option<PathBuf>> {
         })?;
     let owner = tempfile::Builder::new()
         .prefix(&format!("{base}.owner."))
-        .tempdir_in(parent)
-        .map_err(|error| CoreError::io("create lock owner directory", parent, error))?
+        .tempdir_in(owner_root)
+        .map_err(|error| CoreError::io("create lock owner directory", owner_root, error))?
         .keep();
     let pid_path = owner.join("pid");
     let mut pid_file = File::create(&pid_path)
@@ -188,15 +196,51 @@ impl DirectoryLock {
     /// Try to acquire once, safely recovering a provably dead owner under a
     /// serialized `.steal` claim.
     pub fn try_acquire(path: impl AsRef<Path>, processes: &impl ProcessProbe) -> Result<Self> {
-        Self::try_acquire_inner(path.as_ref(), processes, 0)
+        Self::try_acquire_inner(path.as_ref(), processes, 0, None)
+    }
+
+    /// Publish an exclusion link with its owner outside a directory that will
+    /// be atomically archived. Existing claims are retained without stealing.
+    pub fn try_acquire_anchored(
+        path: &Path,
+        owner_root: &Path,
+        processes: &impl ProcessProbe,
+    ) -> Result<Self> {
+        if fs::symlink_metadata(path).is_ok() && read_owner_pid(path).is_none() {
+            return Err(CoreError::LockHeld {
+                owner: "unknown anchored owner retained".into(),
+            });
+        }
+        Self::try_acquire_inner(path, processes, 0, Some(owner_root))
+    }
+
+    /// Follow an atomic directory move while retaining the exact external owner.
+    /// Release still checks the published link and PID before removing anything.
+    pub fn follow_directory_move(&mut self, from: &Path, to: &Path) -> Result<()> {
+        if let Ok(relative) = self.path.strip_prefix(from) {
+            let moved = to.join(relative);
+            if owner_target(&moved)? != self.owner || read_owner_pid(&moved) != Some(current_pid())
+            {
+                return Err(CoreError::LockHeld {
+                    owner: "moved exclusion identity changed".into(),
+                });
+            }
+            self.path = moved;
+        }
+        Ok(())
     }
 
     fn try_acquire_inner(
         path: &Path,
         processes: &impl ProcessProbe,
         steal_depth: usize,
+        owner_root: Option<&Path>,
     ) -> Result<Self> {
-        if let Some(owner) = try_publish_owner(path)? {
+        let publish = || match owner_root {
+            Some(root) => try_publish_owner_in(path, root),
+            None => try_publish_owner(path),
+        };
+        if let Some(owner) = publish()? {
             return Ok(Self {
                 path: path.to_path_buf(),
                 owner,
@@ -242,7 +286,8 @@ impl DirectoryLock {
         let mut steal_name = path.as_os_str().to_os_string();
         steal_name.push(".steal");
         let steal_path = PathBuf::from(steal_name);
-        let steal_lock = Self::try_acquire_inner(&steal_path, processes, steal_depth + 1)?;
+        let steal_lock =
+            Self::try_acquire_inner(&steal_path, processes, steal_depth + 1, owner_root)?;
         let same_target = match &observed_target {
             Some(target) => owner_target(path).is_ok_and(|actual| actual == *target),
             None => fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir()),
@@ -252,7 +297,7 @@ impl DirectoryLock {
         if same_target && same_pid && still_dead {
             remove_owner(path)?;
         }
-        let acquired = try_publish_owner(path)?;
+        let acquired = publish()?;
         drop(steal_lock);
         let owner = acquired.ok_or_else(|| CoreError::LockHeld {
             owner: read_owner_pid(path).map_or_else(|| "unknown".to_owned(), |pid| pid.to_string()),
@@ -537,7 +582,7 @@ mod tests {
         let deep = temp.path().join("deep");
         std::fs::create_dir(&deep).expect("deep lock");
         std::fs::write(deep.join("pid"), b"424242\n").expect("dead pid");
-        assert!(DirectoryLock::try_acquire_inner(&deep, &processes, 8).is_err());
+        assert!(DirectoryLock::try_acquire_inner(&deep, &processes, 8, None).is_err());
 
         let path = temp.path().join("owned");
         let mut lock = DirectoryLock::try_acquire(&path, &processes).expect("lock");

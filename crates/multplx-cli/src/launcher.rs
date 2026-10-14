@@ -22,7 +22,7 @@ const VIZ_PUBLIC_HELP: &str = "Open the read-only dashboard for the configured o
 
 const LAUNCHER_HELP: &str = "Open one globally configured Multplx workspace and conversation.\n\nUsage:\n  multplx [--plain]\n  multplx PATH|ALIAS\n  multplx chat [claude|codex|cursor|pi] [args...]\n  multplx project|projects [args...]\n  multplx task --project SELECTOR [args...] TEXT\n  multplx domain [args...]\n  multplx spawn [args...]\n  multplx launcher-install [--upgrade|--uninstall] [args...]\n  multplx [--backend auto|tmux|herdr|cmux] claude|codex|cursor|pi [args...]\n  multplx [--backend auto|tmux|herdr|cmux] shell\n  multplx doctor [args...]\n  multplx task-session inspect TASK\n  multplx update\n  multplx viz [--no-open|serve|status|stop]\n  multplx paths\n  multplx --help\n  multplx --version\n\nA bare launch opens the terminal workspace. Use Tab to change views, arrows/j/k or the mouse wheel to move, / to filter, t to enter a task, c to chat, v for Viz, and q to quit. PATH or ALIAS selects a registered checkout; an explicit path is registered if needed. Chat reconnects to the one live conversation or starts the remembered harness. Shell mode is explicit. The caller directory supplies request context but is never scanned or registered implicitly.\n";
 
-const INSTALL_HELP: &str = "Install the global `multplx` and `mx` binaries and register one runtime and home.\n\nUsage:\n  mx launcher-install --package PATH [--home PATH]\n  mx launcher-install [--root PATH] [--home PATH] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --managed [--source GIT-URL] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --upgrade [--recover-stale-launch] [--allow-stopped-agents] [--stop-managed-sessions] [install options]\n  mx launcher-install --uninstall [shared options]\n\nInstall options:\n  --package PATH       verified extracted platform package (binary plus matching assets)\n  --root PATH          explicit source checkout runtime\n  --home PATH          operational state home; package default is DATA_DIR/home\n  --binary PATH        verified prebuilt binary or explicit local release build\n  --checksum SHA256    required checksum for an external --binary artifact\n  --managed            clone a clean managed source runtime under DATA_DIR/runtime\n  --source GIT-URL     source for --managed only\n\nShared options:\n  --bin-dir PATH       default ${XDG_BIN_HOME:-$HOME/.local/bin}\n  --config-dir PATH    default ${XDG_CONFIG_HOME:-$HOME/.config}/multplx\n  --data-dir PATH      default ${XDG_DATA_HOME:-$HOME/.local/share}/multplx\n  --upgrade            atomically replace the owned binary and matching runtime assets\n  --recover-stale-launch  confirm removal of a verified stale workspace launch reservation during upgrade\n  --allow-stopped-agents  confirm upgrade with verified stopped standing agents and inert reservations; preserve records, homes and work\n  --stop-managed-sessions  explicitly consent to stopping verified owned live executions during upgrade\n  --uninstall          remove owned application files and records; preserve state and repositories\n  -h, --help\n\nPackage, source runtime and operational home are independent of the current directory.\nLegacy migration requires unchanged generated shim bytes and matching root/home records; foreign files are refused.\nUpgrade previews proven inert successor reservations and historical reused endpoints.\nThey never authorize stopping another task: its current exact execution is listed separately.\nReleased interrupted executions require consent to detach their stale endpoint and retain failed recovery evidence.\n";
+const INSTALL_HELP: &str = "Install the global `multplx` and `mx` binaries and register one runtime and home.\n\nUsage:\n  mx launcher-install --package PATH [--home PATH]\n  mx launcher-install [--root PATH] [--home PATH] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --managed [--source GIT-URL] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --upgrade [--recover-stale-launch] [--allow-stopped-agents] [--stop-managed-sessions] [--cleanup-stale-state] [install options]\n  mx launcher-install --uninstall [shared options]\n\nInstall options:\n  --package PATH       verified extracted platform package (binary plus matching assets)\n  --root PATH          explicit source checkout runtime\n  --home PATH          operational state home; package default is DATA_DIR/home\n  --binary PATH        verified prebuilt binary or explicit local release build\n  --checksum SHA256    required checksum for an external --binary artifact\n  --managed            clone a clean managed source runtime under DATA_DIR/runtime\n  --source GIT-URL     source for --managed only\n\nShared options:\n  --bin-dir PATH       default ${XDG_BIN_HOME:-$HOME/.local/bin}\n  --config-dir PATH    default ${XDG_CONFIG_HOME:-$HOME/.config}/multplx\n  --data-dir PATH      default ${XDG_DATA_HOME:-$HOME/.local/share}/multplx\n  --upgrade            atomically replace the owned binary and matching runtime assets\n  --recover-stale-launch  confirm removal of a verified stale workspace launch reservation during upgrade\n  --allow-stopped-agents  confirm upgrade with verified stopped standing agents and inert reservations; preserve records, homes and work\n  --stop-managed-sessions  explicitly consent to stopping verified owned live executions during upgrade\n  --cleanup-stale-state  consent to previewed safe stale-state cleanup during upgrade; ambiguous work is retained\n  --uninstall          remove owned application files and records; preserve state and repositories\n  -h, --help\n\nPackage, source runtime and operational home are independent of the current directory.\nLegacy migration requires unchanged generated shim bytes and matching root/home records; foreign files are refused.\nUpgrade previews proven inert successor reservations and historical reused endpoints.\nThey never authorize stopping another task: its current exact execution is listed separately.\nReleased interrupted executions require consent to detach their stale endpoint and retain failed recovery evidence.\n";
 
 fn error(message: impl AsRef<str>) {
     eprintln!("multplx: {}", message.as_ref());
@@ -1327,6 +1327,7 @@ struct InstallOptions {
     recover_stale_launch: bool,
     allow_stopped_agents: bool,
     stop_managed_sessions: bool,
+    cleanup_stale_state: bool,
     uninstall: bool,
     root: Option<PathBuf>,
     home: Option<PathBuf>,
@@ -1357,6 +1358,7 @@ fn parse_installer(args: &[OsString]) -> Result<Option<InstallOptions>, String> 
             "--recover-stale-launch" => options.recover_stale_launch = true,
             "--allow-stopped-agents" => options.allow_stopped_agents = true,
             "--stop-managed-sessions" => options.stop_managed_sessions = true,
+            "--cleanup-stale-state" => options.cleanup_stale_state = true,
             "--uninstall" => options.uninstall = true,
             "--root" => options.root = Some(take(&mut index, "--root")?.into()),
             "--home" => options.home = Some(take(&mut index, "--home")?.into()),
@@ -2059,6 +2061,25 @@ fn inspect_home_users(home: &Path, inspection: &mut RetainedUsers) -> Result<(),
             ));
         }
         inspection.primaries.insert(home.into(), primary);
+    }
+    Ok(())
+}
+
+pub(crate) fn verify_cleanup_home_quiescent(
+    runtime_root: &Path,
+    root_home: &Path,
+    home: &Path,
+    task: &str,
+) -> Result<(), String> {
+    let mut users = RetainedUsers {
+        preview: true,
+        ..Default::default()
+    };
+    inspect_retained_users(runtime_root, home, root_home, Some(task), true, &mut users)?;
+    if !users.stops.is_empty() || !users.primaries.is_empty() || !users.stale_launches.is_empty() {
+        return Err(
+            "private home launch or session ownership requires reconciliation; retained".into(),
+        );
     }
     Ok(())
 }
@@ -3343,6 +3364,10 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
         error("--uninstall cannot be combined with install or upgrade options");
         return 2;
     }
+    if options.cleanup_stale_state && !options.upgrade {
+        error("--cleanup-stale-state requires --upgrade");
+        return 2;
+    }
     if options.stop_managed_sessions && !options.upgrade {
         error("--stop-managed-sessions requires --upgrade");
         return 2;
@@ -3884,6 +3909,17 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
         require_recordable_path(&home, "operational home").map_err(|message| (2, message))?;
         require_owned_dir(&root, "code root").map_err(|message| (2, message))?;
         require_owned_dir(&home, "operational home").map_err(|message| (2, message))?;
+        let cleanup_plan = if options.upgrade {
+            let plan =
+                crate::upgrade_cleanup::inspect(&root, &home).map_err(|message| (2, message))?;
+            if plan.has_findings() || options.cleanup_stale_state {
+                plan.preview();
+            }
+            Some(plan)
+        } else {
+            None
+        };
+        let mut cleanup_consent = options.cleanup_stale_state;
         let packaged_home = if verified_package.is_some()
             && config_dir.join("package-assets").is_file()
         {
@@ -3924,6 +3960,8 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                     && !options.recover_stale_launch;
                 let needs_agents = !retained.standing.is_empty() && !options.allow_stopped_agents;
                 let needs_stop = live && !options.stop_managed_sessions;
+                let needs_cleanup =
+                    cleanup_plan.as_ref().is_some_and(|plan| plan.actionable()) && !cleanup_consent;
                 eprintln!(
                     "Verified runtime users for home {}:",
                     recorded_home.display()
@@ -3976,12 +4014,12 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                         "WARNING: continuing will interrupt active work in the exact owned sessions listed above. Leave these terminal windows untouched until upgrade finishes."
                     );
                 }
-                if needs_launch || needs_agents || needs_stop {
+                if needs_launch || needs_agents || needs_stop || needs_cleanup {
                     if !std::io::stdin().is_terminal() {
                         return Err((
                             2,
                             format!(
-                                "upgrade requires confirmation for home {}; rerun the same interactive upgrade{}{}, keeping custom path options; live endpoints require --stop-managed-sessions; all task records and work are preserved",
+                                "upgrade requires confirmation for home {}; rerun the same interactive upgrade{}{}, keeping custom path options; live endpoints require --stop-managed-sessions; stale-state cleanup requires --cleanup-stale-state; private work is preserved",
                                 recorded_home.display(),
                                 if needs_launch {
                                     " or pass --recover-stale-launch"
@@ -3997,7 +4035,7 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                         ));
                     }
                     eprint!(
-                        "Continue upgrade (stop listed live sessions), preserving all task records, private homes and worktrees{}? [y/N] ",
+                        "Continue upgrade, stop listed live sessions and apply previewed safe stale-state cleanup, preserving private archives and project worktrees{}? [y/N] ",
                         if approved_stale_launch.is_some() {
                             " and removing only the verified stale workspace launch reservation"
                         } else {
@@ -4013,6 +4051,8 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                         return Err((2, "upgrade cancelled; task records and stale workspace launch reservation were preserved".into()));
                     }
                 }
+                cleanup_consent =
+                    cleanup_consent || cleanup_plan.as_ref().is_some_and(|plan| plan.actionable());
                 approved_standing = Some(retained.standing.clone());
                 if live || !retained.stale_launches.is_empty() {
                     approved_users = Some(retained);
@@ -4032,6 +4072,26 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
         } else {
             None
         };
+        if packaged_home.is_none()
+            && cleanup_plan.as_ref().is_some_and(|plan| plan.actionable())
+            && !cleanup_consent
+        {
+            if !std::io::stdin().is_terminal() {
+                return Err((2, "upgrade stale-state cleanup requires confirmation; rerun interactively or pass --cleanup-stale-state after reviewing the preview".into()));
+            }
+            eprint!(
+                "Continue upgrade and apply previewed safe stale-state cleanup, preserving private archives and project worktrees? [y/N] "
+            );
+            std::io::stderr().flush().map_err(|e| (2, e.to_string()))?;
+            let mut answer = String::new();
+            std::io::stdin()
+                .read_line(&mut answer)
+                .map_err(|e| (2, e.to_string()))?;
+            if !matches!(answer.trim(), "y" | "Y") {
+                return Err((2, "upgrade cancelled; stale state preserved".into()));
+            }
+            cleanup_consent = true;
+        }
         for part in ["config", "data", "projects", "state"] {
             ensure_dir(&home.join(part), 0o700, true).map_err(|message| (2, message))?;
         }
@@ -4259,6 +4319,12 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
             approved_users.as_ref(),
         )
         .map_err(|message| (1, message))?;
+        if cleanup_consent
+            && let Some(plan) = &cleanup_plan
+            && plan.actionable()
+        {
+            crate::upgrade_cleanup::apply(&root, &home, plan).map_err(|message| (1, format!("runtime upgraded; stale-state cleanup retained recovery evidence: {message}; rerun the same upgrade to resume")))?;
+        }
         println!("multplx: installed {}", target.display());
         println!("multplx: root {}", root.display());
         println!("multplx: home {}", home.display());

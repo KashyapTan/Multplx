@@ -132,6 +132,93 @@ pub fn harness_pid_alive(pid: u32, processes: &impl ProcessProbe, matcher: &Rege
         .is_ok_and(|row| harness_command_matches(&row.command, &row.arguments, matcher))
 }
 
+/// Bounded installer authority, excluding ordinary session acquisition without
+/// pretending that the maintenance process is a harness or replacing `.lock`.
+#[derive(Debug)]
+pub struct MaintenanceGuard {
+    state: PathBuf,
+    _claim: DirectoryLock,
+}
+
+impl MaintenanceGuard {
+    /// Refuse live or unknown recorded owners, including non-harness processes.
+    pub fn acquire(state: &Path, processes: &impl ProcessProbe) -> Result<Self> {
+        let claim = DirectoryLock::try_acquire(state.join(".lock.acquire"), processes)?;
+        Self::with_claim(state, claim, processes)
+    }
+
+    /// Hold a private home's exclusion across archival with an external owner.
+    pub fn acquire_anchored(
+        state: &Path,
+        owner_root: &Path,
+        processes: &impl ProcessProbe,
+    ) -> Result<Self> {
+        let claim = DirectoryLock::try_acquire_anchored(
+            &state.join(".lock.acquire"),
+            owner_root,
+            processes,
+        )?;
+        Self::with_claim(state, claim, processes)
+    }
+
+    pub fn follow_directory_move(&mut self, from: &Path, to: &Path) -> Result<()> {
+        self._claim.follow_directory_move(from, to)?;
+        if let Ok(relative) = self.state.strip_prefix(from) {
+            self.state = to.join(relative);
+        }
+        Ok(())
+    }
+
+    fn with_claim(
+        state: &Path,
+        claim: DirectoryLock,
+        processes: &impl ProcessProbe,
+    ) -> Result<Self> {
+        let path = state.join(".lock");
+        match fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+                let bytes = crate::filesystem::read_bounded_regular(&path, 64)?;
+                let pid = std::str::from_utf8(&bytes)
+                    .ok()
+                    .and_then(|text| text.trim().parse::<u32>().ok())
+                    .filter(|pid| *pid > 1)
+                    .ok_or(CoreError::MalformedRecord {
+                        kind: "maintenance owner",
+                        reason: "unreadable owner retained",
+                    })?;
+                if processes.is_alive(pid) {
+                    return Err(CoreError::LockHeld {
+                        owner: format!("live maintenance-excluded PID {pid}"),
+                    });
+                }
+            }
+            _ => {
+                return Err(CoreError::UnsafePath {
+                    path,
+                    reason: "unknown owner retained",
+                });
+            }
+        }
+        Ok(Self {
+            state: state.to_path_buf(),
+            _claim: claim,
+        })
+    }
+
+    /// Verify that an owner operation addresses the excluded home.
+    pub fn require_state(&self, state: &Path) -> Result<()> {
+        if self.state == state {
+            Ok(())
+        } else {
+            Err(CoreError::UnsafePath {
+                path: state.to_path_buf(),
+                reason: "foreign maintenance state",
+            })
+        }
+    }
+}
+
 /// Observable status for `mx-lock status`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SessionLockStatus {
@@ -760,5 +847,64 @@ mod tests {
         assert!(!terminator.called);
         assert!(authority.recorded_failure);
         assert_eq!(std::fs::read(&lock).expect("lock remains"), b"42\n");
+    }
+}
+
+#[cfg(test)]
+mod maintenance_tests {
+    use super::*;
+    use crate::process::SystemProcessProbe;
+    #[test]
+    fn maintenance_excludes_session_acquisition_and_releases_without_fake_harness() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = temp.path();
+        let processes = SystemProcessProbe::default();
+        let guard = MaintenanceGuard::acquire(state, &processes).unwrap();
+        assert!(!state.join(".lock").exists());
+        assert!(
+            SessionLock::new(state.join(".lock"), &processes)
+                .acquire(std::process::id())
+                .is_err()
+        );
+        assert!(guard.require_state(&state.join("foreign")).is_err());
+        drop(guard);
+        assert!(!state.join(".lock.acquire").exists());
+        SessionLock::new(state.join(".lock"), &processes)
+            .acquire(std::process::id())
+            .unwrap();
+    }
+    #[test]
+    fn unreadable_linked_or_live_replaced_owners_are_retained() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = temp.path();
+        let processes = SystemProcessProbe::default();
+        for bytes in [
+            b"unknown\n".as_slice(),
+            format!("{}\n", std::process::id()).as_bytes(),
+        ] {
+            fs::write(state.join(".lock"), bytes).unwrap();
+            assert!(MaintenanceGuard::acquire(state, &processes).is_err());
+            assert_eq!(fs::read(state.join(".lock")).unwrap(), bytes);
+        }
+        fs::remove_file(state.join(".lock")).unwrap();
+        std::os::unix::fs::symlink("outside", state.join(".lock")).unwrap();
+        assert!(MaintenanceGuard::acquire(state, &processes).is_err());
+    }
+    #[test]
+    fn anchored_guard_follows_archive_and_releases_exact_owner() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let archive = temp.path().join("archive");
+        let owners = temp.path().join("owners");
+        fs::create_dir(&home).unwrap();
+        fs::create_dir(&owners).unwrap();
+        let mut guard =
+            MaintenanceGuard::acquire_anchored(&home, &owners, &SystemProcessProbe::default())
+                .unwrap();
+        fs::rename(&home, &archive).unwrap();
+        guard.follow_directory_move(&home, &archive).unwrap();
+        drop(guard);
+        assert_eq!(fs::read_dir(&archive).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(&owners).unwrap().count(), 0);
     }
 }

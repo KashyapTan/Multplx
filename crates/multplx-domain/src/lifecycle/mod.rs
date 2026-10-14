@@ -17,3 +17,5 @@ pub mod upstream_diff;
 pub mod worktree;
 
 pub mod task_outcome;
+
+pub mod upgrade_cleanup;

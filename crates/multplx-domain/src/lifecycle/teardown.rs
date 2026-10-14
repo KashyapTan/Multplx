@@ -1521,6 +1521,146 @@ pub fn inspect_reconciled_upgrade_launch(
     Ok(true)
 }
 
+/// Read-only upgrade retirement eligibility. Endpoint absence is separately
+/// proven by the backend owner; no worktree or repository is inspected/removed.
+pub fn inspect_completed_upgrade_retirement(
+    context: &Context,
+    id: &str,
+) -> Result<PathBuf, String> {
+    use super::subagent_model::{WorkState, read_meta};
+    let bytes = read_regular(&context.state.join(format!("{id}.meta")), "upgrade task")?;
+    let text = std::str::from_utf8(&bytes).map_err(|e| e.to_string())?;
+    let record = read_meta(id, text)?;
+    if record.legacy_unknown
+        || record.schedule.state != WorkState::Completed
+        || record.schedule.decisions.iter().any(|q| q.answer.is_none())
+        || !record.retained_executions.is_empty()
+        || !record.transfers.is_empty()
+        || crate::supervision::has_unsettled_native_children(&record)
+        || record.owner_state.as_deref() != context.state.to_str()
+        || record.home_allocation.is_none()
+    {
+        return Err("unfinished, unanswered, transferred or unbound task retained".into());
+    }
+    let values = metadata_for_retirement(&context.state.join(format!("{id}.meta")), true)?;
+    if values.get("kind").map(String::as_str) != Some("daemon") {
+        return Err("task without an owned private home retained".into());
+    }
+    let token = record.home_allocation.as_ref().expect("checked home lease");
+    if context.state.join(format!("{JOURNAL_PREFIX}{id}")).exists() {
+        let receipt = super::upgrade_cleanup::read_retirement(&context.state, id)?;
+        if receipt.committed || receipt.original_meta != bytes {
+            return Err("unrelated retirement journal retained".into());
+        }
+    }
+    let home = validate_home(context, id, &token.path)?;
+    let allocation = super::home_seed::read_home_allocation(&context.data, id)?
+        .ok_or("home allocation missing; retained")?;
+    if allocation.binding != *token || allocation.state != "active" {
+        return Err("home allocation identity or disposition changed; retained".into());
+    }
+    super::home_seed::verify_active_home(&allocation)?;
+    super::pending_reply::maintenance_retirement_clear(&context.state, Some(id))?;
+    super::pending_reply::maintenance_retirement_clear(&home.join("state"), None)?;
+    if has_children(&home)?.is_some()
+        || super::parent_channel::pending_outcomes(&home.join("state"))? > 0
+    {
+        return Err("children or undelivered private outcomes retained".into());
+    }
+    if super::parent_channel::retirement_outcome_blocker(&context.state, id)? {
+        return Err("unsettled or foreign parent outcome retained for this task".into());
+    }
+    validate_pr_artifacts(&context.state, id)?;
+    Ok(home)
+}
+
+/// Retire a previewed completed private home under installer lifecycle exclusion.
+/// The canonical teardown journal resumes partial retirement. Caller backs up
+/// parent state and retains the original metadata as its retirement evidence.
+pub fn retire_completed_for_upgrade(
+    context: &Context,
+    id: &str,
+    expected: &[u8],
+) -> Result<(), String> {
+    let journal_path = context.state.join(format!("{JOURNAL_PREFIX}{id}"));
+    let mut no_kill = |_path: &Path| Ok(());
+    let original = super::subagent_model::read_meta(
+        id,
+        std::str::from_utf8(expected).map_err(|e| e.to_string())?,
+    )?;
+    let receipt = super::upgrade_cleanup::read_retirement(&context.state, id)?;
+    if receipt.committed || receipt.original_meta != expected {
+        return Err("retirement recovery identity changed; retained".into());
+    }
+    if context.state.join(format!("{id}.meta")).exists()
+        && read_regular(
+            &context.state.join(format!("{id}.meta")),
+            "retirement recovery task",
+        )? != expected
+    {
+        return Err("current task changed before retirement recovery; retained".into());
+    }
+    if journal_path.exists() {
+        let journal: Journal =
+            serde_json::from_slice(&read_regular(&journal_path, "upgrade retirement journal")?)
+                .map_err(|e| e.to_string())?;
+        if journal.id != id
+            || journal.home_allocation != original.home_allocation
+            || original
+                .home_allocation
+                .as_ref()
+                .is_none_or(|token| token.path.to_str() != Some(journal.home.as_str()))
+        {
+            return Err("unrelated teardown journal retained".into());
+        }
+        let token = original
+            .home_allocation
+            .as_ref()
+            .ok_or("retirement recovery lease missing")?;
+        let allocation = super::home_seed::read_home_allocation(&context.data, id)?
+            .ok_or("retirement recovery allocation missing")?;
+        if allocation.binding != *token {
+            return Err("retirement recovery lease changed; retained".into());
+        }
+        super::home_seed::inspect_retirement_home(&allocation)?;
+        if allocation.state == "archiving" {
+            super::home_seed::retire_home(&context.data, token)?;
+        }
+        return recover(context, Some(id), &mut no_kill);
+    }
+    if !context.state.join(format!("{id}.meta")).exists() {
+        let token = original
+            .home_allocation
+            .as_ref()
+            .ok_or("retirement home lease missing")?;
+        let allocation = super::home_seed::read_home_allocation(&context.data, id)?
+            .ok_or("retirement home allocation missing")?;
+        if allocation.binding == *token
+            && allocation.state == "retired"
+            && super::home_seed::verify_retired_home(&allocation).is_ok()
+        {
+            return Ok(());
+        }
+        return Err("retirement commit cannot be proven; retained".into());
+    }
+    if read_regular(&context.state.join(format!("{id}.meta")), "upgrade task")? != expected {
+        return Err("task changed after cleanup preview; retained".into());
+    }
+    let home = inspect_completed_upgrade_retirement(context, id)?;
+    let record = super::subagent_model::read_meta(
+        id,
+        std::str::from_utf8(expected).map_err(|e| e.to_string())?,
+    )?;
+    let mut journal = Journal {
+        id: id.into(),
+        home: path_text(&home, "upgrade home")?,
+        stage: "prepared".into(),
+        home_allocation: record.home_allocation,
+    };
+    publish(&journal_path, &journal)?;
+    finish_transaction(context, &journal_path, &mut journal, &mut no_kill)
+}
+
 /// Installer-only lifecycle transition after exact released-admission and
 /// current-other-owner proof. The caller holds lifecycle locks and consent.
 /// Durable before bytes provide recoverable, compare-and-replace backup.

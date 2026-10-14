@@ -6,7 +6,7 @@
 //! the current task's recorded parent identity and the original event remains
 //! byte-for-byte stable all the way to the root projection.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -754,7 +754,7 @@ pub fn prepare_outcome(state: &Path, event: &MessageEnvelope) -> Result<ParentOu
     })
 }
 
-fn validate_prepared(state: &Path, outcome: &ParentOutcome) -> Result<(), String> {
+pub fn validate_prepared(state: &Path, outcome: &ParentOutcome) -> Result<(), String> {
     if outcome.schema_version != SCHEMA_VERSION
         || outcome.event.message_id.is_empty()
         || outcome.event.task_id != outcome.route.sender_id
@@ -1161,6 +1161,146 @@ pub fn relay(state: &Path, limit: usize) -> Result<ParentChannelHealth, String> 
     )
     .map_err(|error| error.to_string())?;
     Ok(health)
+}
+
+/// Read-only, bounded maintenance preview. Foreign and ambiguous routes remain
+/// untouched; only accepted same-home root outcomes with completed task truth
+/// can be delivered locally without any external transport.
+pub fn settled_local_outcomes(state: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut selected = Vec::new();
+    for path in records(&inbox(state))?
+        .into_iter()
+        .chain(records(&outbox(state))?)
+    {
+        let Ok(outcome) = read_outcome(&path) else {
+            continue;
+        };
+        if outcome.route.sender_state != state.to_string_lossy()
+            || outcome.route.recipient_state != state.to_string_lossy()
+            || outcome.route.recipient_id != outcome.route.root_id
+            || outcome.route.sender_id != outcome.event.task_id
+            || !outcome.hops.is_empty()
+        {
+            continue;
+        }
+        if maintenance_event_settled(state, &outcome.event) {
+            selected.push(path);
+        }
+    }
+    Ok(selected)
+}
+
+/// Retained outcomes remain visible and block retirement of their own task.
+pub fn retained_maintenance_outcomes(state: &Path) -> Result<Vec<(String, String)>, String> {
+    let selected = settled_local_outcomes(state)?;
+    let mut retained = Vec::new();
+    for path in records(&inbox(state))?
+        .into_iter()
+        .chain(records(&outbox(state))?)
+    {
+        if selected.contains(&path) {
+            continue;
+        }
+        let reason = match read_outcome(&path) {
+            Ok(outcome) => format!(
+                "task {}: foreign route, unanswered decision or unsettled accepted outcome",
+                outcome.event.task_id
+            ),
+            Err(error) => format!("unreadable parent outcome: {error}"),
+        };
+        retained.push((path.display().to_string(), reason));
+    }
+    Ok(retained)
+}
+
+pub fn retirement_outcome_blocker(state: &Path, task: &str) -> Result<bool, String> {
+    let selected = settled_local_outcomes(state)?;
+    for path in records(&inbox(state))?
+        .into_iter()
+        .chain(records(&outbox(state))?)
+    {
+        let outcome = read_outcome(&path)?;
+        if outcome.event.task_id == task && !selected.contains(&path) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+pub fn maintenance_event_settled(state: &Path, event: &MessageEnvelope) -> bool {
+    if !matches!(
+        event.kind.as_str(),
+        "working" | "paused" | "blocked" | "done" | "failed" | "resolved"
+    ) {
+        return false;
+    }
+    let Ok(record) = super::upgrade_cleanup::completed_record(state, &event.task_id) else {
+        return false;
+    };
+    let Some(attempt) = &event.attempt else {
+        return false;
+    };
+    let known_attempt = record
+        .attempt
+        .as_ref()
+        .into_iter()
+        .chain(record.prior_attempts.iter())
+        .any(|known| {
+            known.id == attempt.id
+                && known.generation == attempt.generation
+                && event
+                    .brief_revision
+                    .is_some_and(|revision| revision <= known.brief_revision)
+        });
+    known_attempt
+        && crate::operational_input::read_message_envelope(state, &event.message_id)
+            .is_ok_and(|accepted| accepted == *event)
+}
+
+/// Nonexecuting maintenance delivery through the canonical notification and
+/// archive owners. Stable message keys retain dedupe even across interruption.
+pub fn settle_local_outcomes(
+    state: &Path,
+    guard: &multplx_core::session_lock::MaintenanceGuard,
+    task_ids: &BTreeSet<String>,
+) -> Result<usize, String> {
+    guard.require_state(state).map_err(|e| e.to_string())?;
+    let _lock = DirectoryLock::acquire_wait(
+        state.join(".parent-channel.lock"),
+        &SystemProcessProbe::default(),
+        LOCK_TIMEOUT,
+    )
+    .map_err(|e| e.to_string())?;
+    let paths = settled_local_outcomes(state)?;
+    let mut settled = 0;
+    for path in &paths {
+        let mut outcome = read_outcome(path)?;
+        if !task_ids.contains(&outcome.event.task_id) {
+            continue;
+        }
+        crate::operational_input::publish_message_wake(
+            state,
+            &outcome.event,
+            &format!(
+                "report: message={} task={} state={} brief={} summary={}",
+                outcome.event.message_id,
+                outcome.event.task_id,
+                outcome.event.kind,
+                outcome.event.brief_revision.unwrap_or_default(),
+                outcome.event.summary
+            ),
+            SystemTime::now(),
+            &SystemProcessProbe::default(),
+        )?;
+        if outcome.delivery != DeliveryState::Delivered {
+            outcome.delivery = DeliveryState::Delivered;
+            outcome.delivered_epoch = Some(now_epoch());
+            rewrite(path, &outcome)?;
+        }
+        archive_delivered(path, &outcome)?;
+        settled += 1;
+    }
+    Ok(settled)
 }
 
 /// Number of active channel records that prevent coordinator-home retirement.

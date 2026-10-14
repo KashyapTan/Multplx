@@ -404,11 +404,25 @@ test_migration_suggestion_preserves_diagnosed_home_from_unrelated_cwd() {
   pass "migration suggestions inspect the exact quoted home from an unrelated cwd without mutation"
 }
 
+test_modern_message_wake_task_target_is_not_transport_key() {
+  read_case "$(make_case modern-message-wake)"
+  local status
+  printf 'kind=delivery\n' > "$HOME_DIR/state/NBA_UI_PLAYER_1012.meta"
+  printf '1\t1\tsignal\tmessage-report-123\treport: message=report-123 task=NBA_UI_PLAYER_1012 state=done\n' > "$HOME_DIR/state/.wake-queue"
+  cp "$HOME_DIR/state/.wake-queue" "$CASE_DIR/queue.before"
+  run_doctor_capture "$CASE_DIR/doctor.json" status --json --check wake-queue-orphans --fix
+  expect_code 0 "$status" 'modern message wake refers to actual task'
+  cmp "$CASE_DIR/queue.before" "$HOME_DIR/state/.wake-queue" || fail 'doctor falsely pruned modern report wake'
+  jq -e '.findings[0].severity == "OK"' "$CASE_DIR/doctor.json" >/dev/null || fail 'modern wake task binding classified orphan'
+  pass 'doctor resolves modern report task target rather than message transport key'
+}
+
 test_clean_fixture_and_exit_zero
 test_each_check_classifies_its_fixture
 test_default_mode_makes_zero_fixture_mutations
 test_fix_whitelist_idempotence_and_fail_safe_uncertainty
 test_exit_codes_and_json_contract
 test_migration_suggestion_preserves_diagnosed_home_from_unrelated_cwd
+test_modern_message_wake_task_target_is_not_transport_key
 
 echo "ALL TESTS PASSED"

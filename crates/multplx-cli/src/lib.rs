@@ -18,6 +18,7 @@ mod task;
 mod task_session;
 mod task_transfer;
 mod tooling;
+mod upgrade_cleanup;
 mod workflow_runtime;
 mod workspace_tui;
 
