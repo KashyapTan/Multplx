@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn run(command: &mut Command) -> Output {
-    command.output().expect("run mx")
+    command
+        .output()
+        .unwrap_or_else(|error| panic!("run {command:?}: {error}"))
 }
 
 fn mx() -> Command {
@@ -116,7 +118,19 @@ fn installed_runtime_binding_reaches_session_lock_and_explicit_paths_win() {
     fs::create_dir_all(root.join("bin")).expect("runtime bin");
     fs::create_dir_all(&home).expect("home");
     fs::create_dir_all(&config).expect("config");
-    fs::copy(env!("CARGO_BIN_EXE_mx"), &binary).expect("copy packaged binary");
+    // Copy in a separate process: the parallel test harness must never hold a
+    // writable executable descriptor that a sibling fork can inherit before
+    // exec, leaving the finished fixture temporarily ETXTBSY on Linux.
+    let copied =
+        run(Command::new("cp").args([Path::new(env!("CARGO_BIN_EXE_mx")), binary.as_path()]));
+    assert!(copied.status.success(), "copy packaged binary: {copied:?}");
+    fs::set_permissions(
+        &binary,
+        fs::metadata(env!("CARGO_BIN_EXE_mx"))
+            .expect("source binary metadata")
+            .permissions(),
+    )
+    .expect("preserve packaged binary mode");
     fs::write(
         root.join(".multplx-release"),
         format!("{}\n", env!("CARGO_PKG_VERSION")),

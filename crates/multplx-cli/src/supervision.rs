@@ -3253,6 +3253,59 @@ fn reconcile_report_notification_health(state: &Path) -> Result<Option<String>, 
     }
 }
 
+#[derive(Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct DispatchQueueHealth {
+    generation: u64,
+    error: Option<String>,
+}
+
+// A retained queue failure is one durable obligation, not a new model wake on
+// every watcher cycle. Successful owner observation permits a future incident.
+fn dispatch_queue_health(state: &Path, error: Option<&str>) -> Result<Option<String>, String> {
+    let path = state.join(".dispatch-queue-health.json");
+    let mut health: DispatchQueueHealth =
+        match multplx_core::filesystem::read_bounded_regular(&path, 4096) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|error| error.to_string())?,
+            Err(multplx_core::error::CoreError::Io { source, .. })
+                if source.kind() == std::io::ErrorKind::NotFound =>
+            {
+                DispatchQueueHealth::default()
+            }
+            Err(error) => return Err(error.to_string()),
+        };
+    let error = error.map(|value| value.chars().take(512).collect::<String>());
+    if health.error.as_deref() != error.as_deref() {
+        if error.is_some() {
+            health.generation = health
+                .generation
+                .checked_add(1)
+                .ok_or("dispatch health generation exhausted")?;
+        }
+        health.error = error.clone();
+        multplx_core::filesystem::atomic_replace(
+            &path,
+            &serde_json::to_vec(&health).map_err(|error| error.to_string())?,
+            0o600,
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    let Some(error) = error.as_deref() else {
+        return Ok(None);
+    };
+    let reason = format!("check: dispatch queue: {error}");
+    let (_, created) = multplx_core::wake::WakeQueue::new(state)
+        .append_once(
+            multplx_core::wake::WakeKind::Check,
+            &format!("dispatch-queue-health-{}", health.generation),
+            &reason,
+            SystemTime::now(),
+            &SystemProcessProbe::default(),
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(created.then_some(reason))
+}
+
 fn watcher_lock_pid(state: &Path) -> Option<u32> {
     fs::read_to_string(state.join(".watch.lock/pid"))
         .ok()
@@ -3890,47 +3943,41 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
         if shutdown.load(Ordering::SeqCst) {
             return 1;
         }
-        match queue_result {
+        let queue_interrupted = matches!(queue_result, BoundedCommandResult::Interrupted);
+        let queue_error = match queue_result {
             BoundedCommandResult::Completed {
                 success: true,
                 output,
-            } if !output.is_empty() => triage_log(&state, output.trim_end()),
-            BoundedCommandResult::Completed { success: true, .. }
-            | BoundedCommandResult::Interrupted => {}
-            BoundedCommandResult::Completed { output, .. }
-            | BoundedCommandResult::SpawnFailed(output) => {
-                let detail = output.trim();
-                let reason = if detail.is_empty() {
-                    "check: dispatch queue command failed".to_owned()
-                } else {
-                    format!("check: dispatch queue: {detail}")
-                };
-                if !append_wake(
-                    &state,
-                    multplx_core::wake::WakeKind::Check,
-                    "dispatch-queue",
-                    &reason,
-                ) {
-                    return 1;
+            } => {
+                if !output.is_empty() {
+                    triage_log(&state, output.trim_end());
                 }
-                println!("{reason}");
-                return 0;
+                None
             }
-            BoundedCommandResult::TimedOut => {
-                let reason = format!(
-                    "check: dispatch queue exceeded its {}s observation deadline",
-                    environment_u64("MX_DISPATCH_TIMEOUT", 30)
-                );
-                if !append_wake(
-                    &state,
-                    multplx_core::wake::WakeKind::Check,
-                    "dispatch-queue",
-                    &reason,
-                ) {
+            BoundedCommandResult::Interrupted => None,
+            BoundedCommandResult::Completed { output, .. }
+            | BoundedCommandResult::SpawnFailed(output) => Some(if output.trim().is_empty() {
+                "command failed".to_owned()
+            } else {
+                output.trim().to_owned()
+            }),
+            BoundedCommandResult::TimedOut => Some(format!(
+                "exceeded its {}s observation deadline",
+                environment_u64("MX_DISPATCH_TIMEOUT", 30)
+            )),
+        };
+        // An interrupted observation has not proved that an earlier error cleared.
+        if !queue_interrupted {
+            match dispatch_queue_health(&state, queue_error.as_deref()) {
+                Ok(Some(reason)) => {
+                    println!("{reason}");
+                    return 0;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    eprintln!("dispatch queue health: {error}");
                     return 1;
                 }
-                println!("{reason}");
-                return 0;
             }
         }
         multplx_domain::lifecycle::pending_reply::tick(&state, source_root, |task| {
@@ -5240,6 +5287,67 @@ mod tests {
         record_human_merge_evidence, record_human_merge_evidence_with_head,
         run_bounded_command_result, run_check_batch, scan_signals,
     };
+
+    #[test]
+    fn dispatch_failure_is_retained_once_until_owner_observes_repair() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = temp.path();
+        assert!(super::dispatch_queue_health(state, None).unwrap().is_none());
+        assert!(
+            super::dispatch_queue_health(state, Some("malformed record"))
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            super::dispatch_queue_health(state, Some("malformed record"))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            super::dispatch_queue_health(state, Some("foreign binding"))
+                .unwrap()
+                .is_some()
+        );
+        assert!(super::dispatch_queue_health(state, None).unwrap().is_none());
+        assert!(
+            super::dispatch_queue_health(state, Some("malformed record"))
+                .unwrap()
+                .is_some()
+        );
+        let huge = "\n".repeat(100_000);
+        assert!(
+            super::dispatch_queue_health(state, Some(&huge))
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            super::dispatch_queue_health(state, Some(&huge))
+                .unwrap()
+                .is_none()
+        );
+        let items = multplx_core::wake::WakeQueue::new(state)
+            .observe_inbox_items()
+            .unwrap();
+        assert!(items.is_empty()); // observation never claims the published queue
+        assert_eq!(
+            fs::read_to_string(state.join(".wake-queue"))
+                .unwrap()
+                .lines()
+                .count(),
+            4
+        );
+        fs::write(state.join(".dispatch-queue-health.json"), "malformed").unwrap();
+        assert!(super::dispatch_queue_health(state, None).is_err());
+        fs::write(state.join(".dispatch-queue-health.json"), "x".repeat(4097)).unwrap();
+        assert!(super::dispatch_queue_health(state, None).is_err());
+        fs::remove_file(state.join(".dispatch-queue-health.json")).unwrap();
+        std::os::unix::fs::symlink(
+            state.join(".wake-queue"),
+            state.join(".dispatch-queue-health.json"),
+        )
+        .unwrap();
+        assert!(super::dispatch_queue_health(state, None).is_err());
+    }
 
     #[test]
     fn merged_poll_records_exact_current_revision_before_retirement() {

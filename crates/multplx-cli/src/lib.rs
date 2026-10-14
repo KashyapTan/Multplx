@@ -2504,6 +2504,15 @@ fn admission_record(
         ),
     ]);
     resources.extend(additional_resources.clone());
+    let explicit_codex_home = std::env::var_os("CODEX_HOME");
+    codex_launch_environment(&request.harness, explicit_codex_home.as_deref())?;
+    let codex_home = if request.harness == "codex" {
+        explicit_codex_home
+            .filter(|home| !home.is_empty())
+            .map(|home| home.into_string().expect("validated provider home"))
+    } else {
+        None
+    };
     let record = QueueRecord {
         request_id,
         task_id: request.id.clone(),
@@ -2515,6 +2524,7 @@ fn admission_record(
         parent_state: admission.parent_state,
         project: request.project.to_string_lossy().into_owned(),
         harness: request.harness.clone(),
+        codex_home,
         model: request.model.clone(),
         effort: request.effort.clone(),
         backend: request.backend.clone(),
@@ -2660,6 +2670,7 @@ fn queue_spawn(
         &context,
         &settings.actor(multplx_backend::harness::detect()),
     )?;
+    codex_launch_environment(&request.harness, std::env::var_os("CODEX_HOME").as_deref())?;
     let explicit_request_id = admission_request_id
         .map(str::to_owned)
         .or_else(|| std::env::var("MX_ADMISSION_REQUEST_ID").ok());
@@ -3129,6 +3140,26 @@ fn launch_environment_block(
     Ok(environment.join(" "))
 }
 
+// Terminal backends start a separate shell; their server environment is not
+// the initiating provider context. Carry only the explicit Codex home, so its
+// config, auth and native hook consent remain under the same provider owner.
+fn codex_launch_environment(harness: &str, home: Option<&OsStr>) -> Result<String, String> {
+    if harness != "codex" {
+        return Ok(String::new());
+    }
+    let Some(home) = home.filter(|value| !value.is_empty()) else {
+        return Ok(String::new());
+    };
+    let home = Path::new(home);
+    if !home.is_absolute() {
+        return Err("explicit CODEX_HOME must be absolute for a managed Codex launch".into());
+    }
+    let home = home
+        .to_str()
+        .ok_or("launch CODEX_HOME is not valid UTF-8")?;
+    Ok(launch_environment("CODEX_HOME", home))
+}
+
 fn private_home_environment(home: &Path, runtime_root: &Path) -> Result<String, String> {
     let mut environment = Vec::with_capacity(5);
     for (name, path) in [
@@ -3548,6 +3579,15 @@ fn run_spawn(args: &[OsString]) -> i32 {
         }
     };
     let mut request = request;
+    let provider_environment =
+        match codex_launch_environment(&request.harness, std::env::var_os("CODEX_HOME").as_deref())
+        {
+            Ok(environment) => environment,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        };
     if let (Some(spec), Some(prepared)) = (coordinator_spec.as_ref(), prepared_coordinator.as_ref())
     {
         request.persistent = spec.persistent;
@@ -5424,7 +5464,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         };
         let launch = match request.harness.as_str() {
             "codex" => format!(
-                "{common_environment} MX_CODEX_IDLE_CLI=1 MX_CODEX_SHARED_WORKER_HOOKS=1 {harness_word} {codex_mcp}{codex_native_hooks}{model}{codex_effort}--dangerously-bypass-approvals-and-sandbox {brief_command}"
+                "-u CODEX_HOME {common_environment} {provider_environment} MX_CODEX_IDLE_CLI=1 MX_CODEX_SHARED_WORKER_HOOKS=1 {harness_word} {codex_mcp}{codex_native_hooks}{model}{codex_effort}--dangerously-bypass-approvals-and-sandbox {brief_command}"
             ),
             "claude" => format!(
                 "{common_environment} CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false {harness_word} --dangerously-skip-permissions --mcp-config {} --settings {} {model}{effort}{brief_command}",
@@ -9282,6 +9322,34 @@ mod tests {
         assert!(!launch_process_started(dir.path(), "shell-only", "codex"));
         child.kill().unwrap();
         child.wait().unwrap();
+    }
+
+    #[test]
+    fn codex_provider_home_is_explicit_scoped_and_shell_quoted() {
+        use std::os::unix::ffi::OsStrExt;
+        assert_eq!(codex_launch_environment("codex", None).unwrap(), "");
+        assert_eq!(
+            codex_launch_environment("codex", Some(OsStr::new(""))).unwrap(),
+            ""
+        );
+        assert_eq!(
+            codex_launch_environment("claude", Some(OsStr::new("relative"))).unwrap(),
+            ""
+        );
+        assert_eq!(
+            codex_launch_environment("codex", Some(OsStr::new("/tmp/Codex's home"))).unwrap(),
+            "CODEX_HOME='/tmp/Codex'\\''s home'"
+        );
+        assert!(
+            codex_launch_environment("codex", Some(OsStr::new("relative")))
+                .unwrap_err()
+                .contains("must be absolute")
+        );
+        assert!(
+            codex_launch_environment("codex", Some(OsStr::from_bytes(&[b'/', 0xff])))
+                .unwrap_err()
+                .contains("not valid UTF-8")
+        );
     }
 
     #[test]

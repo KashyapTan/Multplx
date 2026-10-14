@@ -248,12 +248,19 @@ fn run_bridge(root: &Path, home: &Path, source_root: &Path, state: &Path) -> Res
         while !shutdown.load(std::sync::atomic::Ordering::SeqCst)
             && owner_matches(state, &target, &probe)
             && !state.join(".afk").exists()
-            && autoarm_needed(state)
         {
             if state.join(FAILURE).exists() || state.join(UNCERTAIN).exists() {
                 return Err(REPAIR.into());
             }
             notify(state, &target)?;
+            // Task completion is committed before its report wake is appended.
+            // Keep the exact-session bridge through that no-work window; another
+            // Stop callback cannot occur until the later wake reaches the model.
+            // An idle home needs no watcher child or model input.
+            if !autoarm_needed(state) {
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
             let child = Command::new(source_root.join("bin/mx-watch.sh"))
                 .env("MX_ROOT_OVERRIDE", root)
                 .env("MX_HOME", home)
@@ -269,9 +276,11 @@ fn run_bridge(root: &Path, home: &Path, source_root: &Path, state: &Path) -> Res
                 if shutdown.load(std::sync::atomic::Ordering::SeqCst)
                     || !owner_matches(state, &target, &probe)
                     || state.join(".afk").exists()
-                    || !autoarm_needed(state)
                 {
                     return Ok(());
+                }
+                if !autoarm_needed(state) {
+                    break;
                 }
                 match child.0.try_wait().map_err(|error| error.to_string())? {
                     Some(status) if status.success() => break,
@@ -833,14 +842,16 @@ mod tests {
     }
 
     #[test]
-    fn bridge_releases_owned_lock_on_bad_binding_or_idle_home() {
+    fn bridge_releases_owned_lock_on_bad_binding_or_away_home() {
         let temp = tempfile::tempdir().unwrap();
         let state = temp.path();
         assert!(run_bridge(state, state, state, state).is_err());
         let original = target(state);
         write_json(&state.join(TARGET), &original).unwrap();
         fs::write(state.join(".lock"), original.owner.pid.to_string()).unwrap();
+        fs::write(state.join(".afk"), "away").unwrap();
         run_bridge(state, state, state, state).unwrap();
+        fs::remove_file(state.join(".afk")).unwrap();
         assert!(state.join(".codex-idle-process.json").exists());
         assert!(!state.join(".codex-idle.lock").exists());
         fs::write(

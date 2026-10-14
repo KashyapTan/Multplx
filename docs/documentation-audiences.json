@@ -369,6 +369,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/codex-completion-wake.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/supervision.md",
       "audience": "maintainer-verification"
     },

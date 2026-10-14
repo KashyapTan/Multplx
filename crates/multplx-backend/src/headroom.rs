@@ -84,7 +84,8 @@ impl HeadroomPaths {
     }
 
     fn queue_dir(&self) -> PathBuf {
-        self.state.join(".dispatch-queue")
+        self.state
+            .join(multplx_core::supervision::DISPATCH_QUEUE_DIRECTORY)
     }
     fn queue_lock(&self) -> PathBuf {
         self.state.join(".dispatch-queue.lock")
@@ -716,6 +717,8 @@ pub struct QueueRecord {
     pub parent_state: PathBuf,
     pub project: String,
     pub harness: String,
+    /// Explicit provider home frozen at submission, never the draining shell's home.
+    pub codex_home: Option<String>,
     pub model: String,
     pub effort: String,
     pub backend: String,
@@ -747,6 +750,7 @@ impl QueueRecord {
             parent_state: PathBuf::new(),
             project,
             harness: String::new(),
+            codex_home: None,
             model: String::new(),
             effort: String::new(),
             backend: String::new(),
@@ -812,6 +816,12 @@ impl QueueRecord {
             self.dispatch_started_at
                 .map_or_else(String::new, |value| value.to_string()),
         );
+        if let Some(home) = &self.codex_home {
+            text.push_str(&format!(
+                "codex_home={}\n",
+                serde_json::to_string(home).expect("provider home")
+            ));
+        }
         if let Some(model) = &self.canonical_model {
             text.push_str(&format!("canonical_model={model}\n"));
         }
@@ -884,6 +894,18 @@ impl QueueRecord {
             .copied()
             .unwrap_or_default()
             .to_owned();
+        let codex_home = fields
+            .get("codex_home")
+            .map(|value| serde_json::from_str::<String>(value))
+            .transpose()
+            .map_err(|_| message("queue Codex home is unreadable"))?;
+        if let Some(home) = &codex_home
+            && (harness != "codex" || !Path::new(home).is_absolute())
+        {
+            return Err(message(
+                "queue Codex home requires a Codex profile and absolute path",
+            ));
+        }
         let model = fields.get("model").copied().unwrap_or_default().to_owned();
         let effort = fields.get("effort").copied().unwrap_or_default().to_owned();
         let backend = fields
@@ -992,6 +1014,7 @@ impl QueueRecord {
             parent_state: path_field("parent_state")?,
             project,
             harness,
+            codex_home,
             model,
             effort,
             backend,
@@ -1151,6 +1174,14 @@ fn valid_resource(value: &str) -> bool {
 }
 
 fn validate_record(paths: &HeadroomPaths, record: &QueueRecord) -> Result<()> {
+    if let Some(home) = &record.codex_home
+        && (record.harness != "codex" || !Path::new(home).is_absolute())
+    {
+        return Err(message(
+            "queue Codex home requires a Codex profile and absolute path",
+        ));
+    }
+
     if !valid_id(&record.request_id) || !valid_id(&record.task_id) {
         return Err(message("invalid queue request or task id"));
     }
@@ -2360,6 +2391,14 @@ fn bind_queued_launch_environment(command: &mut Command, record: &QueueRecord) -
         .env("MX_DATA_OVERRIDE", record.owner_home.join("data"))
         .env("MX_PROJECTS_OVERRIDE", record.owner_home.join("projects"))
         .env("MX_CONFIG_OVERRIDE", record.owner_home.join("config"));
+    // The durable record, not this observer's environment, owns provider context.
+    if record.harness == "codex" {
+        if let Some(home) = &record.codex_home {
+            command.env("CODEX_HOME", home);
+        } else {
+            command.env_remove("CODEX_HOME");
+        }
+    }
     let parent = queued_parent_identity(record)?;
     if let Some(parent) = parent {
         let attempt = &parent["attempt"];
@@ -2423,8 +2462,13 @@ fn queue_drain_with_headroom(
     observe_headroom: &dyn Fn(&HeadroomPaths) -> Result<Headroom>,
 ) -> Result<String> {
     admission_reconcile_inactive_with_probe(paths, endpoint_exists)?;
-    if !paths.queue_dir().is_dir() {
-        return Ok(String::new());
+    match fs::symlink_metadata(paths.queue_dir()) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(String::new()),
+        Err(error) => return Err(error.into()),
+        Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => {
+            return Err(message("dispatch queue is not a real directory; retained"));
+        }
+        Ok(_) => {}
     }
     recover_unstarted_dispatches(paths)?;
     let headroom = observe_headroom(paths)?;
@@ -2692,6 +2736,7 @@ mod tests {
             parent_state: paths.state.clone(),
             project: "/tmp/project".into(),
             harness: "codex".into(),
+            codex_home: None,
             model: "default".into(),
             effort: "default".into(),
             backend: "tmux".into(),
@@ -2737,6 +2782,40 @@ mod tests {
             },
             candidates: std::collections::BTreeMap::new(),
             observed_active_receipts: BTreeSet::new(),
+        }
+    }
+
+    #[test]
+    fn queued_codex_home_survives_replay_without_adopting_observer_context() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = paths(&temp);
+        for home in [Some("/tmp/Codex's isolated home"), None] {
+            let mut record = admission_record(&paths, "context", "worker");
+            record.codex_home = home.map(str::to_owned);
+            let path = temp.path().join("context.request");
+            multplx_core::filesystem::atomic_replace(&path, &record.render(), 0o600).unwrap();
+            let replay = QueueRecord::parse(&path, "context").unwrap();
+            assert_eq!(replay.codex_home.as_deref(), home);
+            let mut command = std::process::Command::new("/bin/sh");
+            command
+                .args(["-c", "printf '%s' \"${CODEX_HOME:-unset}\""])
+                .env("CODEX_HOME", "/tmp/wrong-observer-home");
+            super::bind_queued_launch_environment(&mut command, &replay).unwrap();
+            let result = command.output().unwrap();
+            assert!(result.status.success());
+            assert_eq!(
+                String::from_utf8(result.stdout).unwrap(),
+                home.unwrap_or("unset")
+            );
+        }
+        for (harness, home) in [("codex", "relative"), ("claude", "/tmp/codex")] {
+            let mut record = admission_record(&paths, "invalid", "worker");
+            record.harness = harness.into();
+            record.codex_home = Some(home.into());
+            assert!(validate_record(&paths, &record).is_err());
+            let path = temp.path().join("invalid.request");
+            multplx_core::filesystem::atomic_replace(&path, &record.render(), 0o600).unwrap();
+            assert!(QueueRecord::parse(&path, "invalid").is_err());
         }
     }
 
@@ -4171,6 +4250,35 @@ mod tests {
         assert_eq!(final_receipt.state, AdmissionState::Active);
         assert_eq!(final_receipt.attempt_id, "attempt-1");
         assert_eq!(queue_list(&paths).expect("queue"), "");
+    }
+
+    #[test]
+    fn queue_drain_rejects_non_directory_and_symlink_without_following() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = paths(&temp);
+        let queue = paths.queue_dir();
+        std::fs::write(&queue, "invalid queue directory").unwrap();
+        assert!(
+            queue_drain_with(&paths, None, &|_, _| Some(false))
+                .unwrap_err()
+                .to_string()
+                .contains("not a real directory")
+        );
+        assert_eq!(
+            std::fs::read_to_string(&queue).unwrap(),
+            "invalid queue directory"
+        );
+        std::fs::remove_file(&queue).unwrap();
+        let foreign = temp.path().join("foreign");
+        std::fs::create_dir(&foreign).unwrap();
+        symlink(&foreign, &queue).unwrap();
+        assert!(
+            queue_drain_with(&paths, None, &|_, _| Some(false))
+                .unwrap_err()
+                .to_string()
+                .contains("not a real directory")
+        );
+        assert!(std::fs::read_dir(foreign).unwrap().next().is_none());
     }
 
     #[test]

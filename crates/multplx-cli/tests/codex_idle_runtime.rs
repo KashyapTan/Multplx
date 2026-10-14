@@ -45,7 +45,7 @@ for name in ['state', 'bin', 'home']: (root/name).mkdir()
 (root/'.mx-daemon-home').write_text('codex-idle-fixture\n')
 state = root/'state'; (state/'.lock').write_text(str(os.getpid()))
 watch = root/'bin/mx-watch.sh'
-watch.write_text('#!/bin/sh\nwhile [ ! -f "$MX_STATE_OVERRIDE/trigger" ]; do sleep .05; done\nrm -f "$MX_STATE_OVERRIDE/trigger"\n'); watch.chmod(0o755)
+watch.write_text('#!/bin/sh\ntouch "$MX_STATE_OVERRIDE/watch-live"\ntrap \'rm -f "$MX_STATE_OVERRIDE/watch-live"; exit 0\' TERM INT\nwhile [ ! -f "$MX_STATE_OVERRIDE/trigger" ]; do sleep .05; done\nrm -f "$MX_STATE_OVERRIDE/trigger" "$MX_STATE_OVERRIDE/watch-live"\n'); watch.chmod(0o755)
 codex = root/'bin/codex'
 def transport(mode='good'):
     text = '#!/bin/sh\n'
@@ -75,6 +75,11 @@ def sends():
 def append(n):
     with (state/'.wake-queue').open('a') as f: f.write(f'1\t{n}\tsignal\tchild-{n}\tdone\n')
 atexit.register(lambda: call(['--end'], extra={'CODEX_THREAD_ID':thread}))
+meta = {'schema_version':2,'task_id':'standing','role':'researcher','artifact':'report','persistent':True,'private_home':True,'legacy_unknown':False,'accepted_brief_revision':1,'attempt':{'id':'attempt-1','generation':1,'brief_revision':1},'schedule':{'state':'running'}}
+def task_state(value):
+    meta['schedule']['state']=value
+    (state/'standing.meta').write_text('schema_version=2\nkind=daemon\ncanonical_model='+json.dumps(meta)+'\n')
+task_state('running')
 append(1)
 status=json.loads(call(['--status'],extra={'CODEX_THREAD_ID':thread}))
 assert status['mode']=='degraded-checkpoint' and not status['native_hook_ready']
@@ -101,6 +106,19 @@ first=json.loads((state/'.codex-idle-process.json').read_text())
 assert call().strip() == '{}'
 assert json.loads((state/'.codex-idle-process.json').read_text())==first
 assert len(sends())==1
+# Completion is committed before its wake is published. Acknowledging the
+# previous progress wake can leave a real no-work window between these writes.
+# The exact-session bridge must park through it without another Stop callback.
+wait(lambda:(state/'watch-live').exists())
+(state/'.wake-queue').write_text('')
+wait(lambda:json.loads((state/'.codex-idle-receipts.json').read_text())==[])
+task_state('completed')
+wait(lambda:not (state/'watch-live').exists())
+assert json.loads(call(['--status'],extra={'CODEX_THREAD_ID':thread}))['mode']=='idle-no-work'
+time.sleep(.25)
+assert (state/'.codex-idle.lock').exists(), 'completion publication gap retired bridge'
+assert json.loads((state/'.codex-idle-process.json').read_text())==first
+assert len(sends())==1, 'no-work interval must not wake the model'
 assert str(root/'home') in sends()[0] and '--thread '+thread in sends()[0]
 assert 'MULTPLX_OP:' in sends()[0] and (state/'.wake-queue').exists()
 assert 'already bound' in call(payload={'session_id':'123e4567-e89b-12d3-a456-426614174001'})
@@ -111,6 +129,15 @@ append(2)
 wait(lambda:len(sends())==2)
 assert json.loads((state/'.codex-idle-process.json').read_text())==first
 assert call().strip() == '{}'
+time.sleep(.15); assert len(sends())==2
+# Away mode retires the owned bridge; resuming the same session must not replay
+# the already transported completion wake or launch another model turn.
+(state/'.afk').write_text('away')
+wait(lambda:not (state/'.codex-idle.lock').exists())
+assert len(sends())==2
+(state/'.afk').unlink()
+assert call().strip()=='{}'
+wait(lambda:(state/'.codex-idle.lock').exists())
 time.sleep(.15); assert len(sends())==2
 assert 'already bound' in call(['--end'],extra={'CODEX_THREAD_ID':'123e4567-e89b-12d3-a456-426614174001'})
 assert call(['--end'],extra={'CODEX_THREAD_ID':thread}).strip() == '{}'
@@ -183,6 +210,80 @@ print('two wake cycles, duplicate Stop, exact thread/home, unsupported/failure r
         std::thread::sleep(Duration::from_millis(30));
     }
     let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn codex_idle_starts_for_owned_queued_work_before_any_task_metadata() {
+    let _fixture = EXECUTABLE_FIXTURE.lock().unwrap();
+    use multplx_backend::headroom::{HeadroomPaths, QueueRecord, queue_add};
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    fs::create_dir(root.join("state")).unwrap();
+    let paths = HeadroomPaths::for_root(root);
+    let mut record = QueueRecord::legacy(
+        "queued-worker".into(),
+        root.to_string_lossy().into_owned(),
+        1,
+    );
+    record.parent_task_id = format!("root-home:{}", paths.root_home.display());
+    record.canonical_model = Some(r#"{"attempt":{"id":"queued-attempt"}}"#.into());
+    assert!(queue_add(&paths, &record).unwrap().contains("queued"));
+    assert!(!root.join("state/queued-worker.meta").exists());
+    let script = root.join("codex.py");
+    fs::write(&script, r#"
+import atexit,json,os,pathlib,subprocess,sys,time
+root=pathlib.Path(sys.argv[2]);mx=sys.argv[1];state=root/'state'
+for name in ['bin','home']: (root/name).mkdir()
+(root/'AGENTS.md').write_text('# isolated queue fixture\n')
+(root/'.mx-daemon-home').write_text('codex-queue-fixture\n')
+(state/'.lock').write_text(str(os.getpid()))
+codex=root/'bin/codex'
+codex.write_text('#!/bin/sh\nif [ "$2" = --help ]; then echo "--thread --message"; exit 0; fi\nprintf "%s\\n" "$*" >> "$MX_STATE_OVERRIDE/sends"\n');codex.chmod(0o700)
+spawn=root/'bin/fake-spawn'
+spawn.write_text('#!/bin/sh\nprintf "launched\\n" >> "$MX_STATE_OVERRIDE/launches"\nprintf "1\\t1\\tsignal\\tqueued-worker\\tstarted\\n" > "$MX_STATE_OVERRIDE/.wake-queue"\n');spawn.chmod(0o700)
+watch=root/'bin/mx-watch.sh'
+watch.write_text('#!/bin/sh\ntouch "$MX_STATE_OVERRIDE/watcher-started"\nwhile [ ! -f "$MX_STATE_OVERRIDE/capacity-available" ]; do sleep .05; done\n"$MX_RUST_BIN" headroom --queue-drain > "$MX_STATE_OVERRIDE/drain-output" 2>&1\nwhile :; do sleep .05; done\n');watch.chmod(0o700)
+env=dict(os.environ,MX_ROOT_OVERRIDE=str(root),MX_HOME=str(root),MX_ROOT_HOME=str(root),MX_STATE_OVERRIDE=str(state),MX_CONFIG_OVERRIDE=str(root/'config'),MX_RUST_SOURCE_ROOT=str(root),MX_RUST_BIN=mx,MX_CODEX_IDLE_CLI='1',CODEX_HOME=str(root/'home'),MX_REAL_CODEX=str(codex),MX_HEADROOM_SPAWN_BIN=str(spawn),MX_HEADROOM_IGNORE_DISPATCH_CONFIG='1',MX_HEADROOM_CPU_COUNT='8',MX_HEADROOM_LOAD1='0',MX_HEADROOM_MEM_AVAILABLE_BYTES='17179869184',MX_HEADROOM_IN_USE='0',MX_HEADROOM_API_CAPACITY='8')
+for name in ['MX_TASK_ID','MX_CURRENT_ADMISSION_ID','MX_REPORT_STATE_OVERRIDE','MX_ADMISSION_REQUEST_ID']:env.pop(name,None)
+thread='123e4567-e89b-12d3-a456-426614174000'
+def call(args=[]):
+ return subprocess.run([mx,'supervision','mx-codex-idle.sh']+args,input=json.dumps({'session_id':thread}) if args!=['--end'] else '',capture_output=True,text=True,env=dict(env,CODEX_THREAD_ID=thread),timeout=8)
+def wait(test):
+ until=time.monotonic()+6
+ while time.monotonic()<until:
+  if test():return
+  time.sleep(.03)
+ raise AssertionError('condition timed out; drain='+((state/'drain-output').read_text() if (state/'drain-output').exists() else 'absent')+'; failure='+((state/'.codex-idle-failure').read_text() if (state/'.codex-idle-failure').exists() else 'absent'))
+atexit.register(lambda:call(['--end']))
+assert call(['--register']).stdout.strip()=='{}'
+assert not list(state.glob('*.meta'))
+assert call().stdout.strip()=='{}'
+wait(lambda:(state/'watcher-started').exists())
+assert not (state/'launches').exists()
+# Only the background watcher invokes the admission owner when capacity changes.
+(state/'capacity-available').touch()
+wait(lambda:(state/'launches').exists() and (state/'sends').exists() and not list((state/'.dispatch-queue').glob('*.request')))
+assert (state/'launches').read_text().splitlines()==['launched']
+assert not list((state/'.dispatch-queue').glob('*.request'))
+assert not list(state.glob('*.meta')), 'fixture never fabricates task acceptance metadata'
+time.sleep(.15)
+assert len((state/'sends').read_text().splitlines())==1
+assert call().stdout.strip()=='{}'
+assert (state/'launches').read_text().splitlines()==['launched']
+print('queued owner startup before metadata, background admission, one wake passed')
+"#).unwrap();
+    let output = Command::new("python3")
+        .arg(script)
+        .arg(env!("CARGO_BIN_EXE_mx"))
+        .arg(root)
+        .output()
+        .unwrap();
     assert!(
         output.status.success(),
         "stdout: {}\nstderr: {}",

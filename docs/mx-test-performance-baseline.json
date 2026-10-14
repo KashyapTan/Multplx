@@ -2558,7 +2558,7 @@
       ]
     }
   ],
-  "scheduler_estimate_method": "Unchanged scripts use measured Plan-06 durations. Split monolith durations are apportioned by preserved top-level case count. The new split-parity guard starts at 1000 ms until an accepted Plan-6.5 run replaces the estimate.",
+  "scheduler_estimate_method": "Unchanged scripts use measured Plan-06 durations. Split monolith durations are apportioned by preserved top-level case count. The new split-parity guard starts at 1000 ms until an accepted Plan-6.5 run replaces the estimate. On 2026-10-13, release-package and the two deep-review script estimates were calibrated from the passing script timings in macOS CI run 38416704499 at bddee2630f68d54a57632218e3b165d6131f5851; this changes scheduling weights only, not the archived measurements.",
   "scheduler_estimates_ms": {
     "tests/mx-actor-state.test.sh": 32847,
     "tests/mx-afk-inject-e2e.test.sh": 34513,
@@ -2600,8 +2600,8 @@
     "tests/mx-daemon.test.sh": 33914,
     "tests/mx-decision-hold-lifecycle.test.sh": 95,
     "tests/mx-deep-review-config-contract.test.sh": 29,
-    "tests/mx-deep-review-lib.test.sh": 626,
-    "tests/mx-deep-review.test.sh": 7441,
+    "tests/mx-deep-review-lib.test.sh": 89741,
+    "tests/mx-deep-review.test.sh": 77605,
     "tests/mx-documentation-audiences.test.sh": 1368,
     "tests/mx-ensure-agents-md.test.sh": 1074,
     "tests/mx-gate-refuse.test.sh": 7974,
@@ -2639,6 +2639,7 @@
     "tests/mx-session-start-process-liveness.test.sh": 68445,
     "tests/mx-sessionstart-nudge.test.sh": 1134,
     "tests/mx-shared-maintainer-inheritance.test.sh": 10986,
+    "tests/mx-release-package.test.sh": 161936,
     "tests/mx-signal-precedence.test.sh": 91,
     "tests/mx-spawn-batch.test.sh": 2851,
     "tests/mx-spawn-dispatch-profile.test.sh": 31702,
