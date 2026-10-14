@@ -168,3 +168,12 @@ Passing script timings in [CI run 38416704499](https://github.com/KashyapTan/Mul
 Those three scheduler weights are calibrated to the measured costs so the existing resource-aware scheduler can start slow work earlier.
 Sequential same-host 54-script family runs measured 209,384 ms before calibration and 183,569 ms afterward, with exact parity across 497 assertions and the same one existing gate skip.
 Archived serial measurements, test selection, assertions, resource conflicts, timeouts, gate skips and coverage thresholds remain unchanged; this calibration does not establish a new three-run performance baseline.
+
+The macOS build/test/package producer and production command-boundary family now have separate unchanged 15-minute CI budgets.
+The producer uploads the verified package with its checkout revision, runner OS/architecture, selected Rust toolchain and compiled binary digest.
+The consumer uses only that exact workflow-run artifact, checks its revision and platform against the current checkout event, and validates every package byte through the canonical installer before copying the binary into the source checkout.
+It runs the same 54-script `pure-contract-unit` family with the same resource scheduler and assertions, without rebuilding the release binary.
+The consumer selects the same stable Rust toolchain and includes the original deep-review library fixture's cold debug-test compilation within its own unchanged budget.
+The existing required check name `Rust (macos-latest)` belongs to this final consumer gate and explicitly fails if its upstream producers fail, so a skipped dependency cannot weaken that check.
+Linux retains its original command-boundary step; package contents, test selection, timeouts and coverage thresholds remain unchanged.
+This job decomposition does not establish a new three-main-branch-run performance baseline.
