@@ -330,7 +330,7 @@ fn run_inner(args: &[OsString]) -> Result<(), String> {
     let mut root = None;
     let mut home = None;
     let mut task_id = None;
-    for pair in args[2..].chunks_exact(2) {
+    for pair in args[2..].as_chunks::<2>().0 {
         match pair[0].to_str() {
             Some("--root") if root.is_none() => root = Some(PathBuf::from(&pair[1])),
             Some("--home") if home.is_none() => home = Some(PathBuf::from(&pair[1])),
