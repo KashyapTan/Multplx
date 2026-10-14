@@ -1210,6 +1210,231 @@ mod tests {
     }
 
     #[test]
+    fn pending_reply_settlement_requires_valid_closed_identity() {
+        use multplx_domain::lifecycle::pending_reply;
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        let correlation = pending_reply::create(&fixture.home, &state, "done", "request").unwrap();
+        let path = pending_reply::path(&state, &correlation);
+        let original = fs::read_to_string(&path).unwrap();
+        let resolved = original
+            .replace("phase=awaiting_report", "phase=resolved")
+            .replace("resolved_epoch=", "resolved_epoch=100");
+        fs::write(&path, &resolved).unwrap();
+        assert!(pending_reply::maintenance_retirement_clear(&state, Some("done")).is_ok());
+        assert_eq!(
+            inspect(&fixture.root, &fixture.home).unwrap().tasks.len(),
+            1
+        );
+        for corrupt in [
+            resolved.replace(&format!("request_id={correlation}"), "request_id=other"),
+            resolved.replace("created_epoch=", "created_epoch=invalid"),
+            resolved.replace("message_id=", "message_id=../foreign"),
+            resolved.replace("attempt_id=", "attempt_id=unknown"),
+            resolved.replace("resolved_epoch=100", "resolved_epoch=0"),
+        ] {
+            fs::write(&path, &corrupt).unwrap();
+            assert!(pending_reply::maintenance_retirement_clear(&state, Some("done")).is_err());
+            assert!(
+                inspect(&fixture.root, &fixture.home)
+                    .unwrap()
+                    .tasks
+                    .is_empty()
+            );
+            assert!(fixture.private.exists());
+        }
+        // A known pending obligation for another task does not block unrelated
+        // completed work, while a private home retains every pending request.
+        fs::write(&path, original.replace("task_id=done", "task_id=other")).unwrap();
+        assert!(pending_reply::maintenance_retirement_clear(&state, Some("done")).is_ok());
+        assert!(pending_reply::maintenance_retirement_clear(&state, None).is_err());
+        assert_eq!(
+            inspect(&fixture.root, &fixture.home).unwrap().tasks.len(),
+            1
+        );
+    }
+
+    #[test]
+    fn metadata_absent_recovery_respects_live_task_owner_and_retries() {
+        let fixture = Fixture::new();
+        let token = fixture.record().home_allocation.unwrap();
+        multplx_domain::lifecycle::home_seed::retire_home(&fixture.home.join("data"), &token)
+            .unwrap();
+        let allocation = multplx_domain::lifecycle::home_seed::read_home_allocation(
+            &fixture.home.join("data"),
+            "done",
+        )
+        .unwrap()
+        .unwrap();
+        let archive = allocation.retained_path.unwrap();
+        prepare_retirement(&fixture, "home-removed");
+        let state = fixture.state();
+        fs::remove_file(state.join("done.meta")).unwrap();
+        let plan = inspect(&fixture.root, &fixture.home).unwrap();
+        assert_eq!(plan.tasks.len(), 1);
+        let journal = fs::read(state.join(".teardown.transaction.done")).unwrap();
+        let lock = DirectoryLock::try_acquire(
+            state.join(".done.identity.lock"),
+            &SystemProcessProbe::default(),
+        )
+        .unwrap();
+        assert!(apply(&fixture.root, &fixture.home, &plan).is_err());
+        assert_eq!(
+            fs::read(state.join(".teardown.transaction.done")).unwrap(),
+            journal
+        );
+        assert!(archive.exists());
+        assert!(!state.join(".upgrade-cleanup").exists());
+        drop(lock);
+        apply(&fixture.root, &fixture.home, &plan).unwrap();
+        assert!(evidence::read_retirement(&state, "done").unwrap().committed);
+        assert!(!fixture.private.exists());
+        assert!(!state.join(".done.identity.lock").exists());
+    }
+
+    #[test]
+    fn accepted_report_without_frozen_packet_repairs_only_current_local_truth() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        fs::create_dir(state.join("evidence")).unwrap();
+        let event = fixture.envelope("report-legacy", "done");
+        let valid_path = state.join("evidence/done-report-legacy.json");
+        let valid =
+            serde_json::to_vec(&serde_json::json!({"accepted":true,"envelope":event})).unwrap();
+        fs::write(&valid_path, &valid).unwrap();
+        for (name, value) in [
+            (
+                "rejected",
+                serde_json::json!({"accepted":false,"envelope":event}),
+            ),
+            ("missing", serde_json::json!({"accepted":true})),
+            (
+                "decision",
+                serde_json::json!({"accepted":true,"envelope":fixture.envelope("decision", "needs-decision")}),
+            ),
+            ("progress", {
+                let mut event = fixture.envelope("progress", "working");
+                event.automatic_wake = Some(false);
+                serde_json::json!({"accepted":true,"envelope":event})
+            }),
+            ("revision", {
+                let mut event = fixture.envelope("revision", "done");
+                event.brief_revision = Some(99);
+                serde_json::json!({"accepted":true,"envelope":event})
+            }),
+            ("unknown", {
+                let mut event = fixture.envelope("unknown", "done");
+                event.task_id = "unknown".into();
+                serde_json::json!({"accepted":true,"envelope":event})
+            }),
+        ] {
+            fs::write(
+                state.join(format!("evidence/{name}.json")),
+                serde_json::to_vec(&value).unwrap(),
+            )
+            .unwrap();
+        }
+        fs::write(state.join("evidence/README"), "retained evidence").unwrap();
+        assert_eq!(
+            multplx_domain::supervision::completed_report_repairs(&state).unwrap(),
+            vec![valid_path.clone()]
+        );
+        let guard = MaintenanceGuard::acquire(&state, &SystemProcessProbe::default()).unwrap();
+        assert_eq!(
+            multplx_domain::supervision::repair_completed_report_wakes(&state, &guard).unwrap(),
+            1
+        );
+        assert_eq!(parent_channel::pending_outcomes(&state).unwrap(), 1);
+        assert_eq!(
+            WakeQueue::new(&state).observe_unfinished_count().unwrap(),
+            1
+        );
+        assert_eq!(fs::read(valid_path).unwrap(), valid);
+        assert!(
+            multplx_domain::supervision::completed_report_repairs(&state)
+                .unwrap()
+                .is_empty()
+        );
+        parent_channel::settle_local_outcomes(&state, &guard).unwrap();
+        WakeQueue::new(&state)
+            .settle_maintenance(
+                &guard,
+                &SystemProcessProbe::default(),
+                SystemTime::now(),
+                |record| settled_wake(&state, record),
+            )
+            .unwrap();
+        assert_eq!(parent_channel::pending_outcomes(&state).unwrap(), 0);
+        assert_eq!(
+            WakeQueue::new(&state).observe_unfinished_count().unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn retired_wake_requires_untampered_completion_and_archived_home_identity() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        let plan = inspect(&fixture.root, &fixture.home).unwrap();
+        apply(&fixture.root, &fixture.home, &plan).unwrap();
+        let path = evidence::receipt_path(&state, "done").unwrap();
+        let original = fs::read(&path).unwrap();
+        let allocation = multplx_domain::lifecycle::home_seed::read_home_allocation(
+            &fixture.home.join("data"),
+            "done",
+        )
+        .unwrap()
+        .unwrap();
+        let archive = allocation.retained_path.unwrap();
+        let retained = fs::read(archive.join("unfinished.txt")).unwrap();
+        fixture.wake("done.status", "done: historical observation");
+        let wake = WakeQueue::new(&state)
+            .observe_once(multplx_core::wake::WakeKind::Signal, "done.status")
+            .unwrap()
+            .unwrap();
+        assert!(settled_wake(&state, &wake));
+        for corruption in ["schema", "task", "completion", "lease", "prepared"] {
+            let mut receipt: evidence::Retirement = serde_json::from_slice(&original).unwrap();
+            match corruption {
+                "schema" => receipt.schema = "unknown".into(),
+                "task" => receipt.task = "other".into(),
+                "prepared" => receipt.committed = false,
+                _ => {
+                    let raw = std::str::from_utf8(&receipt.original_meta).unwrap();
+                    let mut record = subagent_model::read_meta("done", raw).unwrap();
+                    if corruption == "completion" {
+                        record.schedule.state = WorkState::Running;
+                    } else {
+                        record.home_allocation = None;
+                    }
+                    receipt.original_meta = subagent_model::write_meta(raw, &record)
+                        .unwrap()
+                        .into_bytes();
+                }
+            }
+            fs::write(&path, serde_json::to_vec(&receipt).unwrap()).unwrap();
+            assert!(!settled_wake(&state, &wake), "{corruption}");
+            assert_eq!(
+                WakeQueue::new(&state).observe_unfinished_count().unwrap(),
+                1
+            );
+            assert_eq!(fs::read(archive.join("unfinished.txt")).unwrap(), retained);
+        }
+        fs::write(&path, &original).unwrap();
+        // A different directory at the retained path cannot prove the
+        // original home identity even while its real archive bytes survive.
+        let saved_archive = archive.with_extension("preserved");
+        fs::rename(&archive, &saved_archive).unwrap();
+        fs::create_dir(&archive).unwrap();
+        assert!(evidence::read_retirement(&state, "done").is_err());
+        assert!(!settled_wake(&state, &wake));
+        assert_eq!(
+            fs::read(saved_archive.join("unfinished.txt")).unwrap(),
+            retained
+        );
+    }
+
+    #[test]
     fn native_child_absence_is_not_inferred_from_completed_parent() {
         use subagent_model::{NativeDelegationObservation, NativeObservationState};
         let fixture = Fixture::new();
