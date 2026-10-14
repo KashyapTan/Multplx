@@ -82,6 +82,24 @@ For example, an entirely separate installation is:
   --data-dir "$HOME/.local/multplx-test/data"
 ```
 
+A verified retired private home can retain an unsubmitted replacement reservation from an interrupted retry.
+Upgrades include that exact reservation in the same safe-cleanup preview and quarantine it only after successful installation and consent.
+Declining or failing installation preserves it.
+Unknown ownership, an occupied old home, a changed lease, a partial retirement or a progressed successor launch remains refused.
+
+For an administrative recovery before installing, use a verified runtime that supports the narrow owner:
+
+```sh
+mx upgrade-cleanup retired-intent inspect --root /absolute/runtime --home /absolute/home --task TASK_ID
+mx upgrade-cleanup retired-intent apply --root /absolute/runtime --home /absolute/home --task TASK_ID
+```
+
+Inspect is read-only.
+Apply requires all runtime users to be quiescent and never starts or stops sessions.
+It retains the exact intent bytes, retired-home lease and launch receipts in `state/.retired-spawn-intents/`; repeating it recovers an interrupted quarantine without creating another launch.
+Task records, private archives, project worktrees and completion facts survive.
+This command is for a proven retired task's unsubmitted successor, not a general launch retry or home migration.
+
 Use `./install.sh --help` for supported options.
 Keep the source checkout for future `git pull` and upgrades, or use the download bootstrap below.
 
