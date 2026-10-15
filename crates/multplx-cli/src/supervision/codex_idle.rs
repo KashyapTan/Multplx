@@ -141,6 +141,24 @@ fn pending(state: &Path) -> Result<BTreeSet<String>, String> {
     Ok(keys)
 }
 
+// Disposition updates do not acknowledge an event. Keep the submitted group
+// until the canonical sequence is settled, across its disposition revisions.
+fn receipt_outstanding(receipt: &str, thread: &str, outstanding: &BTreeSet<String>) -> bool {
+    let Some((sequence, revision)) = receipt
+        .strip_prefix(&format!("{thread}:"))
+        .and_then(|key| key.split_once(':'))
+    else {
+        return false;
+    };
+    if sequence.parse::<u64>().is_err() || revision.parse::<usize>().is_err() {
+        return false;
+    }
+    outstanding.iter().any(|key| {
+        key.split_once(':')
+            .is_some_and(|(current, _)| current == sequence)
+    })
+}
+
 fn queue_supported(executable: &Path) -> bool {
     let mut command = Command::new(executable);
     command.args(["queue", "--help"]);
@@ -180,11 +198,7 @@ fn notify_with(
     };
     let outstanding = pending(state)?;
     let before = receipts.clone();
-    receipts.retain(|receipt| {
-        outstanding
-            .iter()
-            .any(|key| receipt == &format!("{}:{key}", target.thread))
-    });
+    receipts.retain(|receipt| receipt_outstanding(receipt, &target.thread, &outstanding));
     if !existed || before != receipts {
         write_json(&receipts_path, &receipts)?;
     }
@@ -406,9 +420,7 @@ pub(crate) fn entry(
                     receipts
                         .into_iter()
                         .filter(|receipt| {
-                            outstanding
-                                .iter()
-                                .any(|key| receipt == &format!("{}:{key}", target.thread))
+                            receipt_outstanding(receipt, &target.thread, &outstanding)
                         })
                         .collect::<BTreeSet<_>>(),
                 )
@@ -811,7 +823,39 @@ mod tests {
             read_json::<BTreeSet<String>>(&state.join(RECEIPTS)).unwrap(),
             BTreeSet::from([format!("{}:2:0", target.thread)])
         );
-        acknowledge(&queue, &target, &items.remove(0));
+        let last_group_item = items.remove(0);
+        queue
+            .record_disposition(
+                &last_group_item.event_id,
+                &target.owner,
+                WakeDisposition {
+                    kind: WakeDispositionKind::Handled,
+                    detail: "handled but not yet acknowledged".into(),
+                    recorded_at: 1,
+                    condition: None,
+                    resume_trigger: None,
+                    recheck_after_epoch: None,
+                    follow_up_id: None,
+                },
+                &probe,
+            )
+            .unwrap();
+        notify_with(state, &recovered, |_, _| {
+            panic!("a disposition revision is not acknowledgement")
+        })
+        .unwrap();
+        assert_eq!(
+            read_json::<BTreeSet<String>>(&state.join(RECEIPTS)).unwrap(),
+            BTreeSet::from([format!("{}:2:0", target.thread)])
+        );
+        queue
+            .acknowledge(
+                &last_group_item.event_id,
+                &target.owner,
+                SystemTime::now(),
+                &probe,
+            )
+            .unwrap();
         notify_with(state, &recovered, |_, input| {
             assert!(input.contains("Wake IDs 3:0 require"));
             queued()
