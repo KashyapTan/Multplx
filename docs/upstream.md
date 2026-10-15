@@ -167,3 +167,10 @@ The requested upstream Firstmate comparison used public commit `6407052f4c521e39
 Its [watcher loop](https://github.com/kunchenguid/firstmate/blob/6407052f4c521e39401ce2305dfa45d201249827/bin/fm-watch.sh#L2681-L2717) remains armed until home teardown or singleton supersession, and [publishes a durable wake before advancing its seen marker](https://github.com/kunchenguid/firstmate/blob/6407052f4c521e39401ce2305dfa45d201249827/bin/fm-watch.sh#L2983-L3005).
 Those continuity and durable-publication principles support retaining the small existing exact-session bridge through the publication gap.
 Its [Codex protocol](https://github.com/kunchenguid/firstmate/blob/6407052f4c521e39401ce2305dfa45d201249827/docs/supervision-protocols/codex.md#L1-L16) uses foreground checkpoints, so it does not supply a proven Codex background queue transport to transplant.
+
+## Codex custom-home readiness comparison
+
+Public Firstmate was compared at commit [`33503ab33737b76d1ec7d891b95d44ce020a1579`](https://github.com/kunchenguid/firstmate/tree/33503ab33737b76d1ec7d891b95d44ce020a1579).
+Its [Codex protocol](https://github.com/kunchenguid/firstmate/blob/33503ab33737b76d1ec7d891b95d44ce020a1579/docs/supervision-protocols/codex.md) uses recurring foreground checkpoints, and its [SessionStart wrapper](https://github.com/kunchenguid/firstmate/blob/33503ab33737b76d1ec7d891b95d44ce020a1579/bin/fm-sessionstart-run.sh) runs or re-emits startup context under its own scope/lock rules.
+Those mechanics do not improve Multplx's required native idle queue delivery or resolve its installer/custom-home binding mismatch.
+No Firstmate code was imported, and Multplx retains agent method freedom, standing assignments, durable wake dispositions, and human-only remote merges.

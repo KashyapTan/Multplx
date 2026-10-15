@@ -346,7 +346,4 @@ The read-only status projection reports primary-scope eligibility and the partic
 The focused Rust regressions cover the package/custom-home authority matrix, launch identity removal, two wake cycles, queued work before task metadata, uncertain transport, explicit retry, and owner-loss cleanup.
 Authenticated Herdr rerun evidence is recorded separately from these deterministic fixtures.
 
-Public Firstmate was compared at commit [`33503ab33737b76d1ec7d891b95d44ce020a1579`](https://github.com/kunchenguid/firstmate/tree/33503ab33737b76d1ec7d891b95d44ce020a1579).
-Its [Codex protocol](https://github.com/kunchenguid/firstmate/blob/33503ab33737b76d1ec7d891b95d44ce020a1579/docs/supervision-protocols/codex.md) uses recurring foreground checkpoints, and its [SessionStart wrapper](https://github.com/kunchenguid/firstmate/blob/33503ab33737b76d1ec7d891b95d44ce020a1579/bin/fm-sessionstart-run.sh) runs or re-emits startup context under its own scope/lock rules.
-Those mechanics do not improve Multplx's required native idle queue delivery or resolve its installer/custom-home binding mismatch.
-No Firstmate code was imported, and Multplx retains agent method freedom, standing assignments, durable wake dispositions, and human-only remote merges.
+The [public upstream comparison](../upstream.md#codex-custom-home-readiness-comparison) records pinned sources and why no implementation was imported.
