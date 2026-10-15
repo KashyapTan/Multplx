@@ -553,31 +553,6 @@ App-server partial methods and raw socket experiments do not satisfy that bridge
 The installer and external worktree dependency described in earlier measurements above are retired.
 The [Phase 03 implementation evidence](../../plans/lean_redesign/phase03-implementation.md) records replacement checks and their current validation status.
 
-## Codex shared hook consent verification - 2026-10-08
-
-Real Codex CLI `0.160.1` was exercised through an isolated temporary `CODEX_HOME`, synthetic API credential and temporary runtime copies; no model request, user session, private operational home or global installation was used.
-The primary launch argument capture came from the real Rust `launch-harness` command with a synthetic provider executable.
-The actual native Codex startup UI then displayed four new shared hooks and persisted approval through its native review flow.
-Native `hooks/list` reported the same four session-flag keys and hashes as trusted at the primary directory and two different worker directories.
-A second native TUI reached the worker directory's idle composer without shared-hook review.
-These observations establish native trust reuse, not worker assignment acceptance, model execution or backend readiness.
-
-Disabling PreToolUse through native `/hooks` remained disabled at all three directories.
-An unrelated hook file in a separately native-trusted fixture project retained its own untrusted project-source hook; the worker TUI asked to review exactly that one new hook, and it was left unapproved.
-Changing the owned observer script bytes changed every shared native hash to modified; changing the selected hook executable bytes did the same.
-Restoring the original bundle restored trusted status and preserved the native disabled choice.
-No trust-store writes, hook-trust bypass flags, fabricated managed policy or automatic product consent were added.
-All owned test TUI and app-server processes were stopped.
-
-Deterministic Rust fixtures separately verify exact primary/worker hook argument equality for byte-identical public `multplx` and packaged `mx` executable copies without inherited routing variables, genuine override separation, script/executable fingerprint invalidation, CLI override collision diagnostics, and one observer/merge invocation per event when owned project and CLI sources coexist.
-The tracked primary idle and session-start handlers continue through their existing primary-scope predicate: ordinary task workers are excluded, while marked standing homes retain their own supervision.
-The exact-argument worker fixture uses a synthetic cmux endpoint and inert readiness adapter; the launcher terminal suite uses a real isolated tmux server with a synthetic provider.
-Neither fixture claims a paid worker turn or provider authentication.
-
-Claude and Pi executables were unavailable for this verification, so their adapter flags and extension loading were not changed; launch/setup diagnostics preserve their native project or extension consent and foreground readiness fallback.
-Installed Cursor `2026.10.01-e373342` help/source confirmed that its existing worker `--trust` is broader persistent workspace permission; it was not expanded to primary launches, and no new authenticated Cursor trial is claimed.
-Historical worker hook files, fresh Multplx worktree project hooks and unrelated user hooks retain independent native review; shared CLI approval does not transfer those approvals.
-
 ## Backend selection consistency - 2026-10-14
 
 Herdr 0.9.3 protocol 22 was exercised in a guarded `mx-lab-` named session with the live default session unchanged.
@@ -605,6 +580,31 @@ Budget and habit used integrated source `ef6cb15`; the later three used final in
 These integrated candidates include the backend changes here and separately recorded Codex readiness/idle fixes; the final candidate's naturally timed researcher completion after an ended primary turn produced an automatic native turn within a measured 7.1-second upper bound.
 That provider wake observation belongs to the integrated supervision evidence, not to the inert backend fixtures above.
 The native trial ledger, exact binary hashes and full rollouts remain under `/tmp/multplx-herdr-five-rerun-20261014/evidence`; the user's default session and global installed runtime were preserved.
+
+## Codex shared hook consent verification - 2026-10-08
+
+Real Codex CLI `0.160.1` was exercised through an isolated temporary `CODEX_HOME`, synthetic API credential and temporary runtime copies; no model request, user session, private operational home or global installation was used.
+The primary launch argument capture came from the real Rust `launch-harness` command with a synthetic provider executable.
+The actual native Codex startup UI then displayed four new shared hooks and persisted approval through its native review flow.
+Native `hooks/list` reported the same four session-flag keys and hashes as trusted at the primary directory and two different worker directories.
+A second native TUI reached the worker directory's idle composer without shared-hook review.
+These observations establish native trust reuse, not worker assignment acceptance, model execution or backend readiness.
+
+Disabling PreToolUse through native `/hooks` remained disabled at all three directories.
+An unrelated hook file in a separately native-trusted fixture project retained its own untrusted project-source hook; the worker TUI asked to review exactly that one new hook, and it was left unapproved.
+Changing the owned observer script bytes changed every shared native hash to modified; changing the selected hook executable bytes did the same.
+Restoring the original bundle restored trusted status and preserved the native disabled choice.
+No trust-store writes, hook-trust bypass flags, fabricated managed policy or automatic product consent were added.
+All owned test TUI and app-server processes were stopped.
+
+Deterministic Rust fixtures separately verify exact primary/worker hook argument equality for byte-identical public `multplx` and packaged `mx` executable copies without inherited routing variables, genuine override separation, script/executable fingerprint invalidation, CLI override collision diagnostics, and one observer/merge invocation per event when owned project and CLI sources coexist.
+The tracked primary idle and session-start handlers continue through their existing primary-scope predicate: ordinary task workers are excluded, while marked standing homes retain their own supervision.
+The exact-argument worker fixture uses a synthetic cmux endpoint and inert readiness adapter; the launcher terminal suite uses a real isolated tmux server with a synthetic provider.
+Neither fixture claims a paid worker turn or provider authentication.
+
+Claude and Pi executables were unavailable for this verification, so their adapter flags and extension loading were not changed; launch/setup diagnostics preserve their native project or extension consent and foreground readiness fallback.
+Installed Cursor `2026.10.01-e373342` help/source confirmed that its existing worker `--trust` is broader persistent workspace permission; it was not expanded to primary launches, and no new authenticated Cursor trial is claimed.
+Historical worker hook files, fresh Multplx worktree project hooks and unrelated user hooks retain independent native review; shared CLI approval does not transfer those approvals.
 
 Hosted macOS CI exposed an acknowledgement/deadline fixture race: its 20 ms total window could expire before the asynchronous test server acknowledgement was scheduled, correctly producing an acknowledgement timeout instead of the intended post-ack clean end.
 The post-ack fixture now advances a private test clock only after the real socket acknowledgement is parsed and emitted, and holds the server socket through a channel until the deadline result is asserted.

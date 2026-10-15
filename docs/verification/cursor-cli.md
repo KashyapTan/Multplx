@@ -93,10 +93,3 @@ Using Cursor would therefore risk loading target rules or hooks into a gate sess
 `tests/mx-cursor-adapter.test.sh` covers launcher capture, alias safety, sandbox enforcement, refused blanket modes, hook translation, stop bounds, spawn profile axes, turn-end plugin isolation, composer detection, and busy detection.
 `MX_CURSOR_LIVE_TESTS=1 tests/mx-cursor-live-e2e.test.sh` rechecks installed executable, authentication, version, and CLI surface without remote writes or user-config mutation.
 The full Multplx suite keeps Claude, Codex, Pi, tmux, Herdr, and cmux default paths under their existing regression coverage.
-
-## Startup context pipe recheck, 2026-10-14
-
-The session-start nudge takes no hook payload; Cursor now starts it with null stdin, matching the shared nudge entry point.
-A deterministic fixture with an early-closed stdin and a payload larger than pipe capacity reproduced lost startup context before the fix.
-Required guard payloads retain their separate transport: nonzero child statuses and diagnostics survive a failed write, while a successful guard with undelivered input remains a transport failure.
-The transport always waits for the child, including after a pipe-write error.
