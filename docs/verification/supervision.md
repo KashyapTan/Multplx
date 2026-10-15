@@ -362,4 +362,14 @@ The wake message now clarifies that handling includes already-authorized follow-
 This clarification adds no workflow stage or implementation authority.
 
 
+The final native candidate `77a449d407f91f8e40249a31b9f7f340030dc14b` contains the receipt-group correction and continuation clarification, plus the separately owned backend and hook changes.
+Its separately installed binary has SHA-256 `e9eda9a6d630f3f4eeabcd8ffe85ddaf151e0a2c24da65a6b49eb3ab4b67a0aa`.
+In the Markdown link checker trial, the primary ended its initial turn at `2026-10-15T02:16:22.122Z`.
+A current researcher completion with an attached result became canonical at second-resolution `02:17:12Z`; the exact bound native primary began its next turn at `02:17:19.073Z`, an upper bound of 7.1 seconds after that report.
+No human follow-up or model checkpoint triggered that turn.
+The implementation completion later caused another automatic turn, and the primary independently ran acceptance tests and the requested demo before acknowledging it.
+That later sample ran while another checkout's broad validation was active, so it is not a controlled latency measurement.
+Four distinct native operational inputs were observed, each once; after final handling, the canonical queue and receipt set were empty with no failure or uncertain submission marker.
+This sparse live sample establishes completion and settling on the final candidate; burst suppression, partial acknowledgement, and disposition-before-ack races are verified by the deterministic receipt-group regressions rather than a live throughput claim.
+
 The [public upstream comparison](../upstream.md#codex-custom-home-readiness-comparison) records pinned sources and why no implementation was imported.
