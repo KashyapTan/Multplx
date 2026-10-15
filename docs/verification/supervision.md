@@ -357,5 +357,9 @@ The bridge now permits one submitted receipt group to remain outstanding per exa
 It then rereads canonical pending work, avoiding stale inputs for events handled together while preserving a later input for work that remains unhandled.
 The read-only `awaiting-wake-reconciliation` mode names the unacknowledged delivery condition rather than claiming healthy idle when a receiver has not settled its wake.
 Deterministic regressions cover partial group acknowledgement, restart, acknowledgement during transport, independent homes/threads, and uncertain submissions with later unmarked arrivals.
+A separate authenticated run explicitly deferred unfinished parent integration, independent acceptance checks, and the requested demo after both workers completed.
+The wake message now clarifies that handling includes already-authorized follow-up and delivery when their inputs are available, with delegation governed by the current assignment.
+This clarification adds no workflow stage or implementation authority.
+
 
 The [public upstream comparison](../upstream.md#codex-custom-home-readiness-comparison) records pinned sources and why no implementation was imported.

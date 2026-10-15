@@ -213,7 +213,7 @@ fn notify_with(
         "queue delivery is pending or uncertain; reconcile before explicit retry",
     )?;
     let body = format!(
-        "Durable wake for home {}. Wake IDs {} require reconciliation. Run bin/mx-wake-drain.sh, inspect canonical tasks, then record each durable disposition and acknowledgement. Transport enqueue does not acknowledge handling. End this turn when handling is complete; the Stop hook owns subsequent watcher cycles.",
+        "Durable wake for home {}. Wake IDs {} require reconciliation. Run bin/mx-wake-drain.sh, inspect canonical tasks, then record each durable disposition and acknowledgement. Transport enqueue does not acknowledge handling. When all inputs for unfinished accepted work are available, handling includes its already-authorized follow-up and delivery; continue those steps in this turn, delegating as required by your assignment. End this turn when handling is complete; the Stop hook owns subsequent watcher cycles.",
         state.display(),
         unseen.join(", ")
     );
