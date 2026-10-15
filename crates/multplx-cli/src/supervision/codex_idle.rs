@@ -188,6 +188,12 @@ fn notify_with(
     if !existed || before != receipts {
         write_json(&receipts_path, &receipts)?;
     }
+    // One accepted native input can cover everything the receiver drains.
+    // New arrivals remain durable and unmarked until this receipt group is
+    // acknowledged. Never enqueue one stale future model turn per report.
+    if !receipts.is_empty() {
+        return Ok(());
+    }
     let unseen = outstanding
         .into_iter()
         .filter(|key| !receipts.contains(&format!("{}:{key}", target.thread)))
@@ -387,6 +393,31 @@ pub(crate) fn entry(
             });
         let bound_target = read_json::<Target>(&state.join(TARGET)).ok();
         let bridge_live = bridge_live && target.is_some() && bound_target == target;
+        let outstanding_delivery = target.as_ref().map_or_else(
+            || Ok(BTreeSet::new()),
+            |target| {
+                let receipts = if state.join(RECEIPTS).exists() {
+                    read_json::<BTreeSet<String>>(&state.join(RECEIPTS))?
+                } else {
+                    BTreeSet::new()
+                };
+                let outstanding = pending(&state)?;
+                Ok::<_, String>(
+                    receipts
+                        .into_iter()
+                        .filter(|receipt| {
+                            outstanding
+                                .iter()
+                                .any(|key| receipt == &format!("{}:{key}", target.thread))
+                        })
+                        .collect::<BTreeSet<_>>(),
+                )
+            },
+        );
+        let awaiting_reconciliation = outstanding_delivery
+            .as_ref()
+            .is_ok_and(|keys| !keys.is_empty());
+        let reason = reason.or_else(|| outstanding_delivery.as_ref().err().map(|_| "delivery receipts or durable wakes cannot be read; inspect retained state before recovery"));
         let watcher_fresh =
             multplx_core::supervision::inspect(&state, grace(), SystemTime::now()).watcher_fresh;
         let needed = autoarm_needed(&state);
@@ -395,6 +426,8 @@ pub(crate) fn entry(
             "away"
         } else if reason.is_some() {
             "degraded-checkpoint"
+        } else if awaiting_reconciliation {
+            "awaiting-wake-reconciliation"
         } else if !needed {
             "idle-no-work"
         } else if bridge_live && watcher_fresh {
@@ -404,9 +437,10 @@ pub(crate) fn entry(
         } else {
             "ready-for-turn-end"
         };
+        let reason = reason.or_else(|| awaiting_reconciliation.then_some("one exact-thread native wake was submitted but remains unacknowledged; reconcile its durable wake before another input is submitted; new arrivals remain durable and unmarked"));
         println!(
             "{}",
-            serde_json::json!({"mode":mode,"reason":reason,"needed":needed,"bridge_live":bridge_live,"watcher_fresh":watcher_fresh,"native_hook_ready":ready,"primary_scope":primary_scope,"activation":active,"away":away})
+            serde_json::json!({"mode":mode,"reason":reason,"needed":needed,"bridge_live":bridge_live,"watcher_fresh":watcher_fresh,"native_hook_ready":ready,"primary_scope":primary_scope,"outstanding_delivery":outstanding_delivery.ok(),"activation":active,"away":away})
         );
         return 0;
     }
@@ -697,6 +731,222 @@ mod tests {
             .unwrap(),
             2
         );
+    }
+
+    fn queued() -> BoundedCommandResult {
+        BoundedCommandResult::Completed {
+            success: true,
+            output: "queued".into(),
+        }
+    }
+
+    fn acknowledge(queue: &WakeQueue, target: &Target, item: &multplx_core::wake::WakeInboxItem) {
+        let probe = SystemProcessProbe::default();
+        queue
+            .record_disposition(
+                &item.event_id,
+                &target.owner,
+                WakeDisposition {
+                    kind: WakeDispositionKind::Handled,
+                    detail: "handled canonical event".into(),
+                    recorded_at: 1,
+                    condition: None,
+                    resume_trigger: None,
+                    recheck_after_epoch: None,
+                    follow_up_id: None,
+                },
+                &probe,
+            )
+            .unwrap();
+        queue
+            .acknowledge(&item.event_id, &target.owner, SystemTime::now(), &probe)
+            .unwrap();
+    }
+
+    #[test]
+    fn burst_coalescing_waits_for_full_group_and_preserves_new_arrivals_across_restart() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = temp.path();
+        let probe = SystemProcessProbe::default();
+        let target = target(state);
+        let queue = WakeQueue::new(state);
+        for key in ["first", "second"] {
+            queue
+                .append(WakeKind::Signal, key, "report", SystemTime::now(), &probe)
+                .unwrap();
+        }
+        notify_with(state, &target, |_, input| {
+            assert!(input.contains("1:0, 2:0"));
+            queued()
+        })
+        .unwrap();
+        queue
+            .append(
+                WakeKind::Signal,
+                "new",
+                "later report",
+                SystemTime::now(),
+                &probe,
+            )
+            .unwrap();
+        notify_with(state, &target, |_, _| {
+            panic!("one input already covers receiver reconciliation")
+        })
+        .unwrap();
+        let mut items = queue
+            .claim_available(&target.owner, SystemTime::now(), 10, &probe)
+            .unwrap();
+        acknowledge(&queue, &target, &items.remove(0));
+        notify_with(state, &target, |_, _| {
+            panic!("partial acknowledgement cannot release group")
+        })
+        .unwrap();
+        write_json(&state.join(TARGET), &target).unwrap();
+        let recovered: Target = read_json(&state.join(TARGET)).unwrap();
+        notify_with(state, &recovered, |_, _| {
+            panic!("restart cannot submit a duplicate")
+        })
+        .unwrap();
+        assert_eq!(
+            read_json::<BTreeSet<String>>(&state.join(RECEIPTS)).unwrap(),
+            BTreeSet::from([format!("{}:2:0", target.thread)])
+        );
+        acknowledge(&queue, &target, &items.remove(0));
+        notify_with(state, &recovered, |_, input| {
+            assert!(input.contains("Wake IDs 3:0 require"));
+            queued()
+        })
+        .unwrap();
+        assert_eq!(pending(state).unwrap(), BTreeSet::from(["3:0".into()]));
+        // Later work handled in the same turn needs no already-stale input.
+        queue
+            .append(
+                WakeKind::Signal,
+                "fourth",
+                "same turn",
+                SystemTime::now(),
+                &probe,
+            )
+            .unwrap();
+        acknowledge(&queue, &target, &items.remove(0));
+        let later = queue
+            .claim_available(&target.owner, SystemTime::now(), 10, &probe)
+            .unwrap();
+        for item in later {
+            acknowledge(&queue, &target, &item);
+        }
+        notify_with(state, &recovered, |_, _| {
+            panic!("all canonical work already handled")
+        })
+        .unwrap();
+        assert!(pending(state).unwrap().is_empty());
+    }
+
+    #[test]
+    fn acknowledgement_during_enqueue_does_not_starve_arrivals_while_receiver_is_busy() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = temp.path();
+        let probe = SystemProcessProbe::default();
+        let target = target(state);
+        let queue = WakeQueue::new(state);
+        queue
+            .append(
+                WakeKind::Signal,
+                "first",
+                "report",
+                SystemTime::now(),
+                &probe,
+            )
+            .unwrap();
+        for sequence in 1..=3 {
+            notify_with(state, &target, |_, input| {
+                assert!(input.contains(&format!("Wake IDs {sequence}:0 require")));
+                let items = queue
+                    .claim_available(&target.owner, SystemTime::now(), 10, &probe)
+                    .unwrap();
+                assert_eq!(items.len(), 1);
+                acknowledge(&queue, &target, &items[0]);
+                if sequence < 3 {
+                    queue
+                        .append(
+                            WakeKind::Signal,
+                            &format!("arrival-{sequence}"),
+                            "new report",
+                            SystemTime::now(),
+                            &probe,
+                        )
+                        .unwrap();
+                }
+                queued()
+            })
+            .unwrap();
+        }
+        notify_with(state, &target, |_, _| panic!("no future work")).unwrap();
+        assert!(pending(state).unwrap().is_empty());
+        assert!(!state.join(UNCERTAIN).exists());
+    }
+
+    #[test]
+    fn independent_threads_and_uncertain_groups_keep_unsubmitted_arrivals_durable() {
+        let left = tempfile::tempdir().unwrap();
+        let right = tempfile::tempdir().unwrap();
+        let probe = SystemProcessProbe::default();
+        let left_target = target(left.path());
+        let mut right_target = target(right.path());
+        right_target.thread = "123e4567-e89b-12d3-a456-426614174001".into();
+        let left_queue = WakeQueue::new(left.path());
+        let right_queue = WakeQueue::new(right.path());
+        left_queue
+            .append(
+                WakeKind::Signal,
+                "left",
+                "report",
+                SystemTime::now(),
+                &probe,
+            )
+            .unwrap();
+        notify_with(left.path(), &left_target, |_, _| {
+            BoundedCommandResult::TimedOut
+        })
+        .unwrap_err();
+        left_queue
+            .append(
+                WakeKind::Signal,
+                "left-new",
+                "new report",
+                SystemTime::now(),
+                &probe,
+            )
+            .unwrap();
+        notify_with(left.path(), &left_target, |_, _| {
+            panic!("uncertain transport must never retry blindly")
+        })
+        .unwrap();
+        assert_eq!(pending(left.path()).unwrap().len(), 2);
+        assert_eq!(
+            read_json::<Vec<String>>(&left.path().join(UNCERTAIN)).unwrap(),
+            vec!["1:0"]
+        );
+        assert_eq!(
+            read_json::<BTreeSet<String>>(&left.path().join(RECEIPTS)).unwrap(),
+            BTreeSet::from([format!("{}:1:0", left_target.thread)])
+        );
+        right_queue
+            .append(
+                WakeKind::Signal,
+                "right",
+                "report",
+                SystemTime::now(),
+                &probe,
+            )
+            .unwrap();
+        notify_with(right.path(), &right_target, |actual, _| {
+            assert_eq!(actual.thread, right_target.thread);
+            queued()
+        })
+        .unwrap();
+        assert!(left.path().join(FAILURE).exists());
+        assert!(!right.path().join(FAILURE).exists());
     }
 
     #[test]

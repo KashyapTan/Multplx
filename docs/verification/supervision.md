@@ -344,6 +344,18 @@ Primary and managed worker Codex launches remove inherited `CODEX_THREAD_ID` and
 The read-only status projection reports primary-scope eligibility and the particular missing receipt/thread/home/owner proof without changing trust or durable wake state.
 
 The focused Rust regressions cover the package/custom-home authority matrix, launch identity removal, two wake cycles, queued work before task metadata, uncertain transport, explicit retry, and owner-loss cleanup.
-Authenticated Herdr rerun evidence is recorded separately from these deterministic fixtures.
+Authenticated Codex CLI 0.162.1 under Herdr established native readiness in an explicit custom home against a separate installer default home.
+The integrated candidate `ef6cb154555e010c3127800874bd4836b733cb48` includes this Codex change plus the separately owned backend detection and worker-hook changes.
+Its native primary and both workers recorded `gpt-6-luna` with high effort.
+After the primary ended its initial turn, a canonical worker progress report started a new native primary turn within 3.6 seconds of the report's second-resolution timestamp, with an exact-thread operational queue input and no human follow-up.
+Both subsequent implementation completion reports were accepted and acknowledged by that primary without human intervention.
+Those completion reports arrived while the primary was handling earlier wakes, so this run proves idle report delivery and completion handling, without measuring idle completion latency.
+Raw native transcripts, launcher/lock/readiness receipts, canonical report records, exact binary hash, and the observation timeline are retained outside the repository.
+The first integrated run delivered nine distinct queued operational inputs, each once; several arrived after the primary had already handled their canonical events while processing earlier inputs.
+This was excess submission into the native FIFO, without evidence of a repeated wake ID.
+The bridge now permits one submitted receipt group to remain outstanding per exact thread; new arrivals remain durable and unmarked until the entire previous group is acknowledged.
+It then rereads canonical pending work, avoiding stale inputs for events handled together while preserving a later input for work that remains unhandled.
+The read-only `awaiting-wake-reconciliation` mode names the unacknowledged delivery condition rather than claiming healthy idle when a receiver has not settled its wake.
+Deterministic regressions cover partial group acknowledgement, restart, acknowledgement during transport, independent homes/threads, and uncertain submissions with later unmarked arrivals.
 
 The [public upstream comparison](../upstream.md#codex-custom-home-readiness-comparison) records pinned sources and why no implementation was imported.
