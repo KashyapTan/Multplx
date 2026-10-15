@@ -635,6 +635,8 @@ Once that group's canonical wakes are acknowledged, it cancels only that thread'
 The same-home native control exchange uses the installed executable's `app-server proxy`, a standard WebSocket client, an initialized canonical `codexHome` check, bounded frames/messages, and a new three-second total local exchange deadline.
 The proxy forwards raw socket bytes and requires the WebSocket handshake; it does not translate newline JSON into WebSocket messages.
 Cancellation failure preserves the native receipt and durable wake state for explicit recovery, while ambiguous enqueue acceptance still retains its existing uncertainty journal.
+When replacing an ended owner, the binding owner reconciles only the prior validated native item before writing the new target; a failed cancellation preserves the prior binding and canonical wake for retry.
+Successful identity mismatch or a strict kernel no-process result establishes the ended lifetime; observation errors, permission errors, or a live prior identity cannot authorize deletion.
 A no-follow bounded receipt read rejects malformed, symlinked, oversized, or foreign cancellation authority.
 Older output that does not expose an exact submission UUID retains the existing coalescing behavior without attempting cancellation.
 An input already started as a native turn can still incur an empty handling turn; the bridge does not interrupt it or fabricate acknowledgement.

@@ -177,6 +177,70 @@ mod tests {
     }
 
     #[test]
+    fn executable_proxy_roundtrip_preserves_native_home_and_exact_item() {
+        use std::os::unix::{fs::PermissionsExt, net::UnixListener};
+        let temp = tempfile::tempdir().unwrap();
+        let mut target = super::super::tests::target(temp.path());
+        let listener = UnixListener::bind(temp.path().join("native.sock")).unwrap();
+        let executable = temp.path().join("codex");
+        fs::write(
+            &executable,
+            r#"#!/usr/bin/env python3
+import os,select,socket,sys
+assert sys.argv[1:]==['app-server','proxy']
+connection=socket.socket(socket.AF_UNIX)
+connection.connect(os.path.join(os.environ['CODEX_HOME'],'native.sock'))
+while True:
+ ready,_,_=select.select([connection,0],[],[])
+ for source in ready:
+  if source==0:
+   data=os.read(0,65536)
+   if not data:sys.exit(0)
+   connection.sendall(data)
+  else:
+   data=connection.recv(65536)
+   if not data:sys.exit(0)
+   os.write(1,data)
+"#,
+        )
+        .unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        target.executable = executable;
+        let home = target.codex_home.clone();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut socket = tungstenite::accept(stream).unwrap();
+            let init: serde_json::Value =
+                serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+            assert_eq!(init["params"]["capabilities"]["experimentalApi"], true);
+            socket
+                .send(Message::text(
+                    serde_json::json!({"id":1,"result":{"codexHome":home}}).to_string(),
+                ))
+                .unwrap();
+            let initialized: serde_json::Value =
+                serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+            assert_eq!(initialized["method"], "initialized");
+            let request: serde_json::Value =
+                serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+            assert_eq!(request["method"], "thread/queue/delete");
+            assert_eq!(
+                request["params"]["threadId"],
+                "123e4567-e89b-12d3-a456-426614174000"
+            );
+            assert_eq!(
+                request["params"]["queuedSubmissionId"],
+                "123e4567-e89b-12d3-a456-426614174001"
+            );
+            socket
+                .send(Message::text("{\"id\":2,\"result\":{\"deleted\":true}}"))
+                .unwrap();
+        });
+        cancel(&target, "123e4567-e89b-12d3-a456-426614174001").unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
     fn native_handshake_validates_home_and_deletes_only_exact_submission() {
         use std::os::unix::net::UnixStream;
         for mode in [

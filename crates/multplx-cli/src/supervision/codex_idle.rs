@@ -103,17 +103,47 @@ fn payload_thread(payload: &serde_json::Value) -> Result<String, String> {
 }
 
 fn bind(state: &Path, target: &Target, probe: &impl ProcessProbe) -> Result<(), String> {
+    bind_with_cancel(state, target, probe, queue::cancel)
+}
+
+fn bind_with_cancel(
+    state: &Path,
+    target: &Target,
+    probe: &impl ProcessProbe,
+    cancel: impl FnOnce(&Target, &str) -> Result<(), String>,
+) -> Result<(), String> {
     let path = state.join(TARGET);
     if path.exists() {
         let old: Target = read_json(&path)?;
         if old == *target {
             return Ok(());
         }
-        if probe
-            .identity(old.owner.pid)
-            .is_ok_and(|owner| owner == old.owner)
+        let prior_identity = probe.identity(old.owner.pid);
+        if prior_identity
+            .as_ref()
+            .is_ok_and(|owner| owner == &old.owner)
         {
             return Err("this home is already bound to another Codex thread or CODEX_HOME for the live lock owner; stop that session before replacing its binding".into());
+        }
+        // The prior exact process lifetime must be known to have ended before
+        // its native item can be cancelled for a replacement receiver.
+        if let Some(submitted) = read_submitted(state, &old)? {
+            if let Err(error) = prior_identity {
+                let absent = i32::try_from(old.owner.pid)
+                    .ok()
+                    .filter(|pid| *pid > 0)
+                    .and_then(rustix::process::Pid::from_raw)
+                    .is_some_and(|pid| {
+                        rustix::process::test_kill_process(pid) == Err(rustix::io::Errno::SRCH)
+                    });
+                if !absent {
+                    return Err(format!("prior native owner lifetime is uncertain: {error}"));
+                }
+            }
+            // Delete is idempotent across crashes. An already-started item is
+            // never interrupted, and its canonical wake remains unfinished.
+            cancel(&old, &submitted.submission_id)?;
+            fs::remove_file(state.join(SUBMITTED)).map_err(|error| error.to_string())?;
         }
     }
     write_json(&path, target)
@@ -212,6 +242,45 @@ fn notify_with(
     })
 }
 
+fn read_submitted(state: &Path, target: &Target) -> Result<Option<Submitted>, String> {
+    let submission_path = state.join(SUBMITTED);
+    let submission_present = match fs::symlink_metadata(&submission_path) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(format!("cannot inspect native submission receipt: {error}")),
+    };
+    if !submission_present {
+        return Ok(None);
+    }
+    let submitted: Submitted = serde_json::from_slice(
+        &multplx_core::filesystem::read_bounded_regular(&submission_path, 64 * 1024)
+            .map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    if submitted.thread != target.thread
+        || submitted.codex_home != target.codex_home
+        || submitted.wakes.is_empty()
+        || queue::submission_id(
+            &format!(
+                "Queued message {} for thread {}.",
+                submitted.submission_id, submitted.thread
+            ),
+            &target.thread,
+        )
+        .is_none()
+        || submitted.wakes.iter().any(|key| {
+            !key.strip_prefix(&format!("{}:", target.thread))
+                .and_then(|key| key.split_once(':'))
+                .is_some_and(|(sequence, revision)| {
+                    sequence.parse::<u64>().is_ok() && revision.parse::<usize>().is_ok()
+                })
+        })
+    {
+        return Err("native submission receipt conflicts with exact-session binding".into());
+    }
+    Ok(Some(submitted))
+}
+
 fn notify_with_transport(
     state: &Path,
     target: &Target,
@@ -232,38 +301,7 @@ fn notify_with_transport(
         write_json(&receipts_path, &receipts)?;
     }
     let submission_path = state.join(SUBMITTED);
-    let submission_present = match fs::symlink_metadata(&submission_path) {
-        Ok(_) => true,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-        Err(error) => return Err(format!("cannot inspect native submission receipt: {error}")),
-    };
-    if submission_present {
-        let submitted: Submitted = serde_json::from_slice(
-            &multplx_core::filesystem::read_bounded_regular(&submission_path, 64 * 1024)
-                .map_err(|error| error.to_string())?,
-        )
-        .map_err(|error| error.to_string())?;
-        if submitted.thread != target.thread
-            || submitted.codex_home != target.codex_home
-            || submitted.wakes.is_empty()
-            || queue::submission_id(
-                &format!(
-                    "Queued message {} for thread {}.",
-                    submitted.submission_id, submitted.thread
-                ),
-                &target.thread,
-            )
-            .is_none()
-            || submitted.wakes.iter().any(|key| {
-                !key.strip_prefix(&format!("{}:", target.thread))
-                    .and_then(|key| key.split_once(':'))
-                    .is_some_and(|(sequence, revision)| {
-                        sequence.parse::<u64>().is_ok() && revision.parse::<usize>().is_ok()
-                    })
-            })
-        {
-            return Err("native submission receipt conflicts with exact-session binding".into());
-        }
+    if let Some(submitted) = read_submitted(state, target)? {
         if submitted
             .wakes
             .iter()
@@ -1339,6 +1377,156 @@ mod tests {
         assert!(bind(temp.path(), &original, &probe).is_err());
         assert!(read_json::<Target>(&temp.path().join("absent")).is_err());
         assert!(write_json(&temp.path().join("missing/record"), &original).is_err());
+    }
+
+    #[test]
+    fn dead_owner_replacement_reconciles_only_prior_submission_before_binding() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = temp.path();
+        let probe = SystemProcessProbe::default();
+        let current = target(state);
+        let mut old = current.clone();
+        old.thread = "123e4567-e89b-12d3-a456-426614174001".into();
+        old.owner.marker = "confirmed prior lifetime".into();
+        write_json(&state.join(TARGET), &old).unwrap();
+        let receipt = Submitted {
+            thread: old.thread.clone(),
+            codex_home: old.codex_home.clone(),
+            submission_id: "123e4567-e89b-12d3-a456-426614174002".into(),
+            wakes: BTreeSet::from([format!("{}:1:0", old.thread)]),
+        };
+        write_json(&state.join(SUBMITTED), &receipt).unwrap();
+        write_json(&state.join(RECEIPTS), &receipt.wakes).unwrap();
+        let mut live = old.clone();
+        live.owner = current.owner.clone();
+        write_json(&state.join(TARGET), &live).unwrap();
+        assert!(
+            bind_with_cancel(state, &current, &probe, |_, _| panic!(
+                "live prior owner cannot be cancelled"
+            ))
+            .is_err()
+        );
+        assert_eq!(read_json::<Target>(&state.join(TARGET)).unwrap(), live);
+        write_json(&state.join(TARGET), &old).unwrap();
+        let queue = WakeQueue::new(state);
+        queue
+            .append(
+                WakeKind::Signal,
+                "unfinished",
+                "still needs a receiver",
+                SystemTime::now(),
+                &probe,
+            )
+            .unwrap();
+        queue
+            .claim_available(&current.owner, SystemTime::now(), 64, &probe)
+            .unwrap();
+        let cancelled = std::cell::Cell::new(false);
+        bind_with_cancel(state, &current, &probe, |prior, id| {
+            assert_eq!(prior, &old);
+            assert_eq!(id, receipt.submission_id);
+            assert_eq!(
+                read_json::<Target>(&state.join(TARGET)).unwrap(),
+                old,
+                "binding changed before external reconciliation"
+            );
+            cancelled.set(true);
+            Err("native cancellation not yet confirmed".into())
+        })
+        .unwrap_err();
+        assert!(cancelled.get());
+        assert_eq!(read_json::<Target>(&state.join(TARGET)).unwrap(), old);
+        assert!(state.join(SUBMITTED).exists());
+        // Retry is idempotent even if the old native item was already started
+        // or deletion committed before a crash. The canonical wake stays live.
+        bind_with_cancel(state, &current, &probe, |prior, id| {
+            assert_eq!(prior, &old);
+            assert_eq!(id, receipt.submission_id);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(read_json::<Target>(&state.join(TARGET)).unwrap(), current);
+        assert!(!state.join(SUBMITTED).exists());
+        assert_eq!(pending(state).unwrap(), BTreeSet::from(["1:0".into()]));
+        notify_with(state, &current, |actual, _| {
+            assert_eq!(actual, &current);
+            queued()
+        })
+        .unwrap();
+        assert_eq!(queue.observe_unfinished_count().unwrap(), 1);
+        assert_eq!(pending(state).unwrap(), BTreeSet::from(["1:0".into()]));
+        assert_eq!(
+            read_json::<BTreeSet<String>>(&state.join(RECEIPTS)).unwrap(),
+            BTreeSet::from([format!("{}:1:0", current.thread)])
+        );
+    }
+
+    #[test]
+    fn replacement_does_not_treat_failed_identity_observation_as_process_death() {
+        struct Uncertain;
+        impl ProcessProbe for Uncertain {
+            fn is_alive(&self, _: u32) -> bool {
+                true
+            }
+            fn identity(&self, _: u32) -> multplx_core::error::Result<ProcessIdentity> {
+                Err(multplx_core::error::CoreError::Command {
+                    command: "ps".into(),
+                    reason: "fixture observation denied".into(),
+                })
+            }
+            fn ancestry_row(
+                &self,
+                _: u32,
+            ) -> multplx_core::error::Result<multplx_core::process::AncestryRow> {
+                unreachable!()
+            }
+        }
+        for uncertain in [true, false] {
+            let temp = tempfile::tempdir().unwrap();
+            let state = temp.path();
+            let current = target(state);
+            let mut old = current.clone();
+            old.thread = "123e4567-e89b-12d3-a456-426614174001".into();
+            if !uncertain {
+                let mut process = Command::new("/bin/sleep").arg("60").spawn().unwrap();
+                old.owner = SystemProcessProbe::default()
+                    .identity(process.id())
+                    .unwrap();
+                process.kill().unwrap();
+                process.wait().unwrap();
+            }
+            write_json(&state.join(TARGET), &old).unwrap();
+            let receipt = Submitted {
+                thread: old.thread.clone(),
+                codex_home: old.codex_home.clone(),
+                submission_id: "123e4567-e89b-12d3-a456-426614174002".into(),
+                wakes: BTreeSet::from([format!("{}:1:0", old.thread)]),
+            };
+            write_json(&state.join(SUBMITTED), &receipt).unwrap();
+            if uncertain {
+                assert!(
+                    bind_with_cancel(state, &current, &Uncertain, |_, _| panic!(
+                        "uncertain live owner cannot authorize native deletion"
+                    ))
+                    .is_err()
+                );
+                assert_eq!(read_json::<Target>(&state.join(TARGET)).unwrap(), old);
+                assert!(state.join(SUBMITTED).exists());
+            } else {
+                bind_with_cancel(
+                    state,
+                    &current,
+                    &SystemProcessProbe::default(),
+                    |prior, _| {
+                        assert_eq!(prior, &old);
+                        Ok(())
+                    },
+                )
+                .unwrap();
+                assert_eq!(read_json::<Target>(&state.join(TARGET)).unwrap(), current);
+                assert!(!state.join(SUBMITTED).exists());
+            }
+        }
     }
 
     #[test]
