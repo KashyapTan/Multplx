@@ -43,6 +43,7 @@ multplx projects consent my-app --harness codex
 ```
 
 This explicit foreground action revalidates the registered checkout and opens the installed native Codex UI at its canonical path, without supplying a model request or changing permission settings.
+Run it with the same `CODEX_HOME` environment as the primary and workers; consent saved in another Codex home does not transfer.
 Review the native folder prompt, then exit Codex with Ctrl-C at its empty prompt to return to your terminal.
 Canceling grants no consent, and a successful process exit does not prove that a decision was saved.
 If the checkout is already trusted, Codex may open directly at the empty prompt.
