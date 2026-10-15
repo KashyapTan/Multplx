@@ -116,8 +116,14 @@ pub const DISPATCH_QUEUE_DIRECTORY: &str = ".dispatch-queue";
 // owner interprets records and rejects malformed/foreign bindings. Do not read
 // record contents or follow a directory symlink merely to decide supervision.
 fn dispatch_pending(state: &Path) -> bool {
-    let path = state.join(DISPATCH_QUEUE_DIRECTORY);
-    match fs::symlink_metadata(&path) {
+    retained_queue_entries(&state.join(DISPATCH_QUEUE_DIRECTORY))
+}
+
+// Queue presence keeps its owning background consumer eligible even when all
+// task assignments and model wakes have settled. Contents remain exclusively
+// the queue owner's responsibility, including invalid or blocked records.
+fn retained_queue_entries(path: &Path) -> bool {
+    match fs::symlink_metadata(path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
         Err(_) => true,
         Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => true,
@@ -140,6 +146,8 @@ pub struct SupervisionStatus {
     pub queue_pending: bool,
     /// Whether this state owns retained or unreadable dispatch-queue entries.
     pub dispatch_pending: bool,
+    /// Whether this state retains inbox/outbox work for its parent relay.
+    pub parent_channel_pending: bool,
 }
 
 impl SupervisionStatus {
@@ -188,13 +196,21 @@ pub fn inspect(state: impl AsRef<Path>, grace: Duration, now: SystemTime) -> Sup
         })
     });
     let dispatch_pending = dispatch_pending(state);
+    let parent_channel_pending = ["parent-inbox", "parent-outbox"]
+        .iter()
+        .any(|name| retained_queue_entries(&state.join(name)));
     SupervisionStatus {
         in_flight,
-        needed: in_flight > 0 || queue_pending || dispatch_pending || explicit_checks,
+        needed: in_flight > 0
+            || queue_pending
+            || dispatch_pending
+            || parent_channel_pending
+            || explicit_checks,
         watcher_fresh,
         beacon_description,
         queue_pending,
         dispatch_pending,
+        parent_channel_pending,
     }
 }
 
@@ -245,6 +261,32 @@ mod tests {
         assert!(!inspect(temp.path(), Duration::from_secs(300), SystemTime::now()).unhealthy());
         fs::write(temp.path().join("task.meta"), b"id=task\n").expect("meta");
         assert!(inspect(temp.path(), Duration::from_secs(300), SystemTime::now()).unhealthy());
+    }
+
+    #[test]
+    fn retained_parent_channel_work_needs_supervision_without_tasks_or_wakes() {
+        let temp = tempfile::tempdir().unwrap();
+        let observe = || inspect(temp.path(), Duration::from_secs(300), SystemTime::now());
+        for name in ["parent-inbox", "parent-outbox"] {
+            let directory = temp.path().join(name);
+            fs::create_dir(&directory).unwrap();
+            assert!(!observe().needed);
+            let path = directory.join("outcome.json");
+            fs::write(&path, "retained owner work").unwrap();
+            assert!(observe().needed, "{name} was stranded without supervision");
+            assert_eq!(observe().in_flight, 0);
+            assert!(!observe().queue_pending);
+            assert_eq!(fs::read_to_string(&path).unwrap(), "retained owner work");
+            fs::remove_file(path).unwrap();
+            assert!(!observe().needed);
+            fs::remove_dir(&directory).unwrap();
+            fs::write(&directory, "malformed queue").unwrap();
+            assert!(observe().needed);
+            fs::remove_file(&directory).unwrap();
+            std::os::unix::fs::symlink(temp.path().join("absent"), &directory).unwrap();
+            assert!(observe().needed);
+            fs::remove_file(directory).unwrap();
+        }
     }
 
     #[test]

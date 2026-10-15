@@ -921,7 +921,10 @@ fn promote_inbox_record(state: &Path, path: &Path) -> Result<bool, String> {
     } else {
         let outgoing = packet_for_next_hop(&incoming, state)?;
         write_immutable(
-            &record_path(&outbox(state), &incoming.event.message_id)?,
+            // A worker and its coordinator can share an owning state. Their
+            // distinct route hops must not collide with the first hop's
+            // immutable outbox receipt for this same original event.
+            &inbox_record_path(&outbox(state), &outgoing)?,
             &outgoing,
         )?;
     }
@@ -1566,6 +1569,144 @@ mod tests {
             artifact: Some("result.md".into()),
             acknowledgement: Acknowledgement::Pending,
             automatic_wake: None,
+        }
+    }
+
+    #[test]
+    fn acknowledged_completion_keeps_local_relay_eligible_across_restart_and_hops() {
+        use multplx_core::wake::{WakeDisposition, WakeDispositionKind, WakeQueue};
+        for nested in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().join("root");
+            let owner = if nested {
+                temp.path().join("coordinator")
+            } else {
+                root.clone()
+            };
+            let root_state = root.join("state");
+            let state = owner.join("state");
+            fs::create_dir_all(&root_state).unwrap();
+            let recipient = if nested {
+                "coordinator".to_owned()
+            } else {
+                root_id(&root)
+            };
+            if nested {
+                let mut coordinator = TaskRecord::new(
+                    "coordinator".into(),
+                    AssignmentRole::SubOrchestrator,
+                    ArtifactKind::Coordination,
+                    false,
+                    root_id(&root),
+                    root_id(&root),
+                    owner.to_string_lossy().into_owned(),
+                );
+                coordinator.owner_state = Some(state.to_string_lossy().into_owned());
+                coordinator.parent_home = Some(root.to_string_lossy().into_owned());
+                coordinator.parent_state = Some(root_state.to_string_lossy().into_owned());
+                coordinator.schedule.state = super::super::subagent_model::WorkState::Completed;
+                write_task(&state, &coordinator);
+            }
+            let mut worker = task("worker", &owner, &recipient, &owner, &state, &root);
+            write_task(&state, &worker);
+            let event = envelope(&worker, "last-completion", "done");
+            record_outcome(&state, &event).unwrap();
+            crate::operational_input::publish_report_notification(
+                &state,
+                &event,
+                &format!(
+                    "report: message={} task={} state={} brief={} summary={}",
+                    event.message_id,
+                    event.task_id,
+                    event.kind,
+                    event.brief_revision.unwrap(),
+                    event.summary
+                ),
+                SystemTime::now(),
+                &SystemProcessProbe::default(),
+            )
+            .unwrap();
+            worker.schedule.state = super::super::subagent_model::WorkState::Completed;
+            write_task(&state, &worker);
+            let metadata = state.join("worker.meta");
+            fs::write(
+                &metadata,
+                format!("kind=delivery\n{}", fs::read_to_string(&metadata).unwrap()),
+            )
+            .unwrap();
+            // One bounded snapshot sees the local outbox, then creates an inbox
+            // absent from that snapshot. The native receiver can settle the
+            // independent canonical wake before another watcher is started.
+            let health = relay(&state, 64).unwrap();
+            assert_eq!(health.pending_inbox, 1);
+            let probe = SystemProcessProbe::default();
+            let process = probe.identity(std::process::id()).unwrap();
+            let queue = WakeQueue::new(&state);
+            let claims = queue
+                .claim_available(&process, SystemTime::now(), 64, &probe)
+                .unwrap();
+            assert_eq!(claims.len(), 1);
+            queue
+                .record_disposition(
+                    &claims[0].event_id,
+                    &process,
+                    WakeDisposition {
+                        kind: WakeDispositionKind::Handled,
+                        recorded_at: now_epoch(),
+                        detail: "validated and delivered completion".into(),
+                        condition: None,
+                        resume_trigger: None,
+                        recheck_after_epoch: None,
+                        follow_up_id: None,
+                    },
+                    &probe,
+                )
+                .unwrap();
+            queue
+                .acknowledge(&claims[0].event_id, &process, SystemTime::now(), &probe)
+                .unwrap();
+            // Fresh read represents a restarted bridge; no claim or process
+            // memory may substitute for retained parent-channel obligations.
+            assert!(
+                multplx_core::supervision::inspect(
+                    &state,
+                    Duration::from_secs(300),
+                    SystemTime::now()
+                )
+                .needed,
+                "settled wake stranded a {} inbox",
+                if nested { "coordinator" } else { "root" }
+            );
+            relay(&state, 64).unwrap();
+            if nested {
+                assert!(
+                    multplx_core::supervision::inspect(
+                        &state,
+                        Duration::from_secs(300),
+                        SystemTime::now()
+                    )
+                    .needed
+                );
+                relay(&state, 64).unwrap();
+                relay(&root_state, 64).unwrap();
+            }
+            assert_eq!(inspect(&state).unwrap().pending_inbox, 0);
+            assert_eq!(inspect(&state).unwrap().pending_outbox, 0);
+            if !nested {
+                assert_eq!(
+                    queue.observe_unfinished_count().unwrap(),
+                    0,
+                    "late consume regenerated an acknowledged wake"
+                );
+                assert!(
+                    !multplx_core::supervision::inspect(
+                        &state,
+                        Duration::from_secs(300),
+                        SystemTime::now()
+                    )
+                    .needed
+                );
+            }
         }
     }
 
