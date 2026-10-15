@@ -370,6 +370,11 @@ No human follow-up or model checkpoint triggered that turn.
 The implementation completion later caused another automatic turn, and the primary independently ran acceptance tests and the requested demo before acknowledging it.
 That later sample ran while another checkout's broad validation was active, so it is not a controlled latency measurement.
 Four distinct native operational inputs were observed, each once; after final handling, the canonical queue and receipt set were empty with no failure or uncertain submission marker.
-This sparse live sample establishes completion and settling on the final candidate; burst suppression, partial acknowledgement, and disposition-before-ack races are verified by the deterministic receipt-group regressions rather than a live throughput claim.
+This sparse live sample establishes completion and settling on the final candidate.
+A separate authenticated quiz trial produced real post-commit progress, typed evidence, and completion reports in close succession.
+Its recorded state transitions retain submitted group `4:0` while canonical events 5 through 8 accumulate; after acknowledgement, all four share the exact native input `5:0, 6:0, 7:0, 8:0` at `02:28:35.277Z`.
+A partial acknowledgement retained receipt `8:0` across its handled disposition until actual acknowledgement.
+This verifies live burst grouping in addition to the deterministic restart and acknowledgement-race regressions.
+Already accepted provider inputs cannot be cancelled by canonical acknowledgement, and one earlier quiz input drained an already settled event; the correction bounds future submissions without promising zero stale native turns or a general throughput improvement.
 
 The [public upstream comparison](../upstream.md#codex-custom-home-readiness-comparison) records pinned sources and why no implementation was imported.
