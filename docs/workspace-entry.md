@@ -48,7 +48,7 @@ Canceling grants no consent, and a successful process exit does not prove that a
 If the checkout is already trusted, Codex may open directly at the empty prompt.
 The primary conversation keeps its runtime directory, configuration, instructions and operational home.
 
-Codex 0.162.1 resolves valid linked worktrees to their main repository for saved folder consent; approving the repository before concurrent workers start avoids their initial folder prompts.
+Codex 0.162.1 resolves valid linked worktrees to their main repository for saved folder consent; approving the repository before concurrent workers start avoids their initial folder prompts when no exact worktree or working-directory trust entry overrides it.
 A different repository still needs its own native review, including a project added after the primary conversation is already running.
 Already-open consent dialogs may remain after another session approves the repository, so perform this review before fan-out.
 Worker homes, project hooks and changed hook definitions can have separate native review requirements; folder consent does not approve them.
