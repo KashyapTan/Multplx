@@ -149,27 +149,38 @@ fn parse_supervision(args: &[String]) -> Result<SupervisionOptions, CommandResul
 /// The receipt does not acquire the lock or authorize another thread's bridge.
 #[must_use]
 pub fn codex_hook_ready(state: &Path) -> bool {
-    let Ok(current_thread) = std::env::var("CODEX_THREAD_ID") else {
-        return false;
-    };
-    codex_hook_ready_for_thread(state, &current_thread)
+    codex_hook_readiness(state).is_ok()
+}
+
+/// Explain which exact native readiness proof is absent, without mutating state.
+pub fn codex_hook_readiness(state: &Path) -> Result<(), &'static str> {
+    let current_thread = std::env::var("CODEX_THREAD_ID").map_err(
+        |_| "current CODEX_THREAD_ID is absent; run this probe inside the native Codex turn",
+    )?;
+    codex_hook_readiness_for_thread(state, &current_thread)
 }
 
 /// Verify readiness for an exact thread supplied by a trusted native hook.
 /// Renderers use `codex_hook_ready` to require their own current thread ID.
 #[must_use]
 pub fn codex_hook_ready_for_thread(state: &Path, current_thread: &str) -> bool {
+    codex_hook_readiness_for_thread(state, current_thread).is_ok()
+}
+
+fn codex_hook_readiness_for_thread(state: &Path, current_thread: &str) -> Result<(), &'static str> {
     let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(
         state.join(".codex-idle-hook-ready.json"),
         16 * 1024,
     ) else {
-        return false;
+        return Err(
+            "native SessionStart readiness receipt is missing or unreadable; check primary scope and native hook review",
+        );
     };
     let Ok(receipt) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
-        return false;
+        return Err("native SessionStart readiness receipt is malformed");
     };
     let Some(thread) = receipt.get("thread").and_then(serde_json::Value::as_str) else {
-        return false;
+        return Err("native SessionStart readiness receipt has no thread");
     };
     if thread.len() != 36
         || !thread.bytes().enumerate().all(|(index, byte)| {
@@ -180,16 +191,16 @@ pub fn codex_hook_ready_for_thread(state: &Path, current_thread: &str) -> bool {
             }
         })
     {
-        return false;
+        return Err("native SessionStart readiness receipt thread is not a UUID");
     }
     if current_thread != thread {
-        return false;
+        return Err("native SessionStart readiness receipt belongs to another thread");
     }
     let Some(home) = receipt
         .get("codex_home")
         .and_then(serde_json::Value::as_str)
     else {
-        return false;
+        return Err("native SessionStart readiness receipt has no CODEX_HOME");
     };
     let actual_home = std::env::var_os("CODEX_HOME")
         .map(std::path::PathBuf::from)
@@ -201,19 +212,19 @@ pub fn codex_hook_ready_for_thread(state: &Path, current_thread: &str) -> bool {
         .as_deref()
         != Some(Path::new(home))
     {
-        return false;
+        return Err("native SessionStart readiness receipt CODEX_HOME differs");
     }
     if !receipt
         .get("executable")
         .and_then(serde_json::Value::as_str)
         .is_some_and(|path| Path::new(path).is_absolute())
     {
-        return false;
+        return Err("native SessionStart readiness receipt has no absolute executable");
     }
     let Some(owner) = receipt.get("owner").cloned().and_then(|value| {
         serde_json::from_value::<multplx_core::process::ProcessIdentity>(value).ok()
     }) else {
-        return false;
+        return Err("native SessionStart readiness receipt has no process identity");
     };
     let probe = SystemProcessProbe::default();
     if !fs::read_to_string(state.join(".lock"))
@@ -222,22 +233,22 @@ pub fn codex_hook_ready_for_thread(state: &Path, current_thread: &str) -> bool {
             .identity(owner.pid)
             .is_ok_and(|current| current == owner)
     {
-        return false;
+        return Err("native SessionStart readiness receipt does not match the live lock owner");
     }
     let mut pid = std::process::id();
     for _ in 0..12 {
         if pid == owner.pid {
-            return true;
+            return Ok(());
         }
         let Ok(row) = probe.ancestry_row(pid) else {
-            return false;
+            return Err("native SessionStart owner ancestry cannot be inspected");
         };
         if row.parent_pid <= 1 {
-            return false;
+            return Err("native SessionStart lock owner is outside this process ancestry");
         }
         pid = row.parent_pid;
     }
-    false
+    Err("native SessionStart lock owner is outside the bounded process ancestry")
 }
 
 fn codex_idle_activated(root: &Path) -> bool {

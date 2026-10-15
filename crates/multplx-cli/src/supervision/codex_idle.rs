@@ -348,17 +348,21 @@ pub(crate) fn entry(
         .unwrap_or_else(|| home.join("state"));
     if args == [std::ffi::OsString::from("--status")] {
         let active = std::env::var("MX_CODEX_IDLE_CLI").as_deref() == Ok("1");
-        let ready = multplx_domain::session::codex_hook_ready(&state);
+        let readiness = multplx_domain::session::codex_hook_readiness(&state);
+        let ready = readiness.is_ok();
         let probe = SystemProcessProbe::default();
         let target = read_json::<Target>(&state.join(READY)).ok();
+        let primary_scope = multplx_core::primary_scope::matches(root, &state);
         let reason = if !active {
             Some(
                 "CLI activation absent; direct launches require explicit MX_CODEX_IDLE_CLI=1 opt-in",
             )
-        } else if !ready {
+        } else if !primary_scope {
             Some(
-                "native SessionStart receipt does not match this exact thread, CODEX_HOME and live lock owner; review enabled hooks in provider UI",
+                "primary scope refused; verify the installed runtime binding and this home's exact live launcher connection before native hook recovery",
             )
+        } else if let Err(reason) = readiness {
+            Some(reason)
         } else if state.join(UNCERTAIN).exists() {
             Some("queue delivery is uncertain; reconcile before explicit retry")
         } else if state.join(FAILURE).exists() {
@@ -402,7 +406,7 @@ pub(crate) fn entry(
         };
         println!(
             "{}",
-            serde_json::json!({"mode":mode,"reason":reason,"needed":needed,"bridge_live":bridge_live,"watcher_fresh":watcher_fresh,"native_hook_ready":ready,"activation":active,"away":away})
+            serde_json::json!({"mode":mode,"reason":reason,"needed":needed,"bridge_live":bridge_live,"watcher_fresh":watcher_fresh,"native_hook_ready":ready,"primary_scope":primary_scope,"activation":active,"away":away})
         );
         return 0;
     }

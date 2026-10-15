@@ -5473,7 +5473,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         };
         let launch = match request.harness.as_str() {
             "codex" => format!(
-                "-u CODEX_HOME {common_environment} {provider_environment} MX_CODEX_IDLE_CLI=1 MX_CODEX_SHARED_WORKER_HOOKS=1 {harness_word} {codex_mcp}{codex_native_hooks}{model}{codex_effort}--dangerously-bypass-approvals-and-sandbox {brief_command}"
+                "-u CODEX_HOME -u CODEX_THREAD_ID -u CODEX_SESSION_ID {common_environment} {provider_environment} MX_CODEX_IDLE_CLI=1 MX_CODEX_SHARED_WORKER_HOOKS=1 {harness_word} {codex_mcp}{codex_native_hooks}{model}{codex_effort}--dangerously-bypass-approvals-and-sandbox {brief_command}"
             ),
             "claude" => format!(
                 "{common_environment} CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false {harness_word} --dangerously-skip-permissions --mcp-config {} --settings {} {model}{effort}{brief_command}",

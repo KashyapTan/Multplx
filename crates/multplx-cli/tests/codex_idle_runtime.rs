@@ -83,6 +83,7 @@ task_state('running')
 append(1)
 status=json.loads(call(['--status'],extra={'CODEX_THREAD_ID':thread}))
 assert status['mode']=='degraded-checkpoint' and not status['native_hook_ready']
+assert status['primary_scope'] and 'receipt is missing or unreadable' in status['reason']
 assert 'readiness is missing' in call()
 assert len(sends())==0
 (state/'.lock').unlink()
