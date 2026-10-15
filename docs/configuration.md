@@ -100,6 +100,8 @@ For spawn-capable adapters, the runtime session-provider backend controls where 
 `tmux` is the verified reference backend (see [`docs/tmux-backend.md`](tmux-backend.md)); `herdr` and `cmux` are experimental spawn backends (see [`docs/herdr-backend.md`](herdr-backend.md) and [`docs/cmux-backend.md`](cmux-backend.md)).
 The [built-in Git allocation owner](worktrees.md) supplies exact working paths to tmux, Herdr and cmux.
 New spawns choose the backend in this order: an explicit `--backend` flag the orchestrator passes when it spawns a task, then `MX_BACKEND`, then the first non-empty line of local gitignored `config/backend`, then runtime auto-detection from `$TMUX`, `HERDR_ENV=1`, or cmux runtime signals, then default `tmux`.
+The value `auto` in `MX_BACKEND` or `config/backend` leaves selection to the next source in that order.
+Bootstrap diagnostics use the same resolver as task spawn, so dependency checks follow the selected runtime.
 If more than one runtime marker is present, detection resolves innermost-first: `$TMUX` is checked before `HERDR_ENV=1`, which is checked before cmux's primary `CMUX_WORKSPACE_ID` marker and its documented fallback signals - tmux or herdr started from inside a cmux terminal is the innermost, currently-executing layer, while cmux itself (a terminal application, not a nestable multiplexer) is always checked last.
 See [`docs/cmux-backend.md`](cmux-backend.md#runtime-detection) for why cmux can be selected when `CMUX_WORKSPACE_ID` is absent.
 Auto-detected herdr or cmux prints a stderr notice naming `config/backend` and `--backend tmux` as opt-outs; auto-detected tmux stays silent to preserve existing default behavior.

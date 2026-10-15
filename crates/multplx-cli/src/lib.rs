@@ -2740,10 +2740,12 @@ fn configured_spawn_backend(config: &Path) -> Option<String> {
 }
 
 fn resolve_spawn_backend(config: &Path) -> (String, Option<String>) {
-    if let Some(backend) = std::env::var_os("MX_BACKEND").filter(|value| !value.is_empty()) {
+    if let Some(backend) =
+        std::env::var_os("MX_BACKEND").filter(|value| !value.is_empty() && value != "auto")
+    {
         return (backend.to_string_lossy().into_owned(), None);
     }
-    if let Some(backend) = configured_spawn_backend(config) {
+    if let Some(backend) = configured_spawn_backend(config).filter(|value| value != "auto") {
         return (backend, None);
     }
     if std::env::var_os("TMUX").is_some_and(|value| !value.is_empty()) {

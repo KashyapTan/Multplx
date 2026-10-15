@@ -553,6 +553,34 @@ App-server partial methods and raw socket experiments do not satisfy that bridge
 The installer and external worktree dependency described in earlier measurements above are retired.
 The [Phase 03 implementation evidence](../../plans/lean_redesign/phase03-implementation.md) records replacement checks and their current validation status.
 
+## Backend selection consistency - 2026-10-14
+
+Herdr 0.9.3 protocol 22 was exercised in a guarded `mx-lab-` named session with the live default session unchanged.
+An actual Herdr shell exposed `HERDR_ENV=1`, `HERDR_PANE_ID`, and `HERDR_SESSION`, but no `HERDR_MANAGED` marker.
+A real tmux server created from that pane supplied its own `TMUX` and `TMUX_PANE` while inheriting the Herdr markers.
+Running bootstrap inside those two real processes selected Herdr directly and tmux when nested, respectively.
+The reverse nesting probe launched a separate guarded Herdr server from that tmux pane; its new shell retained the exact Herdr identifiers and removed the outer `TMUX` markers, agreeing with the same precedence.
+The bootstrap dependency/notice path now uses the same Rust resolver as new task spawn; explicit environment/home configuration remains ahead of ambient markers, and `auto` advances to the next selection source.
+The shell compatibility resolver follows the same `auto` semantics.
+
+```sh
+target/release/mx test-run tests/mx-bootstrap.test.sh tests/mx-backend.test.sh
+target/release/mx test-run tests/mx-launcher.test.sh
+target/release/mx test-run tests/mx-backend-autodetect-smoke.test.sh tests/mx-backend-herdr-smoke.test.sh
+```
+
+All five focused scripts passed without gate skips.
+The native Herdr suites used inert synthetic harnesses to establish exact endpoint startup, capture, send, and cleanup; they do not establish paid provider execution or idle wake delivery.
+The launcher regression separately records `herdr` and the exact named-session pane from `HERDR_ENV=1` without the historical `HERDR_MANAGED` marker.
+The public upstream reference at `33503ab33737b76d1ec7d891b95d44ce020a1579` was inspected for selection mechanics; its existing marker order agrees with the retained Multplx precedence, and no source was imported.
+
+Authenticated Codex CLI 0.162.1 subsequently ran five isolated project primaries and ten actual managed workers in the guarded Herdr session, with no explicit backend-selection flag.
+Native turn contexts verify `gpt-6-luna` with high effort for all fifteen sessions, while process bindings identify the exact lab session/panes and distinct operational homes.
+Budget and habit used integrated source `ef6cb15`; the later three used final integrated code `77a449d407f91f8e40249a31b9f7f340030dc14b` from a separate immutable sandbox installation.
+These integrated candidates include the backend changes here and separately recorded Codex readiness/idle fixes; the final candidate's naturally timed researcher completion after an ended primary turn produced an automatic native turn within a measured 7.1-second upper bound.
+That provider wake observation belongs to the integrated supervision evidence, not to the inert backend fixtures above.
+The native trial ledger, exact binary hashes and full rollouts remain under `/tmp/multplx-herdr-five-rerun-20261014/evidence`; the user's default session and global installed runtime were preserved.
+
 ## Codex shared hook consent verification - 2026-10-08
 
 Real Codex CLI `0.160.1` was exercised through an isolated temporary `CODEX_HOME`, synthetic API credential and temporary runtime copies; no model request, user session, private operational home or global installation was used.

@@ -357,6 +357,18 @@ test_harness_cwd_arguments_environment_and_backend() {
   fi
 
   rm -rf "$record"
+  env -u TMUX -u TMUX_PANE -u HERDR_MANAGED PATH="$fakebin:/usr/bin:/bin" \
+    MX_FAKE_HARNESS_RECORD="$record" HERDR_ENV=1 HERDR_SESSION=mx-lab-fixture \
+    HERDR_PANE_ID=w7:p3 "$case_dir/bin/multplx" pi >/dev/null
+  python3 - "$root/state/workspace-connection.json" <<'PYCONNECTION'
+import json, sys
+with open(sys.argv[1]) as stream:
+    connection = json.load(stream)
+assert connection['backend'] == 'herdr', connection
+assert connection['target'] == 'mx-lab-fixture:w7:p3', connection
+PYCONNECTION
+
+  rm -rf "$record"
   PATH="$fakebin:/usr/bin:/bin" MX_FAKE_HARNESS_RECORD="$record" MX_BACKEND=tmux \
     "$case_dir/bin/multplx" --backend auto pi >/dev/null
   [ "$(cat "$record/backend")" = unset ] || fail "--backend auto did not restore detection"

@@ -234,7 +234,7 @@ mx_backend_detect_cmux_app_is_ancestor() {
 # distinct from the primary-marker case.
 mx_backend_name() {
   local line v detected marker
-  if [ -n "${MX_BACKEND:-}" ]; then
+  if [ -n "${MX_BACKEND:-}" ] && [ "$MX_BACKEND" != auto ]; then
     printf '%s' "$MX_BACKEND"
     return 0
   fi
@@ -242,6 +242,7 @@ mx_backend_name() {
     while IFS= read -r line || [ -n "$line" ]; do
       v=$(printf '%s' "$line" | tr -d '[:space:]')
       if [ -n "$v" ]; then
+        [ "$v" != auto ] || break
         printf '%s' "$v"
         return 0
       fi

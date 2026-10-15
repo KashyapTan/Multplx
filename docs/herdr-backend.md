@@ -22,6 +22,8 @@ Select Herdr with local `config/backend` containing `herdr`, `MX_BACKEND=herdr` 
 It is also auto-detected when the primary runs natively under `HERDR_ENV=1` and is not inside tmux.
 A tmux pane nested inside Herdr resolves to tmux because the innermost multiplexer wins.
 An auto-detected Herdr spawn prints an opt-out notice.
+Bootstrap diagnostics share the task-spawn resolver, including explicit configuration and `auto` handling.
+Primary conversation connection records use the installed pane markers `HERDR_ENV=1` and `HERDR_PANE_ID`, with the exact named session.
 
 The Rust adapter stops before creating a Herdr container or acquiring a task worktree when `herdr` or the protocol floor is unavailable.
 It parses Herdr JSON internally, so `jq` is not a backend runtime dependency.

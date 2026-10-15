@@ -262,6 +262,37 @@ ROWS
   pass "bootstrap: a session-provider backend gates its own CLI, never a false tmux requirement"
 }
 
+test_runtime_detection_matches_spawn_precedence() {
+  local case_dir fakebin out markers configured expected env_backend tmux_marker herdr_marker cmux_marker
+  case_dir="$TMP_ROOT/detection-precedence"
+  mkdir -p "$case_dir/home/config"
+  printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
+  fakebin=$(make_fake_toolchain "$case_dir")
+  mx_fake_exit0 "$fakebin" herdr cmux
+  while IFS='^' read -r configured env_backend tmux_marker herdr_marker cmux_marker expected; do
+    printf '%s\n' "$configured" > "$case_dir/home/config/backend"
+    out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
+      MX_BOOTSTRAP_DETECT_ONLY=1 MX_BACKEND="$env_backend" TMUX="$tmux_marker" \
+      HERDR_ENV="$herdr_marker" CMUX_WORKSPACE_ID="$cmux_marker" "$ROOT/bin/mx-bootstrap.sh")
+    assert_not_contains "$out" 'BACKEND_INVALID' "auto must resolve before backend validation"
+    case "$expected" in
+      tmux) assert_not_contains "$out" 'auto-detected' "nested tmux and explicit overrides must stay silent" ;;
+      herdr) assert_contains "$out" 'auto-detected herdr runtime' "Herdr detection must match spawn" ;;
+      cmux) assert_contains "$out" 'auto-detected cmux runtime' "cmux detection must match spawn" ;;
+    esac
+  done <<'ROWS'
+^^socket,123,0^1^workspace^tmux
+^^^1^workspace^herdr
+^^^^workspace^cmux
+tmux^^^1^workspace^tmux
+herdr^tmux^socket,123,0^1^workspace^tmux
+auto^auto^socket,123,0^1^workspace^tmux
+auto^auto^^1^workspace^herdr
+tmux^auto^^1^workspace^tmux
+ROWS
+  pass "bootstrap uses spawn backend precedence for nested markers, explicit overrides, and auto"
+}
+
 test_herdr_install_requires_manual_action() {
   local out status
   out=$("$ROOT/bin/mx-bootstrap.sh" install herdr 2>&1)
@@ -619,6 +650,7 @@ test_bootstrap_reporting
 test_git_is_required_with_supported_install_instruction
 test_session_provider_backends_do_not_require_tmux
 test_session_provider_backends_gate_own_cli_not_tmux
+test_runtime_detection_matches_spawn_precedence
 test_herdr_install_requires_manual_action
 test_cmux_bundled_cli_satisfies_dependency
 test_unknown_backend_reports_invalid_configuration
