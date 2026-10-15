@@ -125,3 +125,8 @@ Public upstream reference commit `33503ab33737b76d1ec7d891b95d44ce020a1579` was 
 Its explicit `--cursor` transport supports the same separation from Claude's protocol.
 The Rust transport here was implemented against Multplx's existing policy and the provider contract; no upstream source was copied.
 The comparison used the public upstream checkout and its MIT license, not a private repository subtree.
+
+The session-start nudge takes no hook payload; Cursor now starts it with null stdin, matching the shared nudge entry point.
+A deterministic fixture with an early-closed stdin and a payload larger than pipe capacity reproduced lost startup context before the fix.
+Required guard payloads retain their separate transport: nonzero child statuses and diagnostics survive a failed write, while a successful guard with undelivered input remains a transport failure.
+The transport always waits for the child, including after a pipe-write error.

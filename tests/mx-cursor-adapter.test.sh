@@ -65,6 +65,7 @@ make_hook_fixture() {
   cp "$ROOT/bin/mx-rust-runtime.sh" "$fixture/bin/"
   cat >"$fixture/bin/mx-sessionstart-nudge.sh" <<'SH'
 #!/usr/bin/env bash
+exec 0<&-
 printf 'RUN_SESSION_START_EXACTLY_ONCE\n'
 SH
   cat >"$fixture/bin/mx-arm-pretool-check.sh" <<'SH'
@@ -96,6 +97,9 @@ test_cursor_hook_translation_and_bounds() {
   output=$(printf '{"session_id":"s"}' | "$fixture/bin/mx-cursor-hook.sh" session-start)
   [ "$(printf '%s' "$output" | jq -r '.additional_context')" = RUN_SESSION_START_EXACTLY_ONCE ] \
     || fail "Cursor sessionStart context translation failed"
+  output=$(python3 -c 'import json; print(json.dumps({"session_id":"s","padding":"x"*(4*1024*1024)}))' | "$fixture/bin/mx-cursor-hook.sh" session-start)
+  [ "$(printf '%s' "$output" | jq -r '.additional_context')" = RUN_SESSION_START_EXACTLY_ONCE ] \
+    || fail "Cursor sessionStart lost context when its no-input helper closed stdin"
   output=$(printf '{"tool_name":"Shell","tool_input":{"command":"true"}}' | "$fixture/bin/mx-cursor-hook.sh" pre-tool)
   [ "$(printf '%s' "$output" | jq -r '.permission')" = allow ] || fail "Cursor preToolUse allow translation failed"
   output=$(printf '{"tool_name":"Task","tool_input":{}}' | "$fixture/bin/mx-cursor-hook.sh" pre-tool)
