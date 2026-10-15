@@ -598,3 +598,10 @@ All five focused scripts passed without gate skips.
 The native Herdr suites used inert synthetic harnesses to establish exact endpoint startup, capture, send, and cleanup; they do not establish paid provider execution or idle wake delivery.
 The launcher regression separately records `herdr` and the exact named-session pane from `HERDR_ENV=1` without the historical `HERDR_MANAGED` marker.
 The public upstream reference at `33503ab33737b76d1ec7d891b95d44ce020a1579` was inspected for selection mechanics; its existing marker order agrees with the retained Multplx precedence, and no source was imported.
+
+Authenticated Codex CLI 0.162.1 subsequently ran five isolated project primaries and ten actual managed workers in the guarded Herdr session, with no explicit backend-selection flag.
+Native turn contexts verify `gpt-6-luna` with high effort for all fifteen sessions, while process bindings identify the exact lab session/panes and distinct operational homes.
+Budget and habit used integrated source `ef6cb15`; the later three used final integrated code `77a449d407f91f8e40249a31b9f7f340030dc14b` from a separate immutable sandbox installation.
+These integrated candidates include the backend changes here and separately recorded Codex readiness/idle fixes; the final candidate's naturally timed researcher completion after an ended primary turn produced an automatic native turn within a measured 7.1-second upper bound.
+That provider wake observation belongs to the integrated supervision evidence, not to the inert backend fixtures above.
+The native trial ledger, exact binary hashes and full rollouts remain under `/tmp/multplx-herdr-five-rerun-20261014/evidence`; the user's default session and global installed runtime were preserved.
