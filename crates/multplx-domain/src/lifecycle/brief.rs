@@ -709,7 +709,8 @@ mod tests {
             &state,
         )
         .expect("daemon brief");
-        assert!(daemon.contains("replace {TASK}"));
+        assert!(daemon.contains("replace every {TASK}"));
+        assert!(daemon.contains("standing sub-orchestrator, output=coordination"));
         let daemon_body = fs::read_to_string(data.join("daemon/brief.md")).expect("daemon");
         assert!(daemon_body.contains("- direct\n- local"));
 
