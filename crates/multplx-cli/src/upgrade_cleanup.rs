@@ -24,6 +24,7 @@ pub(crate) struct Plan {
     task_ids: BTreeSet<String>,
     pr_artifacts: BTreeMap<PathBuf, Vec<u8>>,
     tasks: BTreeMap<String, Vec<u8>>,
+    retired_intents: BTreeMap<String, crate::retired_intent::Proof>,
     snapshots: BTreeMap<PathBuf, Vec<u8>>,
     retained: BTreeMap<String, String>,
     packets: usize,
@@ -34,7 +35,8 @@ pub(crate) struct Plan {
 }
 impl Plan {
     pub(crate) fn actionable(&self) -> bool {
-        !self.tasks.is_empty()
+        !self.retired_intents.is_empty()
+            || !self.tasks.is_empty()
             || self.packets > 0
             || self.wakes > 0
             || self.checks > 0
@@ -61,6 +63,11 @@ impl Plan {
         for task in &self.holds {
             eprintln!(
                 "  HOLD completed backlog item {task}; prevent redispatch without inventing a new completion"
+            );
+        }
+        for task in self.retired_intents.keys() {
+            eprintln!(
+                "  QUARANTINE retired task {task} unsubmitted spawn intent; retain exact retirement and launch evidence"
             );
         }
         for task in self.tasks.keys() {
@@ -187,6 +194,23 @@ pub(crate) fn inspect(root: &Path, home: &Path) -> Result<Plan, String> {
         };
         if let Some(reason) = reason {
             plan.retained.insert(task.into(), reason);
+        }
+    }
+    for entry in fs::read_dir(state).map_err(|e| e.to_string())? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        if let Some(task) = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .and_then(|s| s.strip_prefix(".spawn-"))
+            .and_then(|s| s.strip_suffix(".intent"))
+            && fs::symlink_metadata(state.join(format!("{task}.meta"))).is_err()
+        {
+            let proof = crate::retired_intent::inspect(root, home, task)?;
+            plan.snapshots
+                .extend(crate::retired_intent::snapshots(&proof).clone());
+            snapshot(&mut plan, &path)?;
+            plan.task_ids.insert(task.into());
+            plan.retired_intents.insert(task.into(), proof);
         }
     }
     let (requests, total) =
@@ -427,6 +451,43 @@ pub(crate) fn apply(root: &Path, home: &Path, approved: &Plan) -> Result<(), Str
             );
         }
     }
+    for task in approved.retired_intents.keys() {
+        task_locks.push(
+            DirectoryLock::try_acquire(state.join(format!(".spawn-{task}.lock")), &processes)
+                .map_err(|e| e.to_string())?,
+        );
+    }
+    for path in approved
+        .snapshots
+        .keys()
+        .filter(|p| p.parent() == Some(state.join(".spawn-actions").as_path()))
+    {
+        let id = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .ok_or("invalid spawn action filename")?;
+        task_locks.push(
+            DirectoryLock::try_acquire(state.join(format!(".spawn-action-{id}.lock")), &processes)
+                .map_err(|e| e.to_string())?,
+        );
+    }
+    for proof in approved.retired_intents.values() {
+        let archive = crate::retired_intent::archive(proof);
+        child_guards.push(
+            MaintenanceGuard::acquire_anchored(&archive.join("state"), state, &processes)
+                .map_err(|e| e.to_string())?,
+        );
+        for name in [".watch.lock", ".workspace-launch.lock"] {
+            task_locks.push(
+                DirectoryLock::try_acquire_anchored(
+                    &archive.join("state").join(name),
+                    state,
+                    &processes,
+                )
+                .map_err(|e| e.to_string())?,
+            );
+        }
+    }
     for (task, bytes) in &approved.tasks {
         let record = subagent_model::read_meta(
             task,
@@ -472,6 +533,9 @@ pub(crate) fn apply(root: &Path, home: &Path, approved: &Plan) -> Result<(), Str
     evidence::private_directory(&state.join(".upgrade-cleanup"), true)?;
     evidence::private_directory(&audit, true)?;
     atomic_replace(audit.join("backup.json"), &bytes, 0o600).map_err(|e| e.to_string())?;
+    for proof in approved.retired_intents.values() {
+        crate::retired_intent::quarantine(root, home, proof)?;
+    }
     for task in &approved.holds {
         multplx_domain::backlog::BacklogStore::new(ctx.data.join("backlog.md"))
             .hold(

@@ -9,6 +9,7 @@ mod domain;
 mod launcher;
 mod migration;
 mod project;
+mod retired_intent;
 mod review;
 mod session_start;
 mod status_snapshot;
@@ -103,6 +104,12 @@ enum Command {
     /// Install, upgrade, or uninstall the global Multplx binary.
     #[command(disable_help_flag = true)]
     LauncherInstall {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Quarantine verified retired-task spawn reservations without launching sessions.
+    #[command(disable_help_flag = true)]
+    UpgradeCleanup {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
@@ -590,6 +597,7 @@ impl Cli {
             Command::Launcher { args } => launcher::run(&args),
             Command::Viz { args } => launcher::run_viz(&args),
             Command::LauncherInstall { args } => launcher::run_installer(&args),
+            Command::UpgradeCleanup { args } => retired_intent::run(&args),
             Command::TestRun { args } => tooling::run_tests(&args),
             Command::TestIsolationProof { args } => tooling::run_isolation_proof(&args),
             Command::DocAudienceCheck { args } => tooling::run_documentation_check(&args),

@@ -526,7 +526,18 @@ mod tests {
         let mut command = Command::new("/usr/bin/true");
         let mut fixture =
             ProcessFixture::spawn(&mut command, Duration::from_millis(25)).expect("spawn fixture");
-        thread::sleep(Duration::from_millis(10));
+        // Observe this exact child's exit without reaping it, so stop still
+        // performs the first reap and never depends on scheduler timing.
+        let pid =
+            Pid::from_raw(i32::try_from(fixture.id().expect("owned child")).expect("child PID"))
+                .expect("positive child PID");
+        let exited = rustix::process::waitid(
+            rustix::process::WaitId::Pid(pid),
+            rustix::process::WaitIdOptions::EXITED | rustix::process::WaitIdOptions::NOWAIT,
+        )
+        .expect("observe owned child exit")
+        .expect("exited child status");
+        assert_eq!(exited.exit_status(), Some(0));
 
         let status = fixture.stop().expect("reap completed child");
 

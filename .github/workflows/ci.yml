@@ -15,7 +15,8 @@ concurrency:
 
 jobs:
   rust:
-    name: Rust (${{ matrix.os }})
+    # The existing required macOS check remains the final artifact consumer.
+    name: ${{ matrix.os == 'macos-latest' && 'Rust build (macos-latest)' || format('Rust ({0})', matrix.os) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -57,8 +58,18 @@ jobs:
       - name: Build and verify platform release package
         run: |
           set -eu
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code
           package="$RUNNER_TEMP/multplx-${{ runner.os }}-${{ runner.arch }}"
           bin/mx-release-package.sh "$package" target/release/mx
+          python3 - "$package.provenance.json" "$(git rev-parse HEAD)" "${{ runner.os }}" "${{ runner.arch }}" target/release/mx "$(rustc --version)" <<'PY'
+          import hashlib, json, pathlib, sys
+          destination, revision, platform, architecture, binary, toolchain = sys.argv[1:]
+          pathlib.Path(destination).write_text(json.dumps({
+              "revision": revision, "os": platform, "arch": architecture, "toolchain": toolchain,
+              "binary_sha256": hashlib.sha256(pathlib.Path(binary).read_bytes()).hexdigest(),
+          }, sort_keys=True) + "\n")
+          PY
           case "${{ runner.os }}" in
             macOS) (cd "$RUNNER_TEMP" && shasum -a 256 -c "$(basename "$package").tar.gz.sha256") ;;
             Linux) (cd "$RUNNER_TEMP" && sha256sum -c "$(basename "$package").tar.gz.sha256") ;;
@@ -79,7 +90,80 @@ jobs:
           path: |
             ${{ runner.temp }}/multplx-${{ runner.os }}-${{ runner.arch }}.tar.gz
             ${{ runner.temp }}/multplx-${{ runner.os }}-${{ runner.arch }}.tar.gz.sha256
+            ${{ runner.temp }}/multplx-${{ runner.os }}-${{ runner.arch }}.provenance.json
           if-no-files-found: error
+      - name: Exercise production Rust command boundaries
+        if: runner.os != 'macOS'
+        run: target/release/mx test-run --family pure-contract-unit --jobs auto
+
+  rust-macos-boundaries:
+    # Keep the old required check name on the final macOS gate, including a
+    # producer failure rather than allowing an automatically skipped success.
+    name: Rust (macos-latest)
+    needs: rust
+    if: always()
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Require successful exact-run platform producers
+        env:
+          PRODUCER_RESULT: ${{ needs.rust.result }}
+        run: test "$PRODUCER_RESULT" = success
+      - uses: actions/checkout@v6
+      - name: Install stable Rust toolchain
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable --component clippy,rustfmt --no-self-update
+          rustup default stable
+          rustc --version
+          cargo --version
+      - name: Install runtime test dependencies (macOS)
+        run: brew install ripgrep tmux
+      - name: Require runtime test dependencies
+        run: |
+          set -eu
+          for tool in rg tmux python3 zsh cargo; do
+            command -v "$tool" >/dev/null || {
+              echo "::error::$tool is required by the existing command-boundary fixtures"
+              exit 1
+            }
+          done
+      - name: Download exact-run macOS platform release package
+        uses: actions/download-artifact@v4
+        with:
+          name: multplx-${{ runner.os }}-${{ runner.arch }}
+          path: ${{ runner.temp }}
+      - name: Verify package, revision, platform and binary identity
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          package="$RUNNER_TEMP/multplx-${{ runner.os }}-${{ runner.arch }}"
+          (cd "$RUNNER_TEMP" && shasum -a 256 -c "$(basename "$package").tar.gz.sha256")
+          tar -xzf "$package.tar.gz" -C "$RUNNER_TEMP"
+          python3 - "$package.provenance.json" "$GITHUB_SHA" "${{ runner.os }}" "${{ runner.arch }}" "$package/bin/mx" "$(rustc --version)" <<'PY'
+          import hashlib, json, pathlib, sys
+          provenance, revision, platform, architecture, binary, toolchain = sys.argv[1:]
+          record = json.loads(pathlib.Path(provenance).read_text())
+          expected = {
+              "revision": revision, "os": platform, "arch": architecture, "toolchain": toolchain,
+              "binary_sha256": hashlib.sha256(pathlib.Path(binary).read_bytes()).hexdigest(),
+          }
+          if record != expected:
+              raise SystemExit("platform artifact does not match this revision, runner or binary")
+          PY
+          # The canonical installer verifies every packaged byte and platform;
+          # all installation paths are confined to this job's temporary files.
+          "$package/bin/mx" launcher-install --package "$package" \
+            --bin-dir "$RUNNER_TEMP/boundary-package-install/bin" \
+            --config-dir "$RUNNER_TEMP/boundary-package-install/config" \
+            --data-dir "$RUNNER_TEMP/boundary-package-install/data"
+          "$package/bin/mx" launcher-install --uninstall \
+            --bin-dir "$RUNNER_TEMP/boundary-package-install/bin" \
+            --config-dir "$RUNNER_TEMP/boundary-package-install/config" \
+            --data-dir "$RUNNER_TEMP/boundary-package-install/data"
+          mkdir -p target/release
+          cp "$package/bin/mx" target/release/mx
+          chmod 755 target/release/mx
       - name: Exercise production Rust command boundaries
         run: target/release/mx test-run --family pure-contract-unit --jobs auto
 

@@ -2065,6 +2065,25 @@ fn inspect_home_users(home: &Path, inspection: &mut RetainedUsers) -> Result<(),
     Ok(())
 }
 
+pub(crate) fn verify_retired_intent_users(
+    root: &Path,
+    home: &Path,
+    archive: &Path,
+    task: &str,
+) -> Result<(), String> {
+    let mut users = RetainedUsers {
+        preview: true,
+        ..Default::default()
+    };
+    inspect_retained_users(root, home, home, None, true, &mut users)?;
+    if !users.stops.is_empty() || !users.primaries.is_empty() || !users.stale_launches.is_empty() {
+        return Err(
+            "live or uncertain runtime users prevent retired-intent maintenance; retained".into(),
+        );
+    }
+    verify_cleanup_home_quiescent(root, home, archive, task)
+}
+
 pub(crate) fn verify_cleanup_home_quiescent(
     runtime_root: &Path,
     root_home: &Path,
@@ -2346,6 +2365,22 @@ fn inspect_retained_users(
                 .and_then(|name| name.strip_suffix(".intent"))
                 .ok_or("invalid spawn intent identity")?;
             let meta = home.join("state").join(format!("{id}.meta"));
+            if fs::symlink_metadata(&meta).is_err() && allow_stopped {
+                let proof =
+                    crate::retired_intent::inspect(runtime_root, home, id).map_err(|e| {
+                        format!("retired spawn intent {} is uncertain: {e}", path.display())
+                    })?;
+                inspection
+                    .snapshots
+                    .extend(crate::retired_intent::snapshots(&proof).clone());
+                let bytes = upgrade_owned_snapshot(path)?;
+                inspection.snapshots.insert(path.clone(), bytes.clone());
+                inspection
+                    .standing
+                    .insert(path.clone(), format!("{:x}", Sha256::digest(&bytes)));
+                inspection.inert.insert(path.clone(), "unsubmitted successor of verified retired home; quarantine only after successful consented upgrade".into());
+                continue;
+            }
             let (current, _) = retained_worker_is_quiescent(
                 &meta,
                 runtime_root,
