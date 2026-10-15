@@ -1502,21 +1502,42 @@ pub fn subagent_guard(args: &[String], payload: &str, _root: &Path) -> CommandRe
             ""
         })
     };
-    if command.is_none()
-        && let Ok(value) = serde_json::from_str::<serde_json::Value>(payload)
-    {
-        tool = tool.or_else(|| {
-            value
-                .get("toolName")
-                .or_else(|| value.get("tool_name"))
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned)
-        });
-        command = value
-            .pointer("/toolInput/command")
-            .or_else(|| value.pointer("/tool_input/command"))
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned);
+    let cursor_denied = |detail: &str| CommandResult {
+        status: 0,
+        stdout: format!(
+            "{}\n",
+            json!({"permission":"deny", "user_message":detail, "agent_message":detail})
+        ),
+        stderr: format!("{detail}\n"),
+    };
+    if command.is_none() {
+        match serde_json::from_str::<serde_json::Value>(payload) {
+            Ok(value) => {
+                tool = tool.or_else(|| {
+                    value
+                        .get("toolName")
+                        .or_else(|| value.get("tool_name"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                });
+                command = value
+                    .pointer("/toolInput/command")
+                    .or_else(|| value.pointer("/tool_input/command"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned);
+                if cursor && (!value.is_object() || tool.is_none()) {
+                    return cursor_denied(
+                        "[invalid-cursor-hook-input] expected a preToolUse object with tool_name",
+                    );
+                }
+            }
+            Err(_) if cursor => {
+                return cursor_denied(
+                    "[invalid-cursor-hook-input] expected preToolUse JSON on stdin",
+                );
+            }
+            Err(_) => {}
+        }
     }
     if tool.as_deref().is_some_and(|name| {
         !matches!(
@@ -1526,6 +1547,11 @@ pub fn subagent_guard(args: &[String], payload: &str, _root: &Path) -> CommandRe
     }) {
         return allowed();
     }
+    if cursor && command.is_none() {
+        return cursor_denied(
+            "[invalid-cursor-hook-input] shell tool_input.command is missing or is not a string",
+        );
+    }
     let Some(command) = command.filter(|value| !value.is_empty()) else {
         return allowed();
     };
@@ -1534,15 +1560,7 @@ pub fn subagent_guard(args: &[String], payload: &str, _root: &Path) -> CommandRe
         multplx_core::command_policy::remote_pr_merge(&command, &targets, current.as_deref())
     {
         if cursor {
-            let detail = format!("[{}] {}", denial.code, denial.reason);
-            return CommandResult {
-                status: 0,
-                stdout: format!(
-                    "{}\n",
-                    json!({"permission":"deny", "user_message":detail, "agent_message":detail})
-                ),
-                stderr: format!("{detail}\n"),
-            };
+            return cursor_denied(&format!("[{}] {}", denial.code, denial.reason));
         }
         return pretool_denial(&denial, claude);
     }
@@ -2485,6 +2503,25 @@ mod tests {
             let response: serde_json::Value = serde_json::from_str(&allowed.stdout).unwrap();
             assert_eq!(response["permission"], "allow");
             assert!(allowed.stderr.is_empty());
+        }
+        for payload in [
+            "",
+            "not-json",
+            "{}",
+            r#"{"tool_name":"Shell","tool_input":{}}"#,
+        ] {
+            let denied = subagent_guard(&["--cursor".into()], payload, root.path());
+            let response: serde_json::Value = serde_json::from_str(&denied.stdout).unwrap();
+            assert_eq!(response["permission"], "deny");
+            assert!(denied.stderr.contains("invalid-cursor-hook-input"));
+        }
+        // Non-shell tool inputs may have provider-specific shapes.
+        for payload in [
+            r#"{"tool_name":"MCP:example","tool_input":"opaque JSON"}"#,
+            r#"{"tool_name":"Read"}"#,
+        ] {
+            let allowed = subagent_guard(&["--cursor".into()], payload, root.path());
+            assert!(allowed.stdout.contains("allow"));
         }
         for command in ["gh pr merge 9 --auto", "git push origin HEAD:main"] {
             let denied = subagent_guard(

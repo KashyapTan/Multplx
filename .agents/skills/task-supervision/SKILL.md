@@ -11,6 +11,9 @@ Supervise the accepted job until the parent validates the full agreed scope, res
 After verified delivery, stop automatic contact, polling, nudging and work routing; retain availability for explicit user-directed follow-up as required by [AGENTS.md](../../../AGENTS.md#9-persistent-coordinators-and-parent-reporting).
 Preserve task and accepted-revision evidence when scope changes.
 
+Zero pending wakes means the inbox is drained.
+After accepting worker evidence, resume the accepted parent outcome: arrange integration, check the complete acceptance criteria and deliver the result.
+Route missing implementation back to the assigned workers, retaining their task and accepted-revision identity.
 Keep the coordinator available for user discussion and new requests while workers execute asynchronously.
 Follow the emitted harness protocol to end the turn and wait while supervision is healthy.
 When explicit recovery needs a checkpoint, invoke the emitted checkpoint command alone as the final shell command; do not bundle it with inspection, a pipeline, redirection or shell backgrounding.

@@ -328,13 +328,31 @@ The base ordering returned 124 after entering maintenance despite an already dur
 The corrected ordering returns the existing signal before that maintenance starts, keeps the wake queue byte-for-byte, and preserves the original question/completion and acknowledged replay assertions.
 This is deterministic runtime evidence with injected maintenance; it does not claim a fresh authenticated harness trial.
 
-## Claude CLI hook loading recheck, 2026-10-14
+## Native Claude install identity and hook recheck, 2026-10-14
 
-An isolated npm installation of Claude Code `2.1.300` loaded explicit CLI settings and fired native `SessionStart` and `SessionEnd` hooks from a disposable project with a separate `CLAUDE_CONFIG_DIR`.
-Both hooks received documented JSON on stdin with the exact session and project path.
-The CLI then reported `Not logged in`; authenticated shell/read/write, managed nested-worker identity and Stop behavior were not established by this probe.
-The existing Claude merge checker retains stderr-only exit-two denials, and portable tests cover benign calls and remote merge refusals.
-The reported work-laptop failure has no attached Claude version or error output, so this result does not attribute it to the independently reproduced Cursor empty-output defect.
+The supplied work-laptop transcript identifies Claude Code `2.1.296` on macOS running from `.local/share/claude/versions/2.1.296`.
+The former basename-only matcher did not recognize that executable and eventually called `basename "-zsh"` on the login-shell ancestor, producing `basename: illegal option -- z` followed by `cannot locate harness process in ancestry`.
+The startup correctly retained read-only mode when it could not prove session-lock ownership; the matcher was the defect.
+
+The sourced shell ABI and Rust session-lock owner now recognize an absolute `.local/share/claude/versions/<major.minor.patch>` install path.
+Linux's bare kernel filename also requires a congruent versioned install path in argv zero; an arbitrary numeric process name, directory named `claude`, interpreter payload or unrelated process with forged argv zero remains insufficient.
+The caller's restricted harness matcher still controls whether Claude is eligible.
+Shell basename extraction uses parameter expansion, so leading-dash shell names cannot be parsed as command options.
+The shared Rust/sourced-shell parity tests cover both observed layouts, a path containing spaces, leading-dash shells, mismatched versions and unrelated process payloads.
+The new read-only doctor `session-lock` check exposes unverified/missing Claude ancestry and stale, foreign or absent primary-lock records; it never acquires, replaces or clears that lock.
+Historical missing endpoints and orphan wake rows remain separate findings with unchanged repair ownership.
+
+Claude Code `2.1.300` was installed in an isolated npm prefix and executed as an actual version-named native binary in an install path containing spaces.
+A deterministic localhost Anthropic-format fixture supplied synthetic tool requests to the real CLI, with narrow native tool allowances and the actual merge-check adapter.
+Native SessionStart, Read, Write, Bash, rejected merge, Stop and SessionEnd hook calls all identified the same live Claude PID and proved ownership of the disposable session lock.
+The CLI returned actual read contents, created the requested fixture file and returned the benign shell output.
+Its merge tool result reported the hook denial; a fixture-only `gh` executable was never entered.
+The native provider hook and tool execution are real, while the model responses are synthetic and consume no provider inference or subscription.
+The user's accepted scope waives authenticated Claude/Cursor model runs; these checks do not claim authenticated inference or managed persistent/nested Claude workers.
+
+The public upstream reference at commit `33503ab33737b76d1ec7d891b95d44ce020a1579` independently handles version-named Claude executables and leading-dash shells.
+Its broad path-component/interpreter matching was not imported; Multplx retains its narrower install-layout and command-position checks.
+No upstream code was copied.
 
 [Claude installation](https://code.claude.com/docs/en/setup), [authentication](https://code.claude.com/docs/en/authentication) and the [hook reference](https://code.claude.com/docs/en/hooks) are the provider contracts used for this recheck.
 Claude subscription OAuth, Anthropic API credentials and supported enterprise/cloud provider methods require their own legitimate authorization; a Codex subscription was not treated as Claude authentication.

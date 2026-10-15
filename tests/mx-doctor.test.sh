@@ -67,6 +67,7 @@ EOF
 }
 
 run_doctor() {
+  CLAUDECODE="${MX_DOCTOR_TEST_CLAUDECODE:-0}" \
   GIT_CEILING_DIRECTORIES="$CASE_DIR" \
   MX_HOME="$HOME_DIR" \
   MX_ROOT_OVERRIDE="$ROOT_DIR" \
@@ -153,7 +154,7 @@ test_clean_fixture_and_exit_zero() {
   local output="$CASE_DIR/doctor.out" status
   run_doctor_capture "$output" status
   expect_code 0 "$status" "clean doctor sweep"
-  assert_grep 'summary: 15 OK · 0 WARN · 0 FAIL          exit 0' "$output" \
+  assert_grep 'summary: 16 OK · 0 WARN · 0 FAIL          exit 0' "$output" \
     "clean sweep summary mismatch"
   pass "clean fixture reports every check OK and exits zero"
 }
@@ -268,6 +269,41 @@ SH
   ln -s "$(command -v dirname)" "$FAKEBIN_DIR/dirname"
   MX_DOCTOR_TEST_PATH="$FAKEBIN_DIR" assert_check tools 2 'missing gh'
 
+  read_case "$(make_case session-lock)"
+  printf '999999999\n' > "$HOME_DIR/state/.lock"
+  assert_check session-lock 2 'session lock owner 999999999 is dead or not a verified harness'
+  run_doctor_capture "$CASE_DIR/session-lock-fix.out" now --fix --check session-lock
+  expect_code 2 "$now" 'doctor must not repair the primary session lock'
+  [ "$(cat "$HOME_DIR/state/.lock")" = 999999999 ] || fail 'doctor changed the primary session lock'
+  cat > "$FAKEBIN_DIR/ps" <<'SH'
+#!/usr/bin/env bash
+case " $* " in
+  *' comm='*) printf '%s\n' -zsh ;;
+  *' ppid='*) printf '%s\n' '1 -zsh' ;;
+esac
+SH
+  chmod +x "$FAKEBIN_DIR/ps"
+  MX_DOCTOR_TEST_CLAUDECODE=1 assert_check session-lock 2 'cannot locate the current Claude harness process in ancestry'
+  rm "$HOME_DIR/state/.lock"
+  mkdir "$HOME_DIR/state/.lock"
+  assert_check session-lock 2 'session lock is not a regular PID record'
+  rmdir "$HOME_DIR/state/.lock"
+  cat > "$FAKEBIN_DIR/ps" <<'SH'
+#!/usr/bin/env bash
+case " $* " in
+  *' comm='*) printf '%s\n' claude ;;
+  *' ppid='*) printf '%s\n' '1 claude' ;;
+  *' pid='*) printf '%s\n' "$2" ;;
+esac
+SH
+  chmod +x "$FAKEBIN_DIR/ps"
+  MX_DOCTOR_TEST_CLAUDECODE=1 assert_check session-lock 1 'Claude harness is detectable but has no session lock'
+  [ ! -e "$HOME_DIR/state/.lock" ] || fail 'doctor acquired a session lock'
+  printf '999999999\n' > "$HOME_DIR/state/.lock"
+  MX_DOCTOR_TEST_CLAUDECODE=1 assert_check session-lock 1 'session lock belongs to another harness pid 999999999'
+  assert_check session-lock 0 'session lock held by live verified harness pid 999999999'
+  [ "$(cat "$HOME_DIR/state/.lock")" = 999999999 ] || fail 'doctor replaced a foreign session lock'
+
   read_case "$(make_case primary-tangle)"
   mx_git_init_commit "$ROOT_DIR"
   git -C "$ROOT_DIR" branch -M main
@@ -355,8 +391,8 @@ test_exit_codes_and_json_contract() {
   jq -e '
     .schema == "mx-doctor.v1" and
     .worst_severity == "OK" and .exit_code == 0 and
-    .summary == {"ok":15,"warn":0,"fail":0} and
-    (.findings | length) == 15
+    .summary == {"ok":16,"warn":0,"fail":0} and
+    (.findings | length) == 16
   ' "$json" >/dev/null || fail "clean JSON contract mismatch"
 
   read_case "$(make_case json-warn)"

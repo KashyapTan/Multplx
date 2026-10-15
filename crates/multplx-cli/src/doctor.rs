@@ -25,6 +25,7 @@ struct Finding {
 }
 
 const CHECKS: &[(&str, &str)] = &[
+    ("session-lock", "locks & liveness"),
     ("watcher-lock", "locks & liveness"),
     ("watcher-beacon", "locks & liveness"),
     ("orphan-worktrees", "tasks & worktrees"),
@@ -88,6 +89,92 @@ fn alive(pid: &str) -> bool {
                 .status()
                 .is_ok_and(|s| s.success())
         })
+}
+
+fn session_lock(paths: &Paths) -> Finding {
+    use multplx_core::session_lock::{
+        SessionLockStatus, harness_ancestry_pid, harness_regex, status,
+    };
+    let lock = paths.state.join(".lock");
+    let probe = multplx_core::process::SystemProcessProbe::default();
+    let matcher = harness_regex();
+    let expected_claude =
+        std::env::var("CLAUDECODE").is_ok_and(|value| !value.is_empty() && value != "0");
+    let current = expected_claude.then(|| {
+        let claude = regex::Regex::new("^claude$").expect("static Claude matcher");
+        harness_ancestry_pid(std::process::id(), &probe, &claude)
+    });
+    let suggestion = Some("inspect bin/mx-lock.sh status and the current harness executable ancestry; repair startup before writing; doctor never acquires or replaces the session lock".into());
+    if current.as_ref().is_some_and(Result::is_err) {
+        return finding(
+            "session-lock",
+            "FAIL",
+            "cannot locate the current Claude harness process in ancestry; session startup cannot prove writer ownership",
+            suggestion,
+            false,
+        );
+    }
+    match status(&lock, &probe, &matcher) {
+        SessionLockStatus::Free if fs::symlink_metadata(&lock).is_ok() => finding(
+            "session-lock",
+            "FAIL",
+            "session lock is not a regular PID record; retained for inspection",
+            suggestion,
+            false,
+        ),
+        SessionLockStatus::Free if expected_claude => finding(
+            "session-lock",
+            "WARN",
+            "Claude harness is detectable but has no session lock; complete owned session startup before writing",
+            suggestion,
+            false,
+        ),
+        SessionLockStatus::Free => finding(
+            "session-lock",
+            "OK",
+            "session lock absent; no writer ownership claimed",
+            None,
+            false,
+        ),
+        SessionLockStatus::Held(owner) => {
+            if let Some(Ok(current)) = current
+                && current != owner
+            {
+                return finding(
+                    "session-lock",
+                    "WARN",
+                    format!(
+                        "session lock belongs to another harness pid {owner}; current harness pid {current} must remain read-only"
+                    ),
+                    suggestion,
+                    false,
+                );
+            }
+            finding(
+                "session-lock",
+                "OK",
+                format!("session lock held by live verified harness pid {owner}"),
+                None,
+                false,
+            )
+        }
+        SessionLockStatus::Unreadable => finding(
+            "session-lock",
+            "FAIL",
+            "session lock is unreadable; ownership remains unknown",
+            suggestion,
+            false,
+        ),
+        SessionLockStatus::Stale(owner) => finding(
+            "session-lock",
+            "FAIL",
+            format!(
+                "session lock owner {owner} is dead or not a verified harness; retained for owned reconciliation"
+            ),
+            suggestion,
+            false,
+        ),
+    }
 }
 
 fn watcher_lock(paths: &Paths, fix: bool, fixes: &mut Vec<String>) -> Finding {
@@ -170,6 +257,7 @@ fn metas(paths: &Paths) -> Vec<(String, String)> {
 
 fn check(name: &'static str, paths: &Paths, fix: bool, fixes: &mut Vec<String>) -> Finding {
     match name {
+        "session-lock" => session_lock(paths),
         "watcher-lock" => watcher_lock(paths, fix, fixes),
         "watcher-beacon" => {
             let active = metas(paths)

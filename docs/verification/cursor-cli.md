@@ -110,11 +110,13 @@ The wrapper changes to `CURSOR_PROJECT_DIR` because native plugin hooks execute 
 A project whose origin default is `release` still refused a push to that target from the plugin directory.
 Source and executable selection remain pinned through `MX_RUST_SOURCE_ROOT` and `MX_RUST_BIN`.
 A missing executable still produces a visible fail-closed setup error.
+The Cursor-specific transport also denies malformed JSON, a missing tool identity or a shell payload lacking its command, preserving diagnostics for schema failures.
+Non-shell tool input shapes remain provider-owned and are not constrained by the shell checker.
 
 The installed native runner with actual local hook subprocesses rejected the old empty response, accepted new Read, Write and benign Shell responses, denied `gh pr merge` and remote target pushes, and denied a missing runtime.
 This exercises the installed provider's hook execution and response parser without substituting a mock response validator.
 It is not an authenticated model or managed-worker end-to-end run.
-The real CLI inference probe returned authentication required despite `agent status` printing a partial logged-in result; current authenticated inference remains unverified.
+The real CLI inference probe returned authentication required despite `agent status` printing a partial logged-in result; authenticated inference remains unverified and was subsequently waived in the accepted test scope.
 No global trust, authentication or permission state was changed.
 The [official hook contract](https://cursor.com/docs/hooks) defines the permission response and exit behavior; [CLI authentication](https://cursor.com/docs/cli/reference/authentication) documents Cursor login and API keys.
 These sources do not establish support for authenticating Cursor with a Codex subscription.
