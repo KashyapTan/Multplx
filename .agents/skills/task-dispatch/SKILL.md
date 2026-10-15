@@ -9,6 +9,7 @@ metadata:
 
 Coordinators delegate requested substantive deliverables, including small tasks; workers execute their accepted assignment and may delegate bounded parts when useful.
 Keep intake, discussion, synthesis and coordination planning with the coordinator.
+Assign integration and its substantive fixes to a worker; a coordinator may inspect returned evidence and run bounded read-only checks to validate it.
 Use narrow inspection to route work without performing the requested investigation yourself.
 A well-specified fix needs only an implementer, not a compulsory research or review chain.
 
@@ -17,7 +18,10 @@ Keep repository instructions and original artifacts with this assignment; changi
 Use `mx brief --help` and `mx spawn --help` for the installed grammar and compatibility limits.
 Options belong to the command whose help lists them; do not invent `spawn --json` or a `config` command.
 Standing-agent briefs reject task-mode flags; express a local-only destination in the accepted outcome, and use task evidence without publication preparation.
-The brief owner writes `data/TASK_ID/brief.md`; fill the outcome, scope, acceptance criteria, constraints, sources and real dependencies before launch.
+The brief owner prints the exact `data/TASK_ID/brief.md` path; edit that file without replacing its coordination contract, and fill every `{TASK}` occurrence, including the standing Charter, before provisioning.
+Fill the outcome, scope, acceptance criteria, constraints, sources and real dependencies before launch.
+When parallel assignments share an interface, preserve its agreed inputs, outputs and failure behavior in both briefs, or record the unresolved dependency rather than inventing an API.
+Identify who will integrate and check the combined implementation; test authors may prepare isolated checks early, but a test double does not verify the production result.
 Standing managed workers are the dispatch default, independently of assignment role or output.
 The low-level CLI remains task-scoped when `--persistent` is omitted for existing callers; dispatch must select it explicitly.
 For a standing project worker, scaffold and fill the accepted brief, then seed its home and launch with the same role/output:

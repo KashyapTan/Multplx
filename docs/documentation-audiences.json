@@ -545,6 +545,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/agent-contract-friction.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/orchestrator-contract.md",
       "audience": "maintainer-verification"
     },

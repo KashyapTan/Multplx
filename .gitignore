@@ -27,3 +27,6 @@ config/herdr-presentation-spaces
 # Local generated audit timing artifacts (summaries live in the issue log).
 /plans/lean_redesign/phase12-postmerge-audit-behavior.json
 /plans/lean_redesign/phase12-dependency-fix-behavior.json
+
+# Private machine-specific experiment transcript; portable findings live in docs/verification.
+/LIVE_FIVE_PROJECT_EXPERIMENTS_2026-10-14.md
