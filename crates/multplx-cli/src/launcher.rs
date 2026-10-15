@@ -612,6 +612,7 @@ fn add_project_context(
             ));
         }
     }
+    eprintln!("{}", crate::project::consent_guidance(&binding.checkout_id));
     let binding_value = serde_json::to_value(binding).map_err(|error| error.to_string())?;
     let value = serde_json::json!({
         "schema": "mx-workspace-context.v1",
@@ -1089,6 +1090,9 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
             exec_binary(&forwarded, &launch_environment, remove_backend)
         }
         "project" | "projects" => {
+            if tail.first().is_some_and(|argument| argument == "consent") {
+                launch_environment.extend(capture_harnesses(&shim));
+            }
             let mut forwarded = vec![OsString::from("project")];
             forwarded.extend_from_slice(tail);
             exec_binary(&forwarded, &launch_environment, remove_backend)
