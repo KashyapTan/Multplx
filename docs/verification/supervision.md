@@ -337,6 +337,8 @@ The startup correctly retained read-only mode when it could not prove session-lo
 The sourced shell ABI and Rust session-lock owner now recognize an absolute `.local/share/claude/versions/<major.minor.patch>` install path.
 Linux's bare kernel filename also requires a congruent versioned install path in argv zero; an arbitrary numeric process name, directory named `claude`, interpreter payload or unrelated process with forged argv zero remains insufficient.
 The caller's restricted harness matcher still controls whether Claude is eligible.
+The supplied laptop transcript abbreviates the install prefix; a custom Enterprise prefix outside the documented default remains unverified.
+If startup still fails after updating, `ps -p PID -o comm=` (with the live Claude PID) reads the executable path without changing the lock; retain that path and the startup error for scoped diagnosis.
 Shell basename extraction uses parameter expansion, so leading-dash shell names cannot be parsed as command options.
 The shared Rust/sourced-shell parity tests cover both observed layouts, a path containing spaces, leading-dash shells, mismatched versions and unrelated process payloads.
 The new read-only doctor `session-lock` check exposes unverified/missing Claude ancestry and stale, foreign or absent primary-lock records; it never acquires, replaces or clears that lock.
