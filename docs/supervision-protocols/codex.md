@@ -33,7 +33,9 @@ When this session owns supervision and away mode is not active:
 7. `bin/mx-codex-idle.sh --end` stops only this thread's bridge and has the same manual identity requirement.
    `--run` belongs to the runtime owner and is not a model supervision command.
 
-If `codex queue --help` does not expose both `--thread` and `--message`, the Stop hook emits a visible compatibility warning.
-Only in that unsupported case, use the explicit foreground fallback `bin/mx-watch-checkpoint.sh --seconds "${MX_CODEX_WATCH_CHECKPOINT:-180}"`.
+The bridge checks queue capability through its captured native executable and reports unsupported queue capability through `bin/mx-codex-idle.sh --status` or a visible compatibility warning.
+Use that owner-reported status for capability diagnosis; a bare PATH `codex` command may select the Multplx launcher instead of the native provider executable.
+Do not probe native queue capability yourself when the owner reports healthy supervision.
+Only when the owner reports unsupported queue capability, use the explicit foreground fallback `bin/mx-watch-checkpoint.sh --seconds "${MX_CODEX_WATCH_CHECKPOINT:-180}"`.
 The bounded checkpoint returns control for human messages and pending wakes; it does not provide turn-ended event delivery.
 Never use shell `&` or Codex background tool tasks for supervision.
