@@ -232,7 +232,12 @@ fn notify_with_transport(
         write_json(&receipts_path, &receipts)?;
     }
     let submission_path = state.join(SUBMITTED);
-    if fs::symlink_metadata(&submission_path).is_ok() {
+    let submission_present = match fs::symlink_metadata(&submission_path) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(format!("cannot inspect native submission receipt: {error}")),
+    };
+    if submission_present {
         let submitted: Submitted = serde_json::from_slice(
             &multplx_core::filesystem::read_bounded_regular(&submission_path, 64 * 1024)
                 .map_err(|error| error.to_string())?,
