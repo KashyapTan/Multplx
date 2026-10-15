@@ -605,3 +605,8 @@ Budget and habit used integrated source `ef6cb15`; the later three used final in
 These integrated candidates include the backend changes here and separately recorded Codex readiness/idle fixes; the final candidate's naturally timed researcher completion after an ended primary turn produced an automatic native turn within a measured 7.1-second upper bound.
 That provider wake observation belongs to the integrated supervision evidence, not to the inert backend fixtures above.
 The native trial ledger, exact binary hashes and full rollouts remain under `/tmp/multplx-herdr-five-rerun-20261014/evidence`; the user's default session and global installed runtime were preserved.
+
+Hosted macOS CI exposed an acknowledgement/deadline fixture race: its 20 ms total window could expire before the asynchronous test server acknowledgement was scheduled, correctly producing an acknowledgement timeout instead of the intended post-ack clean end.
+The post-ack fixture now advances a private test clock only after the real socket acknowledgement is parsed and emitted, and holds the server socket through a channel until the deadline result is asserted.
+Public transport callers continue to use the real monotonic clock with unchanged acknowledgement and overall deadlines.
+Separate tests retain the real 20 ms missing-ack timeout and real 20 ms clean frame deadline without peer close or cancellation; no assertion or production timeout was relaxed.
