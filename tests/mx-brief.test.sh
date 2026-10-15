@@ -197,6 +197,7 @@ test_modes_do_not_request_review_or_merge() {
     assert_grep 'Only humans merge PRs' "$brief" 'yolo granted merge authority'
     if [ "$mode" = local-only ]; then
       assert_grep 'without a remote push or PR' "$brief" 'local-only destination lost'
+      assert_grep 'Do not run publication' "$brief" 'local-only brief still invites forge preparation'
     else
       assert_grep 'You may commit, push your task branch' "$brief" 'ordinary delivery forbidden'
     fi

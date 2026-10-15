@@ -1317,7 +1317,7 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
     }
 }
 
-const SUBAGENT_USAGE: &str = "Usage: mx-subagent-pretool-check.sh [--tool <tool-name>] [--command <cmd>] [--claude]\n\nNative delegation is allowed only on explicit human request for that scope under the operating contract; managed agents are the default, never falling back automatically. This hook retains tool capability rather than enforcing human-request authorization. Bash commands are checked only for supported remote PR merge, auto-merge, merge-queue, and target-branch push forms; local git merge and rebase remain available.\n";
+const SUBAGENT_USAGE: &str = "Usage: mx-subagent-pretool-check.sh [--tool <tool-name>] [--command <cmd>] [--claude|--cursor]\n\nNative delegation is allowed only on explicit human request for that scope under the operating contract; managed agents are the default, never falling back automatically. This hook retains tool capability rather than enforcing human-request authorization. --cursor emits Cursor permission JSON with exit 0 for allow and deny; --claude retains its exit-2 denial transport. Bash commands are checked only for supported remote PR merge, auto-merge, merge-queue, and target-branch push forms; local git merge and rebase remain available.\n";
 
 fn git_line(directory: &Path, arguments: &[&str]) -> Option<String> {
     let mut child = std::process::Command::new("git")
@@ -1447,6 +1447,7 @@ pub fn subagent_guard(args: &[String], payload: &str, _root: &Path) -> CommandRe
     let mut command = None;
     let mut tool = None;
     let mut claude = false;
+    let mut cursor = false;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -1476,6 +1477,10 @@ pub fn subagent_guard(args: &[String], payload: &str, _root: &Path) -> CommandRe
                 claude = true;
                 index += 1;
             }
+            "--cursor" => {
+                cursor = true;
+                index += 1;
+            }
             "-h" | "--help" => return CommandResult::success(SUBAGENT_USAGE),
             unknown => {
                 return CommandResult::error(
@@ -1485,6 +1490,18 @@ pub fn subagent_guard(args: &[String], payload: &str, _root: &Path) -> CommandRe
             }
         }
     }
+    if claude && cursor {
+        return CommandResult::error(2, "error: --claude and --cursor are mutually exclusive\n");
+    }
+    // Cursor permission hooks require valid JSON even for non-shell tools.
+    // Empty stdout is an invalid response and failClosed blocks every call.
+    let allowed = || {
+        CommandResult::success(if cursor {
+            "{\"permission\":\"allow\"}\n"
+        } else {
+            ""
+        })
+    };
     if command.is_none()
         && let Ok(value) = serde_json::from_str::<serde_json::Value>(payload)
     {
@@ -1507,18 +1524,29 @@ pub fn subagent_guard(args: &[String], payload: &str, _root: &Path) -> CommandRe
             "bash" | "shell" | "terminal" | "exec_command" | "shell_command" | "run_terminal_cmd"
         )
     }) {
-        return CommandResult::success("");
+        return allowed();
     }
     let Some(command) = command.filter(|value| !value.is_empty()) else {
-        return CommandResult::success("");
+        return allowed();
     };
     let (targets, current) = remote_merge_git_context(&command);
     if let Err(denial) =
         multplx_core::command_policy::remote_pr_merge(&command, &targets, current.as_deref())
     {
+        if cursor {
+            let detail = format!("[{}] {}", denial.code, denial.reason);
+            return CommandResult {
+                status: 0,
+                stdout: format!(
+                    "{}\n",
+                    json!({"permission":"deny", "user_message":detail, "agent_message":detail})
+                ),
+                stderr: format!("{detail}\n"),
+            };
+        }
         return pretool_denial(&denial, claude);
     }
-    CommandResult::success("")
+    allowed()
 }
 
 const NATIVE_OBSERVE_USAGE: &str = "Usage: mx-native-observe.sh --provider <provider> --event start|result|interrupted|reconcile\n\nReads one provider lifecycle hook payload on stdin. Records provider child identity when exposed, or an explicit session-bound fallback when it is not. Reconcile marks prior session-bound starts interrupted after parent restart. A result event records lifecycle evidence and never marks the owning task complete.\n";
@@ -2444,6 +2472,40 @@ mod tests {
                 "{tool}"
             );
         }
+    }
+
+    #[test]
+    fn cursor_merge_guard_uses_provider_permission_responses() {
+        let root = primary_fixture();
+        for tool in ["Read", "Write", "Shell"] {
+            let payload =
+                format!(r#"{{"tool_name":"{tool}","tool_input":{{"command":"printf benign"}}}}"#);
+            let allowed = subagent_guard(&["--cursor".into()], &payload, root.path());
+            assert_eq!(allowed.status, 0);
+            let response: serde_json::Value = serde_json::from_str(&allowed.stdout).unwrap();
+            assert_eq!(response["permission"], "allow");
+            assert!(allowed.stderr.is_empty());
+        }
+        for command in ["gh pr merge 9 --auto", "git push origin HEAD:main"] {
+            let denied = subagent_guard(
+                &["--cursor".into(), "--command".into(), command.into()],
+                "",
+                root.path(),
+            );
+            assert_eq!(denied.status, 0);
+            let response: serde_json::Value = serde_json::from_str(&denied.stdout).unwrap();
+            assert_eq!(response["permission"], "deny");
+            assert!(
+                response["agent_message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("remote-")
+            );
+        }
+        assert_eq!(
+            subagent_guard(&["--cursor".into(), "--claude".into()], "", root.path()).status,
+            2
+        );
     }
 
     #[test]

@@ -5297,7 +5297,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             .map_err(|error_value| error_value.to_string())?;
             multplx_core::filesystem::atomic_replace(
                 cursor_plugin.join("hooks/hooks.json"),
-                br#"{"version":1,"hooks":{"sessionStart":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/observe.sh reconcile","failClosed":false}],"preToolUse":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/merge-guard.sh","failClosed":true}],"subagentStart":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/observe.sh start","failClosed":false}],"stop":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/stop.sh","loop_limit":1}]}}"#,
+                br#"{"version":1,"hooks":{"sessionStart":[{"command":"\"${CURSOR_PLUGIN_ROOT}/hooks/observe.sh\" reconcile","failClosed":false}],"preToolUse":[{"command":"\"${CURSOR_PLUGIN_ROOT}/hooks/merge-guard.sh\"","failClosed":true}],"subagentStart":[{"command":"\"${CURSOR_PLUGIN_ROOT}/hooks/observe.sh\" start","failClosed":false}],"stop":[{"command":"\"${CURSOR_PLUGIN_ROOT}/hooks/stop.sh\"","loop_limit":1}]}}"#,
                 0o600,
             )
             .map_err(|error_value| error_value.to_string())?;
@@ -5318,7 +5318,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 0o700,
             )
             .map_err(|error_value| error_value.to_string())?;
-            let guard = "#!/usr/bin/env bash\nset -eu\nexec \"$MX_RUST_SOURCE_ROOT/bin/mx-subagent-pretool-check.sh\"\n";
+            let guard = "#!/usr/bin/env bash\nset -eu\ncd -- \"$CURSOR_PROJECT_DIR\"\nexec \"$MX_RUST_SOURCE_ROOT/bin/mx-subagent-pretool-check.sh\" --cursor\n";
             multplx_core::filesystem::atomic_replace(
                 cursor_plugin.join("hooks/merge-guard.sh"),
                 guard.as_bytes(),

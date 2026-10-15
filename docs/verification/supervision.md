@@ -327,3 +327,15 @@ The canonical notification runtime regression uses the real report owner and one
 The base ordering returned 124 after entering maintenance despite an already durable completion wake.
 The corrected ordering returns the existing signal before that maintenance starts, keeps the wake queue byte-for-byte, and preserves the original question/completion and acknowledged replay assertions.
 This is deterministic runtime evidence with injected maintenance; it does not claim a fresh authenticated harness trial.
+
+## Claude CLI hook loading recheck, 2026-10-14
+
+An isolated npm installation of Claude Code `2.1.300` loaded explicit CLI settings and fired native `SessionStart` and `SessionEnd` hooks from a disposable project with a separate `CLAUDE_CONFIG_DIR`.
+Both hooks received documented JSON on stdin with the exact session and project path.
+The CLI then reported `Not logged in`; authenticated shell/read/write, managed nested-worker identity and Stop behavior were not established by this probe.
+The existing Claude merge checker retains stderr-only exit-two denials, and portable tests cover benign calls and remote merge refusals.
+The reported work-laptop failure has no attached Claude version or error output, so this result does not attribute it to the independently reproduced Cursor empty-output defect.
+
+[Claude installation](https://code.claude.com/docs/en/setup), [authentication](https://code.claude.com/docs/en/authentication) and the [hook reference](https://code.claude.com/docs/en/hooks) are the provider contracts used for this recheck.
+Claude subscription OAuth, Anthropic API credentials and supported enterprise/cloud provider methods require their own legitimate authorization; a Codex subscription was not treated as Claude authentication.
+No credential extraction, authentication proxy or global configuration repair was used.

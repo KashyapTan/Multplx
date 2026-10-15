@@ -3539,6 +3539,15 @@ fn deliver(args: &[OsString]) -> i32 {
         eprintln!("error: invalid delivery request");
         return 2;
     };
+    if matches!(
+        values.as_slice(),
+        ["-h" | "--help"] | ["prepare", "-h" | "--help"]
+    ) {
+        print!(
+            "Publish one or all prepared local branches with the caller's ordinary Git and forge authentication.\n\nUsage: mx-deliver.sh [<task-id>]\n       mx-deliver.sh prepare <task-id> --sha <full-SHA> --summary <one-line-summary> [--checks <passed|failed|not-run|unknown>:<one-line-results>] [--limitations <one-line-limitations>] [--base <branch>]\n\nThe optional --base selects a task-bound publication base for stacked PRs. Omission reuses the recorded base or the repository default. A selected base is frozen for the accepted brief; changing it requires a newer accepted revision and explicit --base. Superseded pending requests and earlier receipts remain historical.\nAn explicitly named bound own task uses MX_REPORT_STATE_OVERRIDE after exact task/attempt/brief/home validation; child task names and no-argument scans keep the worker state. prepare updates the current delivery commit pointer; use that inspected pointer as expected_current_commit when recording additional typed evidence.\nLocal-only or remote-free work returns its branch and typed task evidence without prepare; prepare requires an origin remote.\nprepare records an exact revision-bound publication request and is safe for the assigned agent to run. No Multplx approval step is required. Running the command with a task id reconciles the remote branch and canonical PR, then registers the PR through the existing poll owner. An exact task-id rerun after completion revalidates the current revision, remote branch and canonical PR without publishing again. A no-argument scan never promotes legacy pending handoffs; rerun prepare explicitly to replace a matching legacy handoff.\nExisting open PR revisions verify the canonical PR, branch, and base and preserve their title and body. To explicitly replace presentation, use ordinary gh pr edit with --title and/or --body-file after publication. Ordinary historical receipts stay byte-for-byte available at state/<id>.delivered-<SHA>-<fingerprint>; legacy receipts use state/<id>.delivered-<SHA>. Pull-request merge, auto-merge, merge queue submission, and target-branch bypass remain human actions.\nMX_DELIVERY_GH_TOKEN or MX_DELIVERY_GH_CONFIG_DIR may explicitly override ambient forge authentication; otherwise ordinary caller credentials are inherited. Publication commands are bounded by MX_DELIVERY_COMMAND_TIMEOUT_SECONDS (default 120).\n"
+        );
+        return 0;
+    }
     if values.first() == Some(&"prepare") || values.first() == Some(&"approve") {
         return match prepare_or_approve(&values) {
             Ok(()) => 0,
@@ -3547,12 +3556,6 @@ fn deliver(args: &[OsString]) -> i32 {
                 1
             }
         };
-    }
-    if matches!(values.as_slice(), ["-h" | "--help"]) {
-        print!(
-            "Publish one or all prepared local branches with the caller's ordinary Git and forge authentication.\n\nUsage: mx-deliver.sh [<task-id>]\n       mx-deliver.sh prepare <task-id> --sha <full-SHA> --summary <one-line-summary> [--checks <passed|failed|not-run|unknown>:<one-line-results>] [--limitations <one-line-limitations>] [--base <branch>]\n\nThe optional --base selects a task-bound publication base for stacked PRs. Omission reuses the recorded base or the repository default. A selected base is frozen for the accepted brief; changing it requires a newer accepted revision and explicit --base. Superseded pending requests and earlier receipts remain historical.\nAn explicitly named bound own task uses MX_REPORT_STATE_OVERRIDE after exact task/attempt/brief/home validation; child task names and no-argument scans keep the worker state. prepare updates the current delivery commit pointer; use that inspected pointer as expected_current_commit when recording additional typed evidence.\nprepare records an exact revision-bound publication request and is safe for the assigned agent to run. No Multplx approval step is required. Running the command with a task id reconciles the remote branch and canonical PR, then registers the PR through the existing poll owner. An exact task-id rerun after completion revalidates the current revision, remote branch and canonical PR without publishing again. A no-argument scan never promotes legacy pending handoffs; rerun prepare explicitly to replace a matching legacy handoff.\nExisting open PR revisions verify the canonical PR, branch, and base and preserve their title and body. To explicitly replace presentation, use ordinary gh pr edit with --title and/or --body-file after publication. Ordinary historical receipts stay byte-for-byte available at state/<id>.delivered-<SHA>-<fingerprint>; legacy receipts use state/<id>.delivered-<SHA>. Pull-request merge, auto-merge, merge queue submission, and target-branch bypass remain human actions.\nMX_DELIVERY_GH_TOKEN or MX_DELIVERY_GH_CONFIG_DIR may explicitly override ambient forge authentication; otherwise ordinary caller credentials are inherited. Publication commands are bounded by MX_DELIVERY_COMMAND_TIMEOUT_SECONDS (default 120).\n"
-        );
-        return 0;
     }
     if values.len() > 1
         || values

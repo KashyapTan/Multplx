@@ -93,3 +93,33 @@ Using Cursor would therefore risk loading target rules or hooks into a gate sess
 `tests/mx-cursor-adapter.test.sh` covers launcher capture, alias safety, sandbox enforcement, refused blanket modes, hook translation, stop bounds, spawn profile axes, turn-end plugin isolation, composer detection, and busy detection.
 `MX_CURSOR_LIVE_TESTS=1 tests/mx-cursor-live-e2e.test.sh` rechecks installed executable, authentication, version, and CLI surface without remote writes or user-config mutation.
 The full Multplx suite keeps Claude, Codex, Pi, tmux, Herdr, and cmux default paths under their existing regression coverage.
+
+## Worker permission-hook protocol recheck, 2026-10-14
+
+Cursor Agent `2026.10.01-e373342` rejects empty stdout from a `failClosed` `preToolUse` hook even when the subprocess exits zero.
+The former worker plugin invoked the generic merge checker, whose allow transport deliberately emitted no output.
+The installed native `HookExecutor` reproduced a blocked Read with `errorClass: empty_stdout` against that adapter.
+This explains a worker-only blanket denial while the primary translator, which already emits explicit permission JSON, continues to work.
+
+Worker wrappers now select `mx-subagent-pretool-check.sh --cursor`.
+This transport emits `permission: allow` or `permission: deny` JSON with exit zero; denial includes provider message fields.
+Claude's separate stderr/exit-two transport and the shared human-only remote merge policy retain their existing contracts.
+All generated plugin executable paths are shell-quoted, including observer and Stop paths, so spaces in a task home do not split the executable name.
+The installed runner reproduced the old unquoted-path failure and accepted the quoted wrapper from a plugin directory containing spaces.
+The wrapper changes to `CURSOR_PROJECT_DIR` because native plugin hooks execute from the plugin installation directory; Git target-branch discovery must use the assigned workspace.
+A project whose origin default is `release` still refused a push to that target from the plugin directory.
+Source and executable selection remain pinned through `MX_RUST_SOURCE_ROOT` and `MX_RUST_BIN`.
+A missing executable still produces a visible fail-closed setup error.
+
+The installed native runner with actual local hook subprocesses rejected the old empty response, accepted new Read, Write and benign Shell responses, denied `gh pr merge` and remote target pushes, and denied a missing runtime.
+This exercises the installed provider's hook execution and response parser without substituting a mock response validator.
+It is not an authenticated model or managed-worker end-to-end run.
+The real CLI inference probe returned authentication required despite `agent status` printing a partial logged-in result; current authenticated inference remains unverified.
+No global trust, authentication or permission state was changed.
+The [official hook contract](https://cursor.com/docs/hooks) defines the permission response and exit behavior; [CLI authentication](https://cursor.com/docs/cli/reference/authentication) documents Cursor login and API keys.
+These sources do not establish support for authenticating Cursor with a Codex subscription.
+
+Public Firstmate commit `33503ab33737b76d1ec7d891b95d44ce020a1579` was compared for provider-specific hook rendering.
+Its explicit `--cursor` transport supports the same separation from Claude's protocol.
+The Rust transport here was implemented against Multplx's existing policy and the provider contract; no Firstmate source was copied.
+The comparison used the public upstream checkout and its MIT license, not a private repository subtree.

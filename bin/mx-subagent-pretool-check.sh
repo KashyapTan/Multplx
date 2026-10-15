@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compatibility adapter retained for old hook installations; always allows.
+# Stable adapter for the human-only remote merge guard and provider hook responses.
 set -eu
 SCRIPT_DIR=${BASH_SOURCE[0]%/*}
 [ "$SCRIPT_DIR" != "${BASH_SOURCE[0]}" ] || SCRIPT_DIR=.

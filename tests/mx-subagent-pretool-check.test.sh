@@ -42,6 +42,25 @@ test_stdin_transport_guards_only_remote_merge_actions() {
   pass "hook stdin transports allow delegation and refuse remote PR merge actions"
 }
 
+test_cursor_permission_protocol() {
+  local tool output rc
+  for tool in Read Write Shell; do
+    output=$(printf '%s' "{\"tool_name\":\"$tool\",\"tool_input\":{\"command\":\"printf benign\"}}" | "$CHECK" --cursor) \
+      || fail "Cursor denied benign $tool"
+    printf '%s' "$output" | jq -e '.permission == "allow"' >/dev/null \
+      || fail "Cursor $tool omitted required allow JSON"
+  done
+  for command in 'gh pr merge 17 --auto' 'git push origin HEAD:main'; do
+    rc=0
+    output=$("$CHECK" --cursor --tool Shell --command "$command" 2>"$TMP_ROOT/cursor.err") || rc=$?
+    [ "$rc" -eq 0 ] || fail "Cursor denial did not use its native JSON protocol: $command"
+    printf '%s' "$output" | jq -e '.permission == "deny" and (.agent_message | length > 0)' >/dev/null \
+      || fail "Cursor denial omitted provider permission JSON"
+  done
+  if "$CHECK" --cursor --claude >/dev/null 2>&1; then fail "conflicting provider protocols accepted"; fi
+  pass "Cursor permission hook emits explicit allow/deny for shell/read/write"
+}
+
 test_compatibility_grammar_stays_bounded() {
   "$CHECK" --help | grep -F 'Native delegation is allowed' >/dev/null || fail "help does not explain retained native capability"
   "$CHECK" --help | grep -F 'explicit human request for that scope' >/dev/null || fail "help omits native policy default"
@@ -118,6 +137,7 @@ test_native_observers_are_non_authoritative_and_nonblocking() {
 
 test_every_tool_shape_is_allowed
 test_stdin_transport_guards_only_remote_merge_actions
+test_cursor_permission_protocol
 test_compatibility_grammar_stays_bounded
 test_claude_settings_keep_supervision_and_merge_guard_without_delegation_fence
 test_remote_merge_matrix_and_local_git_freedom

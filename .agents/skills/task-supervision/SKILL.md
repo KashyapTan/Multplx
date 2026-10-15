@@ -13,6 +13,7 @@ Preserve task and accepted-revision evidence when scope changes.
 
 Keep the coordinator available for user discussion and new requests while workers execute asynchronously.
 Follow the emitted harness protocol to end the turn and wait while supervision is healthy.
+When explicit recovery needs a checkpoint, invoke the emitted checkpoint command alone as the final shell command; do not bundle it with inspection, a pipeline, redirection or shell backgrounding.
 Do not run repeating task/Git/capture/checkpoint inspections or timed sleeps as the normal idle workflow.
 Inspect bounded current state when the user asks, an actionable event arrives or concrete recovery requires it; an old status line is a notification, not current task truth.
 Background programs own continuous monitoring without a model turn.
