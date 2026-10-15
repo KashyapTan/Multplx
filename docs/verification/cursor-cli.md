@@ -119,7 +119,7 @@ No global trust, authentication or permission state was changed.
 The [official hook contract](https://cursor.com/docs/hooks) defines the permission response and exit behavior; [CLI authentication](https://cursor.com/docs/cli/reference/authentication) documents Cursor login and API keys.
 These sources do not establish support for authenticating Cursor with a Codex subscription.
 
-Public Firstmate commit `33503ab33737b76d1ec7d891b95d44ce020a1579` was compared for provider-specific hook rendering.
+Public upstream reference commit `33503ab33737b76d1ec7d891b95d44ce020a1579` was compared for provider-specific hook rendering.
 Its explicit `--cursor` transport supports the same separation from Claude's protocol.
-The Rust transport here was implemented against Multplx's existing policy and the provider contract; no Firstmate source was copied.
+The Rust transport here was implemented against Multplx's existing policy and the provider contract; no upstream source was copied.
 The comparison used the public upstream checkout and its MIT license, not a private repository subtree.
