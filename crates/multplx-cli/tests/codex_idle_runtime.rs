@@ -83,6 +83,7 @@ task_state('running')
 append(1)
 status=json.loads(call(['--status'],extra={'CODEX_THREAD_ID':thread}))
 assert status['mode']=='degraded-checkpoint' and not status['native_hook_ready']
+assert status['primary_scope'] and 'receipt is missing or unreadable' in status['reason']
 assert 'readiness is missing' in call()
 assert len(sends())==0
 (state/'.lock').unlink()
@@ -102,6 +103,8 @@ assert status['native_hook_ready'] and status['mode']=='degraded-checkpoint' and
 call(['--retry'],extra={'CODEX_THREAD_ID':thread})
 first_output = call(); assert first_output.strip() == '{}', first_output
 wait(lambda:len(sends())==1 and not (state/'.codex-idle-failure').exists())
+status=json.loads(call(['--status'],extra={'CODEX_THREAD_ID':thread}))
+assert status['mode']=='awaiting-wake-reconciliation' and status['outstanding_delivery']
 first=json.loads((state/'.codex-idle-process.json').read_text())
 assert call().strip() == '{}'
 assert json.loads((state/'.codex-idle-process.json').read_text())==first
@@ -135,10 +138,13 @@ time.sleep(.15); assert len(sends())==2
 (state/'.afk').write_text('away')
 wait(lambda:not (state/'.codex-idle.lock').exists())
 assert len(sends())==2
+append(20)  # A new report while the bridge is away must survive recovery unmarked.
 (state/'.afk').unlink()
 assert call().strip()=='{}'
 wait(lambda:(state/'.codex-idle.lock').exists())
 time.sleep(.15); assert len(sends())==2
+assert json.loads((state/'.codex-idle-receipts.json').read_text())==[thread+':2:0']
+assert '20' in (state/'.wake-queue').read_text(), 'recovery lost an unsubmitted arrival'
 assert 'already bound' in call(['--end'],extra={'CODEX_THREAD_ID':'123e4567-e89b-12d3-a456-426614174001'})
 assert call(['--end'],extra={'CODEX_THREAD_ID':thread}).strip() == '{}'
 wait(lambda:not (state/'.codex-idle.lock').exists())
@@ -151,6 +157,8 @@ assert (state/'.codex-idle-failure').exists(); assert len(sends())==2
 transport(); assert call(['--retry'],extra={'CODEX_THREAD_ID':thread}).strip() == '{}'
 time.sleep(.15); assert len(sends())==2
 call(['--end'],extra={'CODEX_THREAD_ID':thread})
+# The fixture receiver acknowledges cycle two before the next fault matrix.
+(state/'.wake-queue').write_text('')
 transport('failed'); append(3); call()
 wait(lambda:(state/'.codex-idle-failure').exists() and not (state/'.codex-idle.lock').exists())
 assert 'uncertain' in call(); assert len(sends())==2
@@ -159,7 +167,8 @@ assert status['mode']=='degraded-checkpoint' and 'uncertain' in status['reason']
 assert (state/'.wake-queue').exists()
 transport(); call(['--retry'],extra={'CODEX_THREAD_ID':thread}); wait(lambda:len(sends())==3)
 call(['--end'],extra={'CODEX_THREAD_ID':thread})
-# A crash after receipt publication but before failure publication is visible.
+# The receiver settles cycle three; a crash in the next submission remains visible.
+(state/'.wake-queue').write_text('')
 append(4)
 receipts=json.loads((state/'.codex-idle-receipts.json').read_text())
 receipts.append(thread+':4:0')
@@ -170,7 +179,10 @@ assert 'Codex idle supervision failed' in call()
 assert len(sends())==3
 call(['--retry'],extra={'CODEX_THREAD_ID':thread}); wait(lambda:len(sends())==4)
 call(['--end'],extra={'CODEX_THREAD_ID':thread})
+# The receiver settles cycle four before the independent watcher failure.
+(state/'.wake-queue').write_text('')
 # Watcher failure wakes the ended turn through a retained canonical Check event.
+task_state('running')
 watch.write_text('#!/bin/sh\nexit 7\n')
 call(); wait(lambda:(state/'.codex-idle-failure').exists() and not (state/'.codex-idle.lock').exists())
 assert len(sends())==5 and 'codex-idle-failure-' in (state/'.wake-queue').read_text()

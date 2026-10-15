@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::identifiers::PathComponent;
+use crate::process::{ProcessProbe, SystemProcessProbe};
 
 /// Return whether a root carries a valid, non-symlink standing-agent home marker.
 #[must_use]
@@ -105,7 +106,85 @@ fn installed_primary_matches(root: &Path, state: &Path, executable: &Path) -> bo
         return false;
     }
     fs::canonicalize(root).ok() == fs::canonicalize(configured_root).ok()
-        && fs::canonicalize(state).ok() == fs::canonicalize(configured_home.join("state")).ok()
+        && (fs::canonicalize(state).ok() == fs::canonicalize(configured_home.join("state")).ok()
+            || launched_primary_matches(state, std::process::id(), &SystemProcessProbe::default()))
+}
+
+// An explicit home chosen through the managed launcher has its own exact
+// connection record. Require the recorded process lifetime in our ancestry;
+// an environment override or another live home's record is never sufficient.
+fn launched_primary_matches(state: &Path, mut pid: u32, probe: &impl ProcessProbe) -> bool {
+    let Ok(state) = fs::canonicalize(state) else {
+        return false;
+    };
+    let Some(home) = state.parent() else {
+        return false;
+    };
+    if state != home.join("state") {
+        return false;
+    }
+    let Ok(bytes) =
+        crate::filesystem::read_bounded_regular(state.join("workspace-connection.json"), 16 * 1024)
+    else {
+        return false;
+    };
+    let Ok(record) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return false;
+    };
+    if record["schema"] != "mx-workspace-connection.v1"
+        || record["home"].as_str().map(Path::new) != Some(home)
+        || record["state"].as_str().map(Path::new) != Some(state.as_path())
+        || !matches!(
+            record["harness"].as_str(),
+            Some("claude" | "codex" | "cursor" | "pi")
+        )
+    {
+        return false;
+    }
+    let Some(owner) = record["owner"]["pid"]
+        .as_u64()
+        .and_then(|pid| u32::try_from(pid).ok())
+        .filter(|pid| *pid > 1)
+    else {
+        return false;
+    };
+    let Some(started) = record["owner"]["started"]
+        .as_str()
+        .filter(|text| !text.is_empty())
+    else {
+        return false;
+    };
+    let Ok(identity) = probe.identity(owner) else {
+        return false;
+    };
+    let actual = identity
+        .marker
+        .split_once(" cmdline-hex=")
+        .map(|(start, _)| start.to_owned())
+        .unwrap_or_else(|| {
+            identity
+                .marker
+                .split_whitespace()
+                .take(5)
+                .collect::<Vec<_>>()
+                .join(" ")
+        });
+    if started != actual {
+        return false;
+    }
+    for _ in 0..12 {
+        if pid == owner {
+            return true;
+        }
+        let Ok(row) = probe.ancestry_row(pid) else {
+            return false;
+        };
+        if row.parent_pid <= 1 {
+            return false;
+        }
+        pid = row.parent_pid;
+    }
+    false
 }
 
 fn matches_with_context(
@@ -163,6 +242,7 @@ mod tests {
     use std::os::unix::fs::symlink;
 
     use super::{installed_primary_matches, is_daemon_home, matches, matches_with_context};
+    use crate::process::ProcessProbe;
 
     #[test]
     fn daemon_marker_and_required_surfaces_fail_closed() {
@@ -246,6 +326,97 @@ mod tests {
         assert!(!matches_with_context(
             &root,
             &other_state,
+            Some(&binary),
+            false,
+            false
+        ));
+        // A real managed launch can select a different operational home. Its
+        // record must match this exact home and our process lifetime/ancestry.
+        let custom_state = temp.path().join("custom/state");
+        fs::create_dir_all(&custom_state).unwrap();
+        let custom_state = fs::canonicalize(custom_state).unwrap();
+        let identity = crate::process::SystemProcessProbe::default()
+            .identity(std::process::id())
+            .unwrap();
+        let started = identity
+            .marker
+            .split_once(" cmdline-hex=")
+            .map(|(start, _)| start.to_owned())
+            .unwrap_or_else(|| {
+                identity
+                    .marker
+                    .split_whitespace()
+                    .take(5)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            });
+        let mut connection = serde_json::json!({
+            "schema":"mx-workspace-connection.v1", "harness":"codex",
+            "home":custom_state.parent().unwrap(), "state":custom_state,
+            "owner":{"pid":identity.pid,"started":started}
+        });
+        let record = custom_state.join("workspace-connection.json");
+        fs::write(&record, serde_json::to_vec(&connection).unwrap()).unwrap();
+        assert!(matches_with_context(
+            &root,
+            &custom_state,
+            Some(&binary),
+            false,
+            false
+        ));
+        assert!(!matches_with_context(
+            &root,
+            &custom_state,
+            Some(&outsider),
+            false,
+            false
+        ));
+        assert!(!matches_with_context(
+            &root,
+            &custom_state,
+            Some(&binary),
+            true,
+            false
+        ));
+        assert!(!matches_with_context(
+            &root,
+            &custom_state,
+            Some(&binary),
+            false,
+            true
+        ));
+        for (field, value) in [
+            ("schema", serde_json::json!("wrong")),
+            ("harness", serde_json::json!("unknown")),
+            ("home", serde_json::json!(temp.path())),
+            ("state", serde_json::json!(state)),
+            (
+                "owner",
+                serde_json::json!({"pid":identity.pid,"started":"reused PID"}),
+            ),
+            ("owner", serde_json::json!({"pid":1,"started":started})),
+        ] {
+            let original = connection[field].clone();
+            connection[field] = value;
+            fs::write(&record, serde_json::to_vec(&connection).unwrap()).unwrap();
+            assert!(
+                !matches_with_context(&root, &custom_state, Some(&binary), false, false),
+                "accepted {field}"
+            );
+            connection[field] = original;
+        }
+        fs::write(&record, serde_json::to_vec(&connection).unwrap()).unwrap();
+        assert!(!super::launched_primary_matches(
+            &custom_state,
+            1,
+            &crate::process::SystemProcessProbe::default()
+        ));
+        let saved = temp.path().join("connection");
+        fs::rename(&record, &saved).unwrap();
+        symlink(&saved, &record).unwrap();
+        assert!(!matches_with_context(
+            &root,
+            &custom_state,
             Some(&binary),
             false,
             false

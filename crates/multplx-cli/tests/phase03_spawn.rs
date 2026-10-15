@@ -1431,7 +1431,7 @@ fn standing_report_worker_retains_explicit_codex_home_in_a_separate_terminal_she
     let provider_home = f.home.join("isolated codex home");
     fs::create_dir(&provider_home).unwrap();
     let provider = f.fake.join("provider");
-    fs::write(&provider, "#!/bin/sh\nprintf '%s\\n' \"$CODEX_HOME\" \"$MX_TASK_ID\" \"$MX_ATTEMPT_ID\" > \"$MX_HOME/provider-context\"\n").unwrap();
+    fs::write(&provider, "#!/bin/sh\nprintf '%s\\n' \"$CODEX_HOME\" \"$MX_TASK_ID\" \"$MX_ATTEMPT_ID\" \"${CODEX_THREAD_ID:-unset}\" \"${CODEX_SESSION_ID:-unset}\" > \"$MX_HOME/provider-context\"\n").unwrap();
     fs::set_permissions(&provider, fs::Permissions::from_mode(0o755)).unwrap();
     let tmux = f.fake.join("tmux");
     fs::write(
@@ -1478,7 +1478,9 @@ esac
         ])
         .env("MX_TMUX_BIN", &tmux)
         .env("MX_REAL_CODEX", &provider)
-        .env("CODEX_HOME", &provider_home),
+        .env("CODEX_HOME", &provider_home)
+        .env("CODEX_THREAD_ID", "parent-thread")
+        .env("CODEX_SESSION_ID", "parent-session"),
     );
     let metadata = fs::read_to_string(f.home.join("state/task.meta")).unwrap();
     let task = read_meta("task", &metadata).unwrap();
@@ -1496,7 +1498,9 @@ esac
             .arg(f.fake.join("launch-script"))
             .env_clear()
             .env("PATH", "/usr/bin:/bin")
-            .env("CODEX_HOME", f.home.join("wrong-terminal-home")),
+            .env("CODEX_HOME", f.home.join("wrong-terminal-home"))
+            .env("CODEX_THREAD_ID", "terminal-thread")
+            .env("CODEX_SESSION_ID", "terminal-session"),
     );
     let actual = fs::read_to_string(f.project.join("provider-context")).unwrap();
     let lines = actual.lines().collect::<Vec<_>>();
@@ -1505,7 +1509,9 @@ esac
         vec![
             provider_home.to_str().unwrap(),
             "task",
-            &task.attempt.unwrap().id
+            &task.attempt.unwrap().id,
+            "unset",
+            "unset"
         ]
     );
 }

@@ -316,6 +316,57 @@ Claude was unavailable on this host; its unchanged Stop mechanism retains the ea
 Cursor `2026.10.01-e373342` was available; its unchanged interactive stop park and print-mode limit retain the earlier evidence without a new authenticated interactive trial.
 Private operational homes, installed global providers, hook trust settings and user configuration were unchanged.
 
+## Managed Codex custom-home readiness (2026-10-14)
+
+Five authenticated Codex CLI 0.162.1 trials used an installed runtime with explicit isolated operational homes.
+All five reported missing native readiness, and one observed worker completion remained pending after its primary ended its turn until a human follow-up.
+The retained failed home's state contains no `.codex-idle-hook-ready.json`; the former combined mismatch diagnostic did not distinguish that absence from a wrong thread or lock owner.
+The installed primary-scope predicate accepts the installer-configured default home but rejects those explicit custom homes before registration.
+This identifies a custom-home registration defect; it does not establish a default-home wake failure rate.
+Inherited Desktop thread/session IDs in three primary processes are a separate launch contamination issue; two clean primary processes had the same absent-readiness result.
+
+Managed custom-home scope now requires the installed runtime's owned package/config binding plus a canonical exact-home launcher connection whose recorded process lifetime is in the caller's bounded ancestry.
+An environment override alone, another live process, a reused PID, mismatched home/state/provider, a symlinked record, a foreign executable, worker scope, or a gate agent cannot establish that authority.
+Native SessionStart registration still supplies the exact thread and full process identity, and queue delivery still requires the live canonical lock owner and matched native receipt.
+Primary and managed worker Codex launches remove inherited `CODEX_THREAD_ID` and `CODEX_SESSION_ID`; native Codex supplies the new session's identity.
+The read-only status projection reports primary-scope eligibility and the particular missing receipt/thread/home/owner proof without changing trust or durable wake state.
+
+The focused Rust regressions cover the package/custom-home authority matrix, launch identity removal, two wake cycles, queued work before task metadata, uncertain transport, explicit retry, and owner-loss cleanup.
+Authenticated Codex CLI 0.162.1 under Herdr established native readiness in an explicit custom home against a separate installer default home.
+The integrated candidate `ef6cb154555e010c3127800874bd4836b733cb48` includes this Codex change plus the separately owned backend detection and worker-hook changes.
+Its native primary and both workers recorded `gpt-6-luna` with high effort.
+After the primary ended its initial turn, a canonical worker progress report started a new native primary turn within 3.6 seconds of the report's second-resolution timestamp, with an exact-thread operational queue input and no human follow-up.
+Both subsequent implementation completion reports were accepted and acknowledged by that primary without human intervention.
+Those completion reports arrived while the primary was handling earlier wakes, so this run proves idle report delivery and completion handling, without measuring idle completion latency.
+Raw native transcripts, launcher/lock/readiness receipts, canonical report records, exact binary hash, and the observation timeline are retained outside the repository.
+The first integrated run delivered nine distinct queued operational inputs, each once; several arrived after the primary had already handled their canonical events while processing earlier inputs.
+This was excess submission into the native FIFO, without evidence of a repeated wake ID.
+The bridge now permits one submitted receipt group to remain outstanding per exact thread; new arrivals remain durable and unmarked until the entire previous group is acknowledged.
+It then rereads canonical pending work, avoiding stale inputs for events handled together while preserving a later input for work that remains unhandled.
+The read-only `awaiting-wake-reconciliation` mode names the unacknowledged delivery condition rather than claiming healthy idle when a receiver has not settled its wake.
+Deterministic regressions cover partial group acknowledgement, restart, acknowledgement during transport, independent homes/threads, and uncertain submissions with later unmarked arrivals.
+A separate authenticated run explicitly deferred unfinished parent integration, independent acceptance checks, and the requested demo after both workers completed.
+The wake message now clarifies that handling includes already-authorized follow-up and delivery when their inputs are available, with delegation governed by the current assignment.
+This clarification adds no workflow stage or implementation authority.
+
+
+The final native candidate `77a449d407f91f8e40249a31b9f7f340030dc14b` contains the receipt-group correction and continuation clarification, plus the separately owned backend and hook changes.
+Its separately installed binary has SHA-256 `e9eda9a6d630f3f4eeabcd8ffe85ddaf151e0a2c24da65a6b49eb3ab4b67a0aa`.
+In the Markdown link checker trial, the primary ended its initial turn at `2026-10-15T02:16:22.122Z`.
+A current researcher completion with an attached result became canonical at second-resolution `02:17:12Z`; the exact bound native primary began its next turn at `02:17:19.073Z`, an upper bound of 7.1 seconds after that report.
+No human follow-up or model checkpoint triggered that turn.
+The implementation completion later caused another automatic turn, and the primary independently ran acceptance tests and the requested demo before acknowledging it.
+That later sample ran while another checkout's broad validation was active, so it is not a controlled latency measurement.
+Four distinct native operational inputs were observed, each once; after final handling, the canonical queue and receipt set were empty with no failure or uncertain submission marker.
+This sparse live sample establishes completion and settling on the final candidate.
+A separate authenticated quiz trial produced real post-commit progress, typed evidence, and completion reports in close succession.
+Its recorded state transitions retain submitted group `4:0` while canonical events 5 through 8 accumulate; after acknowledgement, all four share the exact native input `5:0, 6:0, 7:0, 8:0` at `02:28:35.277Z`.
+A partial acknowledgement retained receipt `8:0` across its handled disposition until actual acknowledgement.
+This verifies live burst grouping in addition to the deterministic restart and acknowledgement-race regressions.
+Already accepted provider inputs cannot be cancelled by canonical acknowledgement, and one earlier quiz input drained an already settled event; the correction bounds future submissions without promising zero stale native turns or a general throughput improvement.
+
+The [public upstream comparison](../upstream.md#codex-custom-home-readiness-comparison) records pinned sources and why no implementation was imported.
+
 ## Canonical report handoff before maintenance
 
 An accepted current canonical report owns its durable wake and must reach the native watcher consumer before unrelated dispatch or PR maintenance.

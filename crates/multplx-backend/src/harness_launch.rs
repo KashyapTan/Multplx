@@ -26,7 +26,9 @@ fn idle_cli_scope(command: &mut Command, harness: &str) {
     if harness == "codex" {
         command
             .env("MX_CODEX_IDLE_CLI", "1")
-            .env("MX_CODEX_SHARED_WORKER_HOOKS", "1");
+            .env("MX_CODEX_SHARED_WORKER_HOOKS", "1")
+            .env_remove("CODEX_THREAD_ID")
+            .env_remove("CODEX_SESSION_ID");
     } else {
         command
             .env_remove("MX_CODEX_IDLE_CLI")
@@ -1516,6 +1518,25 @@ mod tests {
         fn ancestry_row(&self, _pid: u32) -> CoreResult<AncestryRow> {
             unreachable!("launch identity retry does not inspect ancestry")
         }
+    }
+
+    #[test]
+    fn codex_launch_removes_inherited_native_session_identity() {
+        use super::{Command, OsStr, idle_cli_scope};
+        let mut command = Command::new("codex");
+        command
+            .env("CODEX_THREAD_ID", "desktop-thread")
+            .env("CODEX_SESSION_ID", "desktop-session");
+        idle_cli_scope(&mut command, "codex");
+        let variables = command
+            .get_envs()
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(variables[OsStr::new("CODEX_THREAD_ID")], None);
+        assert_eq!(variables[OsStr::new("CODEX_SESSION_ID")], None);
+        assert_eq!(
+            variables[OsStr::new("MX_CODEX_IDLE_CLI")],
+            Some(OsStr::new("1"))
+        );
     }
 
     #[test]
