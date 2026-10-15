@@ -1197,25 +1197,40 @@ fn environment_duration(name: &str, default_secs: f64) -> Duration {
     Duration::from_secs_f64(seconds)
 }
 
-fn command_payload(path: &Path, args: &[&str], payload: &str) -> Result<(i32, String), String> {
+fn command_payload(
+    path: &Path,
+    args: &[&str],
+    payload: Option<&str>,
+) -> Result<(i32, String), String> {
     let mut child = Command::new(path)
         .args(args)
-        .stdin(Stdio::piped())
+        .stdin(if payload.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| error.to_string())?;
-    if let Some(mut stdin) = child.stdin.take() {
-        use std::io::Write;
-        stdin
-            .write_all(payload.as_bytes())
-            .map_err(|error| error.to_string())?;
-    }
+    let input_result = match (child.stdin.take(), payload) {
+        (Some(mut stdin), Some(payload)) => {
+            use std::io::Write;
+            stdin.write_all(payload.as_bytes())
+        }
+        _ => Ok(()),
+    };
+    // A helper may close stdin before it exits. Always collect its outcome;
+    // a nonzero guard result still owns its denial/error, while successful
+    // guards must have received their required payload.
     let output = child
         .wait_with_output()
         .map_err(|error| error.to_string())?;
     let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&output.stderr));
+    if output.status.success() {
+        input_result.map_err(|error| format!("helper did not receive required input: {error}"))?;
+    }
     Ok((exit_status_code(output.status), text))
 }
 
@@ -1263,7 +1278,7 @@ pub(crate) fn cursor_hook(args: &[std::ffi::OsString], payload: &str, source_roo
                 payload,
                 &root,
             );
-            let context = command_payload(&bin.join("mx-sessionstart-nudge.sh"), &[], payload)
+            let context = command_payload(&bin.join("mx-sessionstart-nudge.sh"), &[], None)
                 .ok()
                 .map(|(_, output)| output.trim_end().to_owned())
                 .unwrap_or_default();
@@ -1294,7 +1309,7 @@ pub(crate) fn cursor_hook(args: &[std::ffi::OsString], payload: &str, source_roo
                 "mx-cd-pretool-check.sh",
                 "mx-subagent-pretool-check.sh",
             ] {
-                match command_payload(&bin.join(guard), &[], payload) {
+                match command_payload(&bin.join(guard), &[], Some(payload)) {
                     Ok((2, output)) => {
                         cursor_deny(output.trim_end());
                         return 0;
@@ -5287,6 +5302,45 @@ mod tests {
         record_human_merge_evidence, record_human_merge_evidence_with_head,
         run_bounded_command_result, run_check_batch, scan_signals,
     };
+
+    #[test]
+    fn cursor_helpers_preserve_outcomes_when_stdin_is_not_consumed() {
+        let temp = tempfile::tempdir().unwrap();
+        let helper = temp.path().join("early close helper.sh");
+        let script = |status| {
+            fs::write(
+                &helper,
+                format!("#!/bin/sh\nexec 0<&-\nprintf 'helper context\\n'\nprintf 'helper diagnostic\\n' >&2\nexit {status}\n"),
+            )
+            .unwrap();
+            fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+        };
+        script(0);
+        assert_eq!(
+            super::command_payload(&helper, &[], None).unwrap(),
+            (0, "helper context\nhelper diagnostic\n".into())
+        );
+        // Larger than the supported platforms' pipe capacity: the write cannot
+        // finish before the child closes fd zero, independent of scheduling.
+        let payload = "x".repeat(4 * 1024 * 1024);
+        assert!(
+            super::command_payload(&helper, &[], Some(&payload))
+                .unwrap_err()
+                .contains("required input")
+        );
+        for status in [1, 2] {
+            script(status);
+            assert_eq!(
+                super::command_payload(&helper, &[], Some(&payload)).unwrap(),
+                (status, "helper context\nhelper diagnostic\n".into())
+            );
+        }
+        fs::write(&helper, "#!/bin/sh\ncat >/dev/null\nprintf 'consumed\\n'\n").unwrap();
+        assert_eq!(
+            super::command_payload(&helper, &[], Some(&payload)).unwrap(),
+            (0, "consumed\n".into())
+        );
+    }
 
     #[test]
     fn dispatch_failure_is_retained_once_until_owner_observes_repair() {
