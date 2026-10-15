@@ -34,6 +34,41 @@ fn supported_harness_name(name: &str) -> bool {
     )
 }
 
+// The native Claude installer uses a version as the executable filename.
+// Require its exact install layout, rather than treating any numeric process
+// name or any path containing "claude" as a harness.
+fn native_claude_path(path: &str) -> bool {
+    if path.ends_with('/') || path.split('/').any(|part| matches!(part, "." | "..")) {
+        return false;
+    }
+    let path = Path::new(path);
+    if !path.is_absolute() {
+        return false;
+    }
+    let Some(version) = path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    let parts: Vec<_> = version.split('.').collect();
+    if parts.len() != 3
+        || parts
+            .iter()
+            .any(|part| part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        return false;
+    }
+    let mut parent = path.parent();
+    for expected in ["versions", "claude", "share", ".local"] {
+        let Some(actual) = parent else {
+            return false;
+        };
+        if actual.file_name().and_then(|value| value.to_str()) != Some(expected) {
+            return false;
+        }
+        parent = actual.parent();
+    }
+    true
+}
+
 /// Match the executable or an interpreter's executed script, never argument
 /// payloads or a directory whose spelling happens to contain a harness name.
 pub fn harness_command_matches(command: &str, arguments: &str, matcher: &Regex) -> bool {
@@ -43,6 +78,23 @@ pub fn harness_command_matches(command: &str, arguments: &str, matcher: &Regex) 
         .unwrap_or(command);
     if supported_harness_name(basename) && matcher.is_match(basename) {
         return true;
+    }
+    if matcher.is_match("claude") {
+        if native_claude_path(command) {
+            return true;
+        }
+        // Linux ps comm is the kernel filename; only consult argv[0] when
+        // it agrees with that filename. A sleep/eval payload cannot opt in.
+        if command == basename
+            && let Some(executable) = arguments.split_whitespace().next()
+            && native_claude_path(executable)
+            && Path::new(executable)
+                .file_name()
+                .and_then(|value| value.to_str())
+                == Some(basename)
+        {
+            return true;
+        }
     }
     let interpreter = basename.to_ascii_lowercase();
     let shell = matches!(interpreter.as_str(), "sh" | "bash" | "zsh" | "dash" | "ksh");
@@ -506,6 +558,23 @@ mod tests {
 
     #[test]
     fn interpreter_identity_ignores_parent_directory_and_payload_names() {
+        let login_shell = std::process::Command::new("bash")
+            .args([
+                "-c",
+                ". \"$1\"; mx_harness_command_matches -zsh -zsh",
+                "fixture",
+            ])
+            .arg(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../bin/mx-session-lock-lib.sh"),
+            )
+            .output()
+            .unwrap();
+        assert!(!login_shell.status.success());
+        assert!(
+            login_shell.stderr.is_empty(),
+            "login-shell name was interpreted as basename options"
+        );
         let matcher = harness_regex();
         let sourced_match = |command: &str, arguments: &str, pattern: &str| {
             std::process::Command::new("bash")
@@ -524,6 +593,28 @@ mod tests {
                 .success()
         };
         for (command, args) in [
+            ("-zsh", "-zsh"),
+            ("2.1.296", "2.1.296"),
+            ("/tmp/2.1.296", "/tmp/2.1.296"),
+            ("/tmp/claude/2.1.296", "/tmp/claude/2.1.296"),
+            (
+                "/tmp/claude/versions/2.1.296",
+                "/tmp/claude/versions/2.1.296",
+            ),
+            ("/home/user/.local/share/claude/versions/garbage", "claude"),
+            (
+                "/home/user/.local/share/claude/versions/2.1.296/worker",
+                "worker",
+            ),
+            (
+                "sleep",
+                "/home/user/.local/share/claude/versions/2.1.296 30",
+            ),
+            ("2.1.295", "/home/user/.local/share/claude/versions/2.1.296"),
+            (
+                "node",
+                "node /home/user/.local/share/claude/versions/2.1.296",
+            ),
             ("/usr/bin/sleep", "codex 30"),
             ("/tmp/notcodex", "notcodex"),
             ("/tmp/codex-helper", "codex-helper"),
@@ -563,6 +654,15 @@ mod tests {
             );
         }
         for (command, args) in [
+            (
+                "/Users/user/.local/share/claude/versions/2.1.296",
+                "/Users/user/.local/share/claude/versions/2.1.296 --resume",
+            ),
+            (
+                "/Users/user name/.local/share/claude/versions/2.1.300",
+                "/Users/user name/.local/share/claude/versions/2.1.300",
+            ),
+            ("2.1.296", "/home/user/.local/share/claude/versions/2.1.296"),
             ("/bin/codex", "codex app-server"),
             ("/tmp/工具 space/codex", "/tmp/工具 space/codex app-server"),
             ("/bin/bash", "bash /tmp/codex --config arbitrary-payload"),
@@ -607,6 +707,10 @@ mod tests {
         let codex_only = regex::Regex::new(r"^(codex|codex-cli|codex\.js|codex\.py)$").unwrap();
         for (command, args) in [
             ("claude", "claude"),
+            (
+                "/Users/user/.local/share/claude/versions/2.1.296",
+                "/Users/user/.local/share/claude/versions/2.1.296",
+            ),
             ("node", "node /tmp/claude.js"),
             ("sh", "sh /tmp/claude"),
         ] {

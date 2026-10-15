@@ -11,13 +11,28 @@
 # Known harness command names; extend when a new adapter is verified.
 MX_HARNESS_RE='^(claude|codex|codex-cli|cursor-agent|pi)(\.(js|py))?$'
 
+# Native Claude installs execute a version-named binary at this exact layout.
+# Do not match arbitrary version basenames or a directory merely named claude.
+mx_native_claude_path_matches() {
+  local path=$1 version=${1##*/}
+  case "$path" in */./*|*/../*|*/.|*/..|*/) return 1 ;; esac
+  case "$path" in /*/.local/share/claude/versions/*) ;; *) return 1 ;; esac
+  case "${path%/*}" in */.local/share/claude/versions) ;; *) return 1 ;; esac
+  printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'
+}
+
 # Match a command or an interpreter's script basename, not directory names
 # or arbitrary tool payloads. Keep this sourced ABI aligned with the Rust owner.
 mx_harness_command_matches() {
-  local comm=$1 args=$2 script word interpreter known_re='^(claude|codex|codex-cli|cursor-agent|pi)(\.(js|py))?$'
+  local comm=$1 args=$2 script word interpreter executable=$1 argv0 known_re='^(claude|codex|codex-cli|cursor-agent|pi)(\.(js|py))?$'
   local -a mx_harness_words
-  comm=$(basename "$comm")
+  comm=${comm##*/}
   if printf '%s' "$comm" | grep -qE "$known_re" && printf '%s' "$comm" | grep -qE "$MX_HARNESS_RE"; then return 0; fi
+  if printf '%s' claude | grep -qE "$MX_HARNESS_RE"; then
+    if mx_native_claude_path_matches "$executable"; then return 0; fi
+    argv0=${args%% *}
+    if [ "$executable" = "$comm" ] && [ "${argv0##*/}" = "$comm" ] && mx_native_claude_path_matches "$argv0"; then return 0; fi
+  fi
   interpreter=$(printf '%s' "$comm" | tr '[:upper:]' '[:lower:]')
   case "$interpreter" in
     node|nodejs|sh|bash|zsh|dash|ksh) ;;
@@ -40,9 +55,9 @@ mx_harness_command_matches() {
   [ -n "$script" ] || return 1
   case "$interpreter" in
     sh|bash|zsh|dash|ksh)
-      case "$(basename "$script")" in codex|codex-cli|claude|cursor-agent|pi) ;; *) return 1 ;; esac ;;
+      case "${script##*/}" in codex|codex-cli|claude|cursor-agent|pi) ;; *) return 1 ;; esac ;;
   esac
-  if printf '%s' "$(basename "$script")" | grep -qE "$known_re" && printf '%s' "$(basename "$script")" | grep -qE "$MX_HARNESS_RE"; then return 0; fi
+  if printf '%s' "${script##*/}" | grep -qE "$known_re" && printf '%s' "${script##*/}" | grep -qE "$MX_HARNESS_RE"; then return 0; fi
   case "$script" in
     */@anthropic-ai/claude-code/cli.js) printf '%s' claude | grep -qE "$MX_HARNESS_RE" ;;
     */@mariozechner/pi-coding-agent/dist/cli.js) printf '%s' pi | grep -qE "$MX_HARNESS_RE" ;;

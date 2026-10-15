@@ -729,6 +729,21 @@ test_spawn_injects_native_observer_configuration() {
           (.hooks.preToolUse[0].command | contains("merge-guard.sh"))' \
           "$task_tmp/cursor-turnend-plugin/hooks/hooks.json" >/dev/null \
           || fail "Cursor task-local plugin lacks observation or the fail-closed merge guard"
+        local guard="$task_tmp/cursor-turnend-plugin/hooks/merge-guard.sh" result hook_command
+        [ -x "$guard" ] || fail "Cursor task-local merge guard is not executable"
+        assert_grep 'CURSOR_PROJECT_DIR' "$guard" "Cursor guard does not bind Git cwd to its project"
+        result=$(printf '%s' '{"tool_name":"Read","tool_input":{"path":"README.md"}}' \
+          | CURSOR_PROJECT_DIR="$ROOT" MX_RUST_SOURCE_ROOT="$ROOT" "$guard") \
+          || fail "Cursor generated merge guard denied ordinary read"
+        printf '%s' "$result" | jq -e '.permission == "allow"' >/dev/null \
+          || fail "Cursor generated failClosed hook omitted allow JSON"
+        ln -s "$task_tmp/cursor-turnend-plugin" "$task_tmp/plugin with spaces"
+        hook_command=$(jq -r '.hooks.preToolUse[0].command' "$task_tmp/cursor-turnend-plugin/hooks/hooks.json")
+        result=$(printf '%s' '{"tool_name":"Read","tool_input":{"path":"README.md"}}' \
+          | CURSOR_PLUGIN_ROOT="$task_tmp/plugin with spaces" CURSOR_PROJECT_DIR="$ROOT" MX_RUST_SOURCE_ROOT="$ROOT" bash -c "$hook_command") \
+          || fail "Cursor generated plugin command failed with spaces in its install path"
+        printf '%s' "$result" | jq -e '.permission == "allow"' >/dev/null \
+          || fail "Cursor plugin path with spaces lost permission JSON"
         ;;
       pi)
         assert_contains "$launch" ".pi/extensions/mx-native-delegation-observe.ts" \

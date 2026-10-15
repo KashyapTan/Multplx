@@ -423,6 +423,11 @@ test_pr_check_help_has_zero_side_effects() {
     [ ! -s "$dir/stderr" ] || fail 'PR check help emitted errors'
     [ "$(state_snapshot "$dir/home/state")" = "$before" ] || fail 'PR check help mutated state'
   done
+  MX_HOME="$dir/missing-home" "$ROOT/bin/mx-deliver.sh" prepare --help > "$dir/stdout" 2> "$dir/stderr" \
+    || fail 'publication prepare help failed before state lookup'
+  assert_grep 'Usage: mx-deliver.sh' "$dir/stdout" 'publication prepare help omitted usage'
+  [ ! -s "$dir/stderr" ] || fail 'publication prepare help emitted errors'
+  [ ! -e "$dir/missing-home" ] || fail 'publication prepare help created operational state'
   for flag in --help -h --base; do
     if run_check_entry "$dir" "$flag" extra >/dev/null 2>&1; then fail 'malformed help or base request accepted'; fi
   done

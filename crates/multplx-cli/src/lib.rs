@@ -5297,7 +5297,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             .map_err(|error_value| error_value.to_string())?;
             multplx_core::filesystem::atomic_replace(
                 cursor_plugin.join("hooks/hooks.json"),
-                br#"{"version":1,"hooks":{"sessionStart":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/observe.sh reconcile","failClosed":false}],"preToolUse":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/merge-guard.sh","failClosed":true}],"subagentStart":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/observe.sh start","failClosed":false}],"stop":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/stop.sh","loop_limit":1}]}}"#,
+                br#"{"version":1,"hooks":{"sessionStart":[{"command":"\"${CURSOR_PLUGIN_ROOT}/hooks/observe.sh\" reconcile","failClosed":false}],"preToolUse":[{"command":"\"${CURSOR_PLUGIN_ROOT}/hooks/merge-guard.sh\"","failClosed":true}],"subagentStart":[{"command":"\"${CURSOR_PLUGIN_ROOT}/hooks/observe.sh\" start","failClosed":false}],"stop":[{"command":"\"${CURSOR_PLUGIN_ROOT}/hooks/stop.sh\"","loop_limit":1}]}}"#,
                 0o600,
             )
             .map_err(|error_value| error_value.to_string())?;
@@ -5318,7 +5318,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 0o700,
             )
             .map_err(|error_value| error_value.to_string())?;
-            let guard = "#!/usr/bin/env bash\nset -eu\nexec \"$MX_RUST_SOURCE_ROOT/bin/mx-subagent-pretool-check.sh\"\n";
+            let guard = "#!/usr/bin/env bash\nset -eu\ncd -- \"$CURSOR_PROJECT_DIR\"\nexec \"$MX_RUST_SOURCE_ROOT/bin/mx-subagent-pretool-check.sh\" --cursor\n";
             multplx_core::filesystem::atomic_replace(
                 cursor_plugin.join("hooks/merge-guard.sh"),
                 guard.as_bytes(),
@@ -9253,6 +9253,7 @@ mod tests {
 
     #[test]
     fn terminal_start_receipt_requires_same_live_harness_process() {
+        use std::io::Write;
         use std::process::{Command, Stdio};
         let dir = tempfile::tempdir().unwrap();
         let harness = dir.path().join("codex");
@@ -9262,20 +9263,32 @@ mod tests {
             write_verified_launch_script(dir.path(), &launch, "exact-attempt-endpoint").unwrap();
         let delayed = fs::read_to_string(dir.path().join("launch.sh"))
             .unwrap()
-            .replace("exec env ", "sleep 0.15\nexec env ");
+            .replace("exec env ", "read -r _mx_test_release\nexec env ");
         fs::write(dir.path().join("launch.sh"), delayed).unwrap();
         let mut child = Command::new("sh")
             .arg(dir.path().join("launch.sh"))
+            .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
-        std::thread::sleep(Duration::from_millis(40));
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        let receipt = dir.path().join("launch-started");
+        while !receipt.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            fs::read_to_string(&receipt).unwrap(),
+            format!("exact-attempt-endpoint\n{}\n", child.id())
+        );
         assert!(!launch_process_started(
             dir.path(),
             "exact-attempt-endpoint",
             "codex"
         ));
+        // The receipt exists, but the owned shell cannot become the harness
+        // until this process releases it. Scheduler delay cannot skip the check.
+        child.stdin.take().unwrap().write_all(b"release\n").unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(1);
         while !launch_process_started(dir.path(), "exact-attempt-endpoint", "codex")
             && std::time::Instant::now() < deadline

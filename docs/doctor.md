@@ -29,6 +29,7 @@ A `FAIL` does not authorize teardown, process termination, hold resolution, gate
 
 | Check | Severity contract and evidence |
 | --- | --- |
+| `session-lock` | Read-only proof of the primary PID record and live harness identity. Claude sessions also diagnose missing current harness ancestry or an unacquired/foreign lock. Unreadable, stale and unverified owners are retained; this check never grants writer access or repairs the session lock. |
 | `watcher-lock` | `OK` when the watcher lock is absent or its PID identity matches a live process, and `FAIL` when the lock is malformed, provably stale, or cannot be proved safe. |
 | `watcher-beacon` | `OK` while the home is idle or the supervision beacon is fresh, and `WARN` when in-flight task metadata exists without a fresh beacon. |
 | `orphan-worktrees` | `FAIL` when task metadata names a missing worktree; `WARN` for corrupt, retained or incomplete canonical allocations and unavailable Git inventory. |

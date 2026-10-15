@@ -15,6 +15,8 @@ A well-specified fix needs only an implementer, not a compulsory research or rev
 Resolve an explicit project and checkout using `mx project --help` and the [project-management skill](../project-management/SKILL.md).
 Keep repository instructions and original artifacts with this assignment; changing selected context does not retarget existing tasks.
 Use `mx brief --help` and `mx spawn --help` for the installed grammar and compatibility limits.
+Options belong to the command whose help lists them; do not invent `spawn --json` or a `config` command.
+Standing-agent briefs reject task-mode flags; express a local-only destination in the accepted outcome, and use task evidence without publication preparation.
 The brief owner writes `data/TASK_ID/brief.md`; fill the outcome, scope, acceptance criteria, constraints, sources and real dependencies before launch.
 Standing managed workers are the dispatch default, independently of assignment role or output.
 The low-level CLI remains task-scoped when `--persistent` is omitted for existing callers; dispatch must select it explicitly.

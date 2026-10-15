@@ -95,6 +95,7 @@ fn read_frame(
     deadline: Instant,
     maximum: usize,
     cancelled: Option<&AtomicBool>,
+    now: &impl Fn() -> Instant,
 ) -> Result<Option<Vec<u8>>, WireError> {
     reader
         .get_ref()
@@ -105,7 +106,7 @@ fn read_frame(
         if cancelled.is_some_and(|flag| flag.load(Ordering::Acquire)) {
             return Ok(None);
         }
-        if Instant::now() >= deadline {
+        if now() >= deadline {
             return Ok(None);
         }
         let available = match reader.fill_buf() {
@@ -169,8 +170,14 @@ pub fn workspace_move(
     )?;
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut reader = BufReader::new(stream);
-    let frame = read_frame(&mut reader, deadline, MAX_MOVE_RESPONSE, None)?
-        .ok_or_else(|| WireError::Receive("response timed out".to_owned()))?;
+    let frame = read_frame(
+        &mut reader,
+        deadline,
+        MAX_MOVE_RESPONSE,
+        None,
+        &Instant::now,
+    )?
+    .ok_or_else(|| WireError::Receive("response timed out".to_owned()))?;
     let response: Value =
         serde_json::from_slice(&frame).map_err(|error| WireError::Protocol(error.to_string()))?;
     let valid = response.get("id").and_then(Value::as_str) == Some(MOVE_REQUEST_ID)
@@ -207,6 +214,26 @@ pub fn event_wait_cancelled(
     timeout: Duration,
     pane_ids: &[String],
     cancelled: &AtomicBool,
+    emit: impl FnMut(&str) -> io::Result<()>,
+) -> Result<(), WireError> {
+    event_wait_clock(
+        socket_path,
+        timeout,
+        pane_ids,
+        cancelled,
+        Instant::now,
+        emit,
+    )
+}
+
+// The private clock argument makes deadline-phase tests deterministic; public
+// callers always use the same monotonic Instant::now clock.
+fn event_wait_clock(
+    socket_path: &Path,
+    timeout: Duration,
+    pane_ids: &[String],
+    cancelled: &AtomicBool,
+    now: impl Fn() -> Instant,
     mut emit: impl FnMut(&str) -> io::Result<()>,
 ) -> Result<(), WireError> {
     if timeout.is_zero() || pane_ids.is_empty() {
@@ -235,12 +262,18 @@ pub fn event_wait_cancelled(
             "params": {"subscriptions": subscriptions}
         }),
     )?;
-    let started = Instant::now();
+    let started = now();
     let deadline = started + timeout;
     let ack_deadline = deadline.min(started + ACK_TIMEOUT);
     let mut reader = BufReader::new(stream);
-    let frame = read_frame(&mut reader, ack_deadline, MAX_EVENT_FRAME, Some(cancelled))?
-        .ok_or_else(|| WireError::Receive("subscription acknowledgement timed out".to_owned()))?;
+    let frame = read_frame(
+        &mut reader,
+        ack_deadline,
+        MAX_EVENT_FRAME,
+        Some(cancelled),
+        &now,
+    )?
+    .ok_or_else(|| WireError::Receive("subscription acknowledgement timed out".to_owned()))?;
     let ack: Value =
         serde_json::from_slice(&frame).map_err(|error| WireError::Protocol(error.to_string()))?;
     if ack.get("id").and_then(Value::as_str) != Some(EVENT_REQUEST_ID)
@@ -252,7 +285,13 @@ pub fn event_wait_cancelled(
     }
     emit("@subscribed").map_err(|error| WireError::Receive(error.to_string()))?;
     loop {
-        let Some(frame) = read_frame(&mut reader, deadline, MAX_EVENT_FRAME, Some(cancelled))?
+        let Some(frame) = read_frame(
+            &mut reader,
+            deadline,
+            MAX_EVENT_FRAME,
+            Some(cancelled),
+            &now,
+        )?
         else {
             return Ok(());
         };
@@ -475,6 +514,7 @@ mod tests {
         let temp = socket_tempdir();
         let socket = temp.path().join("timeout.sock");
         let listener = UnixListener::bind(&socket).expect("bind");
+        let (release, held) = std::sync::mpsc::channel();
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept");
             let mut request = String::new();
@@ -486,20 +526,73 @@ mod tests {
                     b"{\"id\":\"mx-eventwait\",\"result\":{\"type\":\"subscription_started\"}}\n",
                 )
                 .expect("ack");
-            thread::sleep(Duration::from_millis(80));
+            held.recv().expect("hold socket until deadline result");
         });
         let mut output = Vec::new();
-        event_wait(
+        let started = std::time::Instant::now();
+        let acknowledged = std::cell::Cell::new(false);
+        // Advance the unchanged 20ms transport deadline only after the real
+        // socket acknowledgement was parsed and emitted. Host scheduling cannot
+        // turn this post-ack classification test into an ack-startup timeout.
+        super::event_wait_clock(
             &socket,
             Duration::from_millis(20),
             &["w:p".to_owned()],
+            &AtomicBool::new(false),
+            || started + Duration::from_millis(if acknowledged.get() { 20 } else { 0 }),
             |line| {
                 output.push(line.to_owned());
+                acknowledged.set(true);
                 Ok(())
             },
         )
         .expect("deadline is a clean end");
         assert_eq!(output, ["@subscribed"]);
+        release.send(()).expect("release socket after deadline");
         server.join().expect("server");
+    }
+
+    #[test]
+    fn event_transport_real_clock_rejects_missing_ack_at_deadline() {
+        let temp = socket_tempdir();
+        let socket = temp.path().join("missing-ack.sock");
+        let listener = UnixListener::bind(&socket).expect("bind");
+        let (release, held) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept");
+            let mut request = String::new();
+            let mut reader = BufReader::new(stream);
+            reader.read_line(&mut request).expect("request");
+            held.recv().expect("hold without acknowledgement");
+        });
+        let mut emitted = false;
+        let error = event_wait(&socket, Duration::from_millis(20), &["w:p".into()], |_| {
+            emitted = true;
+            Ok(())
+        })
+        .expect_err("missing acknowledgement must fail at real deadline");
+        assert!(
+            matches!(error, super::WireError::Receive(message) if message == "subscription acknowledgement timed out")
+        );
+        assert!(!emitted);
+        release.send(()).expect("release server");
+        server.join().expect("server");
+    }
+
+    #[test]
+    fn frame_real_clock_expires_without_peer_close_or_cancellation() {
+        let (stream, _held_peer) = std::os::unix::net::UnixStream::pair().expect("pair");
+        let mut reader = BufReader::new(stream);
+        let started = std::time::Instant::now();
+        let frame = super::read_frame(
+            &mut reader,
+            started + Duration::from_millis(20),
+            super::MAX_EVENT_FRAME,
+            None,
+            &std::time::Instant::now,
+        )
+        .expect("real deadline is a clean frame end");
+        assert!(frame.is_none());
+        assert!(started.elapsed() >= Duration::from_millis(20));
     }
 }

@@ -24,6 +24,8 @@ Sub-orchestrators delegate substantive deliverables and cannot select implementa
 Workers execute their accepted assignment; the current role takes precedence over
 generic orchestrator identity in repository instructions.
 --persistent adds isolated-home lifecycle context independently of --role.
+Standing-agent briefs reject --mode and --yolo; put the local-only destination in
+the accepted outcome instead of applying a task-mode flag to a standing charter.
 Legacy --daemon defaults its charter role to sub-orchestrator; MX_AGENT_CHARTER and MX_AGENT_SCOPE supply its outcome and scope.
 --no-projects deliberately leaves project selection unbound; bind a repository
 before implementation. It is mutually exclusive with a project list.
@@ -90,7 +92,7 @@ fn shell_quote(value: &Path) -> String {
 
 fn status_contract(root: &Path, state: &Path, id: &str) -> String {
     format!(
-        "Report status with `report_status` when available, otherwise:\n`{} --id {id} --state {{state}} --message \"{{one short line}}\"`\nStates: working, paused, needs-decision, blocked, done, failed, resolved.\nNever write to `{}` by hand.\nUse `--state paused --message \"{{why}}\"` for a known external wait, or `--state blocked --message \"{{required parent action}}\"` when the parent must act. Ask a durable question with `--state needs-decision --key <slug> --message \"{{actual short question}}\"`; task/attempt/brief identity comes from the accepted launch binding.\nAfter the parent records the decision answer or a blocker clears, report `--state resolved --key <slug> --message \"{{resolution}}\"` with the same key and resume the accepted work.\nReply to each marked parent request with `--correlation-id TOKEN` (or the `report_status` structured `correlation_id` field). Putting `corr=TOKEN` in message prose does not bind a reply. Multiple outstanding requests require separate responses. A successful report prints an acceptance receipt; check its correlation and completion proof. Report meaningful outcomes and artifact pointers.\nA working event is progress, not task completion.\nFor implementation assignments, inspect the accepted task with `MX_STATE_OVERRIDE={} mx task-model inspect {id}` and record exact-current typed evidence with `MX_STATE_OVERRIDE={} mx task-model evidence {id} --request-file /absolute/path/evidence.json`, then send a new task-bound `done` report. For report/coordination assignments, attach the existing result with the reporter's structured `--artifact PATH` option. Plain status or `done` alone does not release dependent work. This is separate from checks, PR readiness and human merge. See `{}` for the exact evidence request format.",
+        "Report status with `report_status` when available, otherwise:\n`{} --id {id} --state {{state}} --message \"{{one short line}}\"`\nStates: working, paused, needs-decision, blocked, done, failed, resolved.\nNever write to `{}` by hand.\nUse `--state paused --message \"{{why}}\"` for a known external wait, or `--state blocked --message \"{{required parent action}}\"` when the parent must act. Ask a durable question with `--state needs-decision --key <slug> --message \"{{actual short question}}\"`; task/attempt/brief identity comes from the accepted launch binding.\nAfter the parent records the decision answer or a blocker clears, report `--state resolved --key <slug> --message \"{{resolution}}\"` with the same key and resume the accepted work.\nReply to each marked parent request with `--correlation-id TOKEN` (or the `report_status` structured `correlation_id` field). Putting `corr=TOKEN` in message prose does not bind a reply. Multiple outstanding requests require separate responses. A successful report prints an acceptance receipt; check its correlation and completion proof. Report meaningful outcomes and artifact pointers.\nA working event is progress, not task completion.\nFor implementation assignments, inspect the accepted task with `MX_STATE_OVERRIDE={} mx task-model inspect {id}` and record exact-current typed evidence with `MX_STATE_OVERRIDE={} mx task-model evidence {id} --request-file /absolute/path/evidence.json`, then send a new task-bound `done` report. For report/coordination assignments, write the result to an existing regular file before reporting done, and attach it with the reporter's structured `--artifact PATH` option. Plain status or `done` alone does not release dependent work. This is separate from checks, PR readiness and human merge. See `{}` for the exact evidence request format.",
         shell_quote(&root.join("bin/mx-report")),
         state.join(format!("{id}.status")).display(),
         shell_quote(state),
@@ -222,10 +224,10 @@ fn delivery(
 ) -> String {
     let article = if role == "implementer" { "an" } else { "a" };
     let destination = if selected_mode == DeliveryMode::LocalOnly {
-        "The destination is **local-only**: deliver the scoped local branch and evidence without a remote push or PR.".to_owned()
+        "The destination is **local-only**: deliver the scoped local branch and typed task evidence without a remote push or PR. Do not run publication `prepare`; it requires a forge remote.".to_owned()
     } else {
         format!(
-            "You may commit, push your task branch, open or update its PR and make ordinary follow-up fixes within scope. Use `{} --help`, then `prepare` the exact commit with its checks and limitations; publication uses your ordinary Git and forge authentication. Register a directly opened PR with `{} {id} PR_URL`. These runtime helper paths work from the assigned project checkout.",
+            "You may commit, push your task branch, open or update its PR and make ordinary follow-up fixes within scope. If the accepted task is local-only or the repository has no origin, return the local branch and typed task evidence without running publication `prepare`. Otherwise use `{} --help`, then `prepare` the exact commit with its checks and limitations; publication uses your ordinary Git and forge authentication. Register a directly opened PR with `{} {id} PR_URL`. These runtime helper paths work from the assigned project checkout.",
             shell_quote(&root.join("bin/mx-deliver.sh")),
             shell_quote(&root.join("bin/mx-pr-check.sh"))
         )
@@ -383,7 +385,7 @@ pub fn run(
     }
     if persistent && (selected_mode.is_some() || selected_yolo.is_some()) {
         return Err(error(
-            "standing-agent briefs do not accept task mode or yolo",
+            "standing-agent briefs do not accept task mode or yolo; put the local-only destination in the accepted outcome instead",
         ));
     }
     if !persistent && kind != Kind::Daemon && positional.len() != 2 {
