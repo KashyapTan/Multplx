@@ -610,3 +610,38 @@ Hosted macOS CI exposed an acknowledgement/deadline fixture race: its 20 ms tota
 The post-ack fixture now advances a private test clock only after the real socket acknowledgement is parsed and emitted, and holds the server socket through a channel until the deadline result is asserted.
 Public transport callers continue to use the real monotonic clock with unchanged acknowledgement and overall deadlines.
 Separate tests retain the real 20 ms missing-ack timeout and real 20 ms clean frame deadline without peer close or cancellation; no assertion or production timeout was relaxed.
+
+## Parent relay continuity and Codex queue cancellation - 2026-10-15
+
+The retained links completion discrepancy was reproduced in a fresh deterministic fixture before changing runtime behavior.
+A bounded relay snapshot can deliver a same-home outbox into a newly created inbox without consuming that new inbox in the same pass.
+The canonical report independently publishes its wake before relay consumption.
+After the model acknowledges that wake and the final assignment becomes completed, the old supervision predicate stopped requiring a watcher because it did not include retained parent inbox/outbox entries.
+The original links health projection records this exact intermediate state: one pending inbox, no pending outbox, and no relay error at the last observation.
+The shared predicate now keeps the owning background relay eligible for retained channel entries, including malformed or unreadable entries; it neither validates their contents nor consumes another home's queue.
+The normal watcher cadence remains unchanged.
+A separate same-state worker/coordinator fixture exposed an outbox receipt collision across relay hops; forwarded hops now use distinct bounded derived names while preserving the original message identity.
+Deterministic coverage includes root and coordinator ordering, restarted observation after disposition/acknowledgement, no regenerated acknowledged root wake, retained invalid queues, and existing crash/retry and frozen-route tests.
+
+Installed Codex `0.162.1` exposes `thread/queue/delete` through its experimental app-server protocol even though `codex queue --help` exposes only enqueue.
+Fresh isolated native control-socket probes confirmed that the submission UUID returned by `codex queue` identifies the same item returned by `thread/queue/list`.
+An exact delete returned `deleted: true`, a repeated delete returned `deleted: false`, and an unprivileged connection without `experimentalApi` was rejected while the item remained queued.
+A further native probe completed the first local mocked model response and observed the queued input start a second native turn; deletion then returned false and did not interrupt that turn.
+These probes use the real installed CLI and queue, with a local synthetic Responses server and disposable provider homes; they do not qualify authenticated provider inference or a paid Herdr workload.
+The raw native API evidence is retained in `/tmp/multplx-parent-delivery-evidence/native-control-delete-permission.json` and `/tmp/multplx-parent-delivery-evidence/native-already-started-queue.json`.
+
+The bridge now retains the exact native submission UUID beside its submitted wake group.
+Once that group's canonical wakes are acknowledged, it cancels only that thread's exact queued submission before allowing another group.
+The same-home native control exchange uses the installed executable's `app-server proxy`, a standard WebSocket client, an initialized canonical `codexHome` check, bounded frames/messages, and a new three-second total local exchange deadline.
+The proxy forwards raw socket bytes and requires the WebSocket handshake; it does not translate newline JSON into WebSocket messages.
+Cancellation failure preserves the native receipt and durable wake state for explicit recovery, while ambiguous enqueue acceptance still retains its existing uncertainty journal.
+A no-follow bounded receipt read rejects malformed, symlinked, oversized, or foreign cancellation authority.
+Older output that does not expose an exact submission UUID retains the existing coalescing behavior without attempting cancellation.
+An input already started as a native turn can still incur an empty handling turn; the bridge does not interrupt it or fabricate acknowledgement.
+
+The changed production bridge was separately exercised against the real native control socket with a local mocked model and an instrumented fixture owner.
+Actual `mx wake claim`, disposition, and acknowledgement caused the bridge to remove a staged native input before another model request.
+A second case allowed the input to start first, then confirmed receipt reconciliation without interrupting the active local model request.
+The evidence retains exact native item IDs, canonical event IDs, command results, protocol responses and owner identity at `/private/tmp/mx-qproof-ARwkQ0/proof.json`; the original driver is `/tmp/multplx-parent-delivery-evidence/codex.js`.
+No private operational state, historical lab queue, provider credentials, or global runtime was changed.
+Native notification text now labels its sequence/revision keys as internal and directs callers to `mx wake list --unfinished` for stable `event_id` arguments, preserving the legacy drain row format.

@@ -4,12 +4,24 @@ use multplx_core::process::ProcessIdentity;
 use multplx_core::wake::{WakeQueue, WakeRecord};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+mod queue;
 
 const TARGET: &str = ".codex-idle-target.json";
 const READY: &str = ".codex-idle-hook-ready.json";
 const FAILURE: &str = ".codex-idle-failure";
 const RECEIPTS: &str = ".codex-idle-receipts.json";
 const UNCERTAIN: &str = ".codex-idle-uncertain.json";
+const SUBMITTED: &str = ".codex-idle-submission.json";
+const MAX_GROUP_WAKES: usize = 512;
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Submitted {
+    thread: String,
+    codex_home: PathBuf,
+    submission_id: String,
+    wakes: BTreeSet<String>,
+}
 struct Watcher(std::process::Child);
 impl Drop for Watcher {
     fn drop(&mut self) {
@@ -171,23 +183,40 @@ fn fail(state: &Path, error: &str) -> Result<(), String> {
 }
 
 fn notify(state: &Path, target: &Target) -> Result<(), String> {
-    notify_with(state, target, |target, message| {
-        let mut command = Command::new(&target.executable);
-        command.env("CODEX_HOME", &target.codex_home).args([
-            "queue",
-            "--thread",
-            &target.thread,
-            "--message",
-            message,
-        ]);
-        run_bounded_command_result(&mut command, Duration::from_secs(15), None, None, true)
-    })
+    notify_with_transport(
+        state,
+        target,
+        |target, message| {
+            let mut command = Command::new(&target.executable);
+            command.env("CODEX_HOME", &target.codex_home).args([
+                "queue",
+                "--thread",
+                &target.thread,
+                "--message",
+                message,
+            ]);
+            run_bounded_command_result(&mut command, Duration::from_secs(15), None, None, true)
+        },
+        queue::cancel,
+    )
 }
 
+#[cfg(test)]
 fn notify_with(
     state: &Path,
     target: &Target,
     send: impl FnOnce(&Target, &str) -> BoundedCommandResult,
+) -> Result<(), String> {
+    notify_with_transport(state, target, send, |_, _| {
+        Err("fixture has no native cancellation".into())
+    })
+}
+
+fn notify_with_transport(
+    state: &Path,
+    target: &Target,
+    send: impl FnOnce(&Target, &str) -> BoundedCommandResult,
+    cancel: impl FnOnce(&Target, &str) -> Result<(), String>,
 ) -> Result<(), String> {
     let receipts_path = state.join(RECEIPTS);
     let existed = receipts_path.exists();
@@ -196,11 +225,53 @@ fn notify_with(
     } else {
         BTreeSet::new()
     };
-    let outstanding = pending(state)?;
+    let mut outstanding = pending(state)?;
     let before = receipts.clone();
     receipts.retain(|receipt| receipt_outstanding(receipt, &target.thread, &outstanding));
     if !existed || before != receipts {
         write_json(&receipts_path, &receipts)?;
+    }
+    let submission_path = state.join(SUBMITTED);
+    if fs::symlink_metadata(&submission_path).is_ok() {
+        let submitted: Submitted = serde_json::from_slice(
+            &multplx_core::filesystem::read_bounded_regular(&submission_path, 64 * 1024)
+                .map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        if submitted.thread != target.thread
+            || submitted.codex_home != target.codex_home
+            || submitted.wakes.is_empty()
+            || queue::submission_id(
+                &format!(
+                    "Queued message {} for thread {}.",
+                    submitted.submission_id, submitted.thread
+                ),
+                &target.thread,
+            )
+            .is_none()
+            || submitted.wakes.iter().any(|key| {
+                !key.strip_prefix(&format!("{}:", target.thread))
+                    .and_then(|key| key.split_once(':'))
+                    .is_some_and(|(sequence, revision)| {
+                        sequence.parse::<u64>().is_ok() && revision.parse::<usize>().is_ok()
+                    })
+            })
+        {
+            return Err("native submission receipt conflicts with exact-session binding".into());
+        }
+        if submitted
+            .wakes
+            .iter()
+            .any(|receipt| receipt_outstanding(receipt, &target.thread, &outstanding))
+        {
+            return Ok(());
+        }
+        // The model may handle these facts while their FIFO input is still
+        // staged. Remove only that exact native item, never a running turn.
+        // Retain the receipt on failure so restart cannot submit another group.
+        cancel(target, &submitted.submission_id)?;
+        fs::remove_file(&submission_path).map_err(|error| error.to_string())?;
+        outstanding = pending(state)?;
     }
     // One accepted native input can cover everything the receiver drains.
     // New arrivals remain durable and unmarked until this receipt group is
@@ -211,6 +282,7 @@ fn notify_with(
     let unseen = outstanding
         .into_iter()
         .filter(|key| !receipts.contains(&format!("{}:{key}", target.thread)))
+        .take(MAX_GROUP_WAKES)
         .collect::<Vec<_>>();
     if unseen.is_empty() {
         return Ok(());
@@ -227,7 +299,7 @@ fn notify_with(
         "queue delivery is pending or uncertain; reconcile before explicit retry",
     )?;
     let body = format!(
-        "Durable wake for home {}. Wake IDs {} require reconciliation. Run bin/mx-wake-drain.sh, inspect canonical tasks, then record each durable disposition and acknowledgement. Transport enqueue does not acknowledge handling. When all inputs for unfinished accepted work are available, handling includes its already-authorized follow-up and delivery; continue those steps in this turn, delegating as required by your assignment. End this turn when handling is complete; the Stop hook owns subsequent watcher cycles.",
+        "Durable wake for home {}. Internal sequence:revision keys {} require reconciliation. Run bin/mx-wake-drain.sh and `mx wake list --unfinished` to obtain stable event_id values for `mx wake disposition` and `mx wake ack`; the internal keys are not CLI event IDs. Inspect canonical tasks, then record each durable disposition and acknowledgement. Transport enqueue does not acknowledge handling. When all inputs for unfinished accepted work are available, handling includes its already-authorized follow-up and delivery; continue those steps in this turn, delegating as required by your assignment. End this turn when handling is complete; the Stop hook owns subsequent watcher cycles.",
         state.display(),
         unseen.join(", ")
     );
@@ -237,7 +309,21 @@ fn notify_with(
     )
     .ok_or("cannot construct watcher input")?;
     match send(target, &message) {
-        BoundedCommandResult::Completed { success: true, .. } => {
+        BoundedCommandResult::Completed {
+            success: true,
+            output,
+        } => {
+            if let Some(submission_id) = queue::submission_id(&output, &target.thread) {
+                write_json(
+                    &submission_path,
+                    &Submitted {
+                        thread: target.thread.clone(),
+                        codex_home: target.codex_home.clone(),
+                        submission_id,
+                        wakes: receipts,
+                    },
+                )?;
+            }
             fs::remove_file(state.join(UNCERTAIN)).map_err(|error| error.to_string())?;
             fs::remove_file(state.join(FAILURE)).map_err(|error| error.to_string())
         }
@@ -682,7 +768,7 @@ mod tests {
 
     const THREAD: &str = "123e4567-e89b-12d3-a456-426614174000";
 
-    fn target(path: &Path) -> Target {
+    pub(super) fn target(path: &Path) -> Target {
         Target {
             thread: THREAD.into(),
             codex_home: path.into(),
@@ -749,6 +835,214 @@ mod tests {
         BoundedCommandResult::Completed {
             success: true,
             output: "queued".into(),
+        }
+    }
+
+    fn accepted(target: &Target, id: &str) -> BoundedCommandResult {
+        BoundedCommandResult::Completed {
+            success: true,
+            output: format!("Queued message {id} for thread {}.\n", target.thread),
+        }
+    }
+
+    #[test]
+    fn exact_native_submission_is_cancelled_after_ack_and_before_next_group() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = temp.path();
+        let target = target(state);
+        let probe = SystemProcessProbe::default();
+        let queue = WakeQueue::new(state);
+        let id = "123e4567-e89b-12d3-a456-426614174001";
+        for key in ["first", "second"] {
+            queue
+                .append(WakeKind::Signal, key, key, SystemTime::now(), &probe)
+                .unwrap();
+        }
+        notify_with_transport(
+            state,
+            &target,
+            |target, text| {
+                assert!(text.contains("Internal sequence:revision keys 1:0, 2:0"));
+                assert!(text.contains("`mx wake list --unfinished`"));
+                assert!(text.contains("stable event_id"));
+                accepted(target, id)
+            },
+            |_, _| panic!("no previous group"),
+        )
+        .unwrap();
+        let recovered: Submitted = read_json(&state.join(SUBMITTED)).unwrap();
+        assert_eq!(recovered.submission_id, id);
+        let claims = queue
+            .claim_available(&target.owner, SystemTime::now(), 64, &probe)
+            .unwrap();
+        acknowledge(&queue, &target, &claims[0]);
+        queue
+            .append(WakeKind::Signal, "new", "new", SystemTime::now(), &probe)
+            .unwrap();
+        notify_with_transport(
+            state,
+            &target,
+            |_, _| panic!("partial acknowledgement"),
+            |_, _| panic!("partial acknowledgement cannot cancel"),
+        )
+        .unwrap();
+        acknowledge(&queue, &target, &claims[1]);
+        let error = notify_with_transport(
+            state,
+            &target,
+            |_, _| panic!("failed cancellation gates next input"),
+            |_, actual| {
+                assert_eq!(actual, id);
+                Err("disconnected native proxy".into())
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("disconnected"));
+        assert!(state.join(SUBMITTED).exists());
+        assert_eq!(pending(state).unwrap(), BTreeSet::from(["3:0".into()]));
+        let cancelled = std::cell::Cell::new(false);
+        notify_with_transport(
+            state,
+            &target,
+            |_, text| {
+                assert!(cancelled.get(), "new group preceded cancellation receipt");
+                assert!(text.contains("keys 3:0 require"));
+                queued()
+            },
+            |actual_target, actual| {
+                assert_eq!(actual_target.thread, target.thread);
+                assert_eq!(actual, id);
+                cancelled.set(true);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(!state.join(SUBMITTED).exists());
+        assert_eq!(queue.observe_unfinished_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn acknowledgement_during_enqueue_retains_id_for_cancellation_without_fabricating_ack() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = temp.path();
+        let target = target(state);
+        let probe = SystemProcessProbe::default();
+        let queue = WakeQueue::new(state);
+        queue
+            .append(
+                WakeKind::Signal,
+                "first",
+                "report",
+                SystemTime::now(),
+                &probe,
+            )
+            .unwrap();
+        notify_with_transport(
+            state,
+            &target,
+            |actual, _| {
+                let items = queue
+                    .claim_available(&target.owner, SystemTime::now(), 64, &probe)
+                    .unwrap();
+                acknowledge(&queue, &target, &items[0]);
+                accepted(actual, "123e4567-e89b-12d3-a456-426614174001")
+            },
+            |_, _| panic!("no previous input"),
+        )
+        .unwrap();
+        let recovered: Target =
+            serde_json::from_value(serde_json::to_value(&target).unwrap()).unwrap();
+        notify_with_transport(
+            state,
+            &recovered,
+            |_, _| panic!("no unfinished input"),
+            |_, _| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(queue.observe_unfinished_count().unwrap(), 0);
+        assert!(!state.join(SUBMITTED).exists());
+        // A successful external send followed by a local persistence failure
+        // stays ambiguous, rather than clearing the pre-send journal.
+        queue
+            .append(
+                WakeKind::Signal,
+                "second",
+                "report",
+                SystemTime::now(),
+                &probe,
+            )
+            .unwrap();
+        assert!(
+            notify_with_transport(
+                state,
+                &target,
+                |actual, _| {
+                    fs::create_dir(state.join(SUBMITTED)).unwrap();
+                    accepted(actual, "123e4567-e89b-12d3-a456-426614174001")
+                },
+                |_, _| Ok(())
+            )
+            .is_err()
+        );
+        assert!(state.join(UNCERTAIN).exists());
+        assert!(state.join(FAILURE).exists());
+        assert_eq!(pending(state).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn malformed_or_foreign_native_receipts_cannot_authorize_cancellation_or_submission() {
+        for mode in [
+            "thread",
+            "home",
+            "uuid",
+            "key",
+            "empty",
+            "malformed",
+            "oversized",
+            "symlink",
+            "dangling",
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let state = temp.path();
+            let target = target(state);
+            let path = state.join(SUBMITTED);
+            let mut receipt = serde_json::json!({"thread":target.thread,"codex_home":target.codex_home,"submission_id":"123e4567-e89b-12d3-a456-426614174001","wakes":[format!("{}:1:0",target.thread)]});
+            match mode {
+                "thread" => receipt["thread"] = serde_json::json!("other"),
+                "home" => receipt["codex_home"] = serde_json::json!("/foreign"),
+                "uuid" => receipt["submission_id"] = serde_json::json!("invalid"),
+                "key" => receipt["wakes"] = serde_json::json!(["foreign:1:0"]),
+                "empty" => receipt["wakes"] = serde_json::json!([]),
+                _ => {}
+            }
+            let bytes = match mode {
+                "malformed" => b"broken".to_vec(),
+                "oversized" => vec![b'x'; 64 * 1024 + 1],
+                _ => serde_json::to_vec(&receipt).unwrap(),
+            };
+            if matches!(mode, "symlink" | "dangling") {
+                let foreign = state.join("foreign.json");
+                if mode == "symlink" {
+                    fs::write(&foreign, &bytes).unwrap();
+                }
+                std::os::unix::fs::symlink(foreign, &path).unwrap();
+            } else {
+                fs::write(&path, &bytes).unwrap();
+            }
+            assert!(
+                notify_with_transport(
+                    state,
+                    &target,
+                    |_, _| panic!("foreign receipt cannot send"),
+                    |_, _| panic!("foreign receipt cannot cancel")
+                )
+                .is_err(),
+                "{mode}"
+            );
+            assert!(
+                fs::symlink_metadata(&path).is_ok(),
+                "receipt lost for {mode}"
+            );
         }
     }
 
@@ -857,7 +1151,7 @@ mod tests {
             )
             .unwrap();
         notify_with(state, &recovered, |_, input| {
-            assert!(input.contains("Wake IDs 3:0 require"));
+            assert!(input.contains("Internal sequence:revision keys 3:0 require"));
             queued()
         })
         .unwrap();
@@ -904,7 +1198,9 @@ mod tests {
             .unwrap();
         for sequence in 1..=3 {
             notify_with(state, &target, |_, input| {
-                assert!(input.contains(&format!("Wake IDs {sequence}:0 require")));
+                assert!(input.contains(&format!(
+                    "Internal sequence:revision keys {sequence}:0 require"
+                )));
                 let items = queue
                     .claim_available(&target.owner, SystemTime::now(), 10, &probe)
                     .unwrap();

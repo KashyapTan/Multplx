@@ -25,6 +25,7 @@ time.workspace = true
 regex.workspace = true
 ratatui.workspace = true
 signal-hook.workspace = true
+tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 
 [dev-dependencies]
 tempfile.workspace = true
