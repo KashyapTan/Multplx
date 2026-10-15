@@ -1237,7 +1237,7 @@ pub fn run(harness: &str, args: &[OsString]) -> i32 {
     };
     match harness {
         "codex" => error(
-            "native hook review includes the Multplx primary hooks and shared worker bundle; unchanged standing/nested workers reuse that bundle's approval. Runtime updates require review again; project/user hooks keep separate native review and disabled choices are preserved.",
+            "native hook review includes the Multplx primary hooks and shared worker bundle; unchanged standing/nested workers reuse that bundle's approval. Runtime updates require review again; project/user hooks keep separate native review and disabled choices are preserved. Folder access is separate: only if native review has not already been completed for this repository with the workers' CODEX_HOME, ask the user to run multplx projects consent SELECTOR --harness codex in their foreground terminal before fan-out. Do not repeat known approval or launch this command from an agent; registration and process exit do not establish approval. Saved native project consent covers valid linked worktrees unless an exact worktree decision takes precedence.",
         ),
         "claude" | "pi" => error(format_args!(
             "{harness} may require native project/extension trust at runtime {} and worker home {}; review it in the provider UI. An endpoint alone does not prove assignment execution; retain foreground readiness checks until native hooks run.",

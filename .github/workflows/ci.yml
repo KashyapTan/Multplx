@@ -190,6 +190,7 @@ jobs:
       - name: Install coverage runtime dependencies
         run: sudo apt-get update && sudo apt-get install -y lsof ripgrep tmux python3 zsh
       - name: Enforce workspace line coverage
+        id: coverage
         # Behavior lanes own the named process-driven CLI modules, the PTY-driven workspace dashboard, home seeding, upstream review, and the three OS-lifecycle Herdr modules.
         # Pure CLI entrypoint and dispatch code remains in the coverage denominator.
         run: >-
@@ -197,6 +198,66 @@ jobs:
           --ignore-filename-regex
           '(multplx-cli/src/(authority|deep_review|launcher|review|supervision|workflow_runtime|workspace_tui)\.rs|multplx-cli/src/tooling/(documentation|runner)\.rs|multplx-domain/src/lifecycle/(home_seed|upstream_diff)\.rs|herdr_(cleanup|presentation|tools)\.rs)'
           --fail-under-lines 93
+      - name: Preserve failed coverage inputs and diagnostics
+        if: failure() && steps.coverage.outcome == 'failure'
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, platform, shutil, subprocess, tarfile
+
+          destination = pathlib.Path(os.environ['RUNNER_TEMP']) / 'rust-coverage-failure'
+          destination.mkdir(parents=True, exist_ok=True)
+          source = pathlib.Path('target/llvm-cov-target')
+          inputs = sorted(set(source.rglob('*.profraw')) | set(source.rglob('*profraw-list')))
+          archive = destination / 'coverage-inputs.tar.gz'
+          # Preserve every input, including malformed profiles; never alter the merge inputs.
+          with tarfile.open(archive, 'w:gz', dereference=False) as output:
+              for path in inputs:
+                  output.add(path, arcname=str(path), recursive=False)
+          files = []
+          with tarfile.open(archive, 'r|gz') as snapshot:
+              for member in snapshot:
+                  entry = {'path': member.name, 'size': member.size, 'type': member.type.decode('ascii')}
+                  if member.isfile():
+                      with snapshot.extractfile(member) as stream:
+                          entry['sha256'] = hashlib.file_digest(stream, 'sha256').hexdigest()
+                  else:
+                      entry['link_target'] = member.linkname
+                  files.append(entry)
+
+          def version(command):
+              try:
+                  result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+                  return {'command': command, 'status': result.returncode, 'stdout': result.stdout, 'stderr': result.stderr}
+              except (OSError, subprocess.TimeoutExpired) as error:
+                  return {'command': command, 'error': str(error)}
+
+          tools = [version(['rustc', '--version', '--verbose']), version(['cargo', '--version']),
+                   version(['cargo', 'llvm-cov', '--version'])]
+          target_libdir = version(['rustc', '--print', 'target-libdir'])
+          tools.append(target_libdir)
+          if target_libdir.get('status') == 0:
+              profdata = pathlib.Path(target_libdir['stdout'].strip()).parent / 'bin/llvm-profdata'
+              tools.append(version([str(profdata), '--version']))
+          memory = {}
+          memory_path = pathlib.Path('/proc/meminfo')
+          if memory_path.exists():
+              memory = {line.split(':', 1)[0]: line.split(':', 1)[1].strip()
+                        for line in memory_path.read_text().splitlines()
+                        if line.split(':', 1)[0] in ('MemTotal', 'MemAvailable')}
+          facts = {'commit': os.environ.get('GITHUB_SHA'), 'run_id': os.environ.get('GITHUB_RUN_ID'),
+                   'run_attempt': os.environ.get('GITHUB_RUN_ATTEMPT'), 'files': files, 'tools': tools,
+                   'system': {'os': platform.system(), 'release': platform.release(), 'machine': platform.machine(),
+                              'load_average': os.getloadavg(), 'disk_bytes': shutil.disk_usage('.')._asdict(),
+                              'memory': memory}}
+          (destination / 'manifest.json').write_text(json.dumps(facts, indent=2) + '\n')
+          PY
+      - name: Upload failed coverage inputs
+        if: failure() && steps.coverage.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-coverage-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rust-coverage-failure
+          if-no-files-found: error
 
   # Deterministic proof that portable parallel shards + portable serial + Herdr
   # equal the complete tests/*.test.sh inventory with no missing or duplicates.

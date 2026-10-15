@@ -33,6 +33,32 @@ Implementation uses an isolated allocation from an explicit starting commit thro
 Dirty working files are excluded from that committed base and remain untouched; discuss working changes explicitly rather than assuming they entered the task.
 Remote-free repositories support local work, and unversioned folders do not gain Git, worktree or forge capabilities merely by appearing in discovery.
 
+### Codex folder consent before delegation
+
+Registering or selecting a checkout does not grant Codex folder consent.
+Only if native review has not already been completed for this repository with the workers' `CODEX_HOME`, ask the user to run the exact command printed during registration or selection in their foreground terminal before starting workers:
+
+```sh
+multplx projects consent my-app --harness codex
+```
+
+This explicit foreground action revalidates the registered checkout and opens the installed native Codex UI at its canonical path, without supplying a model request or changing permission settings.
+Run it with the same `CODEX_HOME` environment as the primary and workers; consent saved in another Codex home does not transfer.
+Review the native folder prompt, then exit Codex with Ctrl-C at its empty prompt to return to your terminal.
+Canceling grants no consent, and a successful process exit does not prove that a decision was saved.
+Do not repeat known approval. A registration message or noninteractive refusal does not mean that an already reviewed repository needs another review.
+If the checkout is already trusted, Codex may open directly at the empty prompt.
+The primary conversation keeps its runtime directory, configuration, instructions and operational home.
+
+Codex 0.162.1 resolves valid linked worktrees to their main repository for saved folder consent; approving the repository before concurrent workers start avoids their initial folder prompts when no exact worktree or working-directory trust entry overrides it.
+A different repository still needs its own native review, including a project added after the primary conversation is already running.
+Already-open consent dialogs may remain after another session approves the repository, so complete any outstanding review before fan-out.
+Worker homes, project hooks and changed hook definitions can have separate native review requirements; folder consent does not approve them.
+This command requires a human foreground terminal and refuses noninteractive calls, so agents must present it to the user only when review is outstanding, instead of launching a nested review session.
+Multplx does not write provider trust entries, approve a parent directory, or infer consent from project registration.
+The [official configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference) describes saved project trust separately from permission settings.
+The linked-worktree inheritance claim was checked against the [Codex 0.162.1 trust resolver](https://github.com/openai/codex/blob/rust-v0.162.1/codex-rs/git-utils/src/trust.rs) and fresh native CLI trials; it is not a promise about every provider version.
+
 ## Configured discovery
 
 Roots are optional and persist under the operational home's `config/project-discovery.json`.
