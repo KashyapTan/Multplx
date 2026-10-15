@@ -9291,6 +9291,7 @@ mod tests {
         // The receipt exists, but the owned shell cannot become the harness
         // until this process releases it. Scheduler delay cannot skip the check.
         child.stdin.take().unwrap().write_all(b"release\n").unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
         while !launch_process_started(dir.path(), "exact-attempt-endpoint", "codex")
             && std::time::Instant::now() < deadline
         {
