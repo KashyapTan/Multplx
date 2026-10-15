@@ -327,3 +327,26 @@ The canonical notification runtime regression uses the real report owner and one
 The base ordering returned 124 after entering maintenance despite an already durable completion wake.
 The corrected ordering returns the existing signal before that maintenance starts, keeps the wake queue byte-for-byte, and preserves the original question/completion and acknowledged replay assertions.
 This is deterministic runtime evidence with injected maintenance; it does not claim a fresh authenticated harness trial.
+
+## Managed Codex custom-home readiness (2026-10-14)
+
+Five authenticated Codex CLI 0.162.1 trials used an installed runtime with explicit isolated operational homes.
+All five reported missing native readiness, and one observed worker completion remained pending after its primary ended its turn until a human follow-up.
+The retained failed home's state contains no `.codex-idle-hook-ready.json`; the former combined mismatch diagnostic did not distinguish that absence from a wrong thread or lock owner.
+The installed primary-scope predicate accepts the installer-configured default home but rejects those explicit custom homes before registration.
+This identifies a custom-home registration defect; it does not establish a default-home wake failure rate.
+Inherited Desktop thread/session IDs in three primary processes are a separate launch contamination issue; two clean primary processes had the same absent-readiness result.
+
+Managed custom-home scope now requires the installed runtime's owned package/config binding plus a canonical exact-home launcher connection whose recorded process lifetime is in the caller's bounded ancestry.
+An environment override alone, another live process, a reused PID, mismatched home/state/provider, a symlinked record, a foreign executable, worker scope, or a gate agent cannot establish that authority.
+Native SessionStart registration still supplies the exact thread and full process identity, and queue delivery still requires the live canonical lock owner and matched native receipt.
+Primary and managed worker Codex launches remove inherited `CODEX_THREAD_ID` and `CODEX_SESSION_ID`; native Codex supplies the new session's identity.
+The read-only status projection reports primary-scope eligibility and the particular missing receipt/thread/home/owner proof without changing trust or durable wake state.
+
+The focused Rust regressions cover the package/custom-home authority matrix, launch identity removal, two wake cycles, queued work before task metadata, uncertain transport, explicit retry, and owner-loss cleanup.
+Authenticated Herdr rerun evidence is recorded separately from these deterministic fixtures.
+
+Public Firstmate was compared at commit [`33503ab33737b76d1ec7d891b95d44ce020a1579`](https://github.com/kunchenguid/firstmate/tree/33503ab33737b76d1ec7d891b95d44ce020a1579).
+Its [Codex protocol](https://github.com/kunchenguid/firstmate/blob/33503ab33737b76d1ec7d891b95d44ce020a1579/docs/supervision-protocols/codex.md) uses recurring foreground checkpoints, and its [SessionStart wrapper](https://github.com/kunchenguid/firstmate/blob/33503ab33737b76d1ec7d891b95d44ce020a1579/bin/fm-sessionstart-run.sh) runs or re-emits startup context under its own scope/lock rules.
+Those mechanics do not improve Multplx's required native idle queue delivery or resolve its installer/custom-home binding mismatch.
+No Firstmate code was imported, and Multplx retains agent method freedom, standing assignments, durable wake dispositions, and human-only remote merges.
