@@ -577,3 +577,11 @@ Neither fixture claims a paid worker turn or provider authentication.
 Claude and Pi executables were unavailable for this verification, so their adapter flags and extension loading were not changed; launch/setup diagnostics preserve their native project or extension consent and foreground readiness fallback.
 Installed Cursor `2026.10.01-e373342` help/source confirmed that its existing worker `--trust` is broader persistent workspace permission; it was not expanded to primary launches, and no new authenticated Cursor trial is claimed.
 Historical worker hook files, fresh Multplx worktree project hooks and unrelated user hooks retain independent native review; shared CLI approval does not transfer those approvals.
+
+
+## Herdr deadline phase fixture recheck, 2026-10-14
+
+Hosted macOS CI exposed an acknowledgement/deadline fixture race: its 20 ms total window could expire before the asynchronous test server acknowledgement was scheduled, correctly producing an acknowledgement timeout instead of the intended post-ack clean end.
+The post-ack fixture now advances a private test clock only after the real socket acknowledgement is parsed and emitted, and holds the server socket through a channel until the deadline result is asserted.
+Public transport callers continue to use the real monotonic clock with unchanged acknowledgement and overall deadlines.
+Separate tests retain the real 20 ms missing-ack timeout and real 20 ms clean frame deadline without peer close or cancellation; no assertion or production timeout was relaxed.
