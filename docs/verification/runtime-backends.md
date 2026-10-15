@@ -577,3 +577,23 @@ Neither fixture claims a paid worker turn or provider authentication.
 Claude and Pi executables were unavailable for this verification, so their adapter flags and extension loading were not changed; launch/setup diagnostics preserve their native project or extension consent and foreground readiness fallback.
 Installed Cursor `2026.10.01-e373342` help/source confirmed that its existing worker `--trust` is broader persistent workspace permission; it was not expanded to primary launches, and no new authenticated Cursor trial is claimed.
 Historical worker hook files, fresh Multplx worktree project hooks and unrelated user hooks retain independent native review; shared CLI approval does not transfer those approvals.
+
+## Backend selection consistency - 2026-10-14
+
+Herdr 0.9.3 protocol 22 was exercised in a guarded `mx-lab-` named session with the live default session unchanged.
+An actual Herdr shell exposed `HERDR_ENV=1`, `HERDR_PANE_ID`, and `HERDR_SESSION`, but no `HERDR_MANAGED` marker.
+A real tmux server created from that pane supplied its own `TMUX` and `TMUX_PANE` while inheriting the Herdr markers.
+Running bootstrap inside those two real processes selected Herdr directly and tmux when nested, respectively.
+The bootstrap dependency/notice path now uses the same Rust resolver as new task spawn; explicit environment/home configuration remains ahead of ambient markers, and `auto` advances to the next selection source.
+The shell compatibility resolver follows the same `auto` semantics.
+
+```sh
+target/release/mx test-run tests/mx-bootstrap.test.sh tests/mx-backend.test.sh
+target/release/mx test-run tests/mx-launcher.test.sh
+target/release/mx test-run tests/mx-backend-autodetect-smoke.test.sh tests/mx-backend-herdr-smoke.test.sh
+```
+
+All five focused scripts passed without gate skips.
+The native Herdr suites used inert synthetic harnesses to establish exact endpoint startup, capture, send, and cleanup; they do not establish paid provider execution or idle wake delivery.
+The launcher regression separately records `herdr` and the exact named-session pane from `HERDR_ENV=1` without the historical `HERDR_MANAGED` marker.
+The public Firstmate reference at `33503ab33737b76d1ec7d891b95d44ce020a1579` was inspected for selection mechanics; its existing marker order agrees with the retained Multplx precedence, and no source was imported.

@@ -310,6 +310,19 @@ test_backend_name_cmux_fallback_notice() {
 # mx_backend_detect does, and is loud only when it selects herdr or cmux -
 # never when it selects tmux (today's default-path behavior must stay
 # byte-for-byte silent).
+test_backend_auto_restores_detection() {
+  local cfg out
+  cfg="$TMP_ROOT/auto-config"
+  mkdir -p "$cfg"
+  printf '%s\n' auto > "$cfg/backend"
+  out=$(unset TMUX CMUX_WORKSPACE_ID; HERDR_ENV=1 MX_BACKEND=auto MX_BACKEND_CONFIG_DIR="$cfg" mx_backend_name 2>/dev/null)
+  [ "$out" = herdr ] || fail "auto environment/config must reach runtime detection, got '$out'"
+  printf '%s\n' tmux > "$cfg/backend"
+  out=$(unset TMUX CMUX_WORKSPACE_ID; HERDR_ENV=1 MX_BACKEND=auto MX_BACKEND_CONFIG_DIR="$cfg" mx_backend_name 2>/dev/null)
+  [ "$out" = tmux ] || fail "auto environment must preserve explicit home configuration, got '$out'"
+  pass "mx_backend_name: auto selects the next configured or detected backend"
+}
+
 test_backend_name_autodetect_notice() {
   local dir cfg out errfile
 
@@ -891,12 +904,13 @@ test_spawn_autodetect_nesting_resolves_tmux_silently() {
   state="$TMP_ROOT/nest-state"; config="$TMP_ROOT/nest-config"
   mkdir -p "$state" "$config"
 
-  # No --backend, no MX_BACKEND, no config/backend: nothing is explicitly
-  # configured, so auto-detect runs. $TMUX and HERDR_ENV=1 are both present
+  # No --backend and config/backend=auto with MX_BACKEND=auto restore
+  # runtime detection through the native spawn resolver. $TMUX and HERDR_ENV=1 are both present
   # (tmux nested inside a herdr pane) - the full mx-spawn.sh pipeline, not just
   # mx_backend_name, must resolve this to tmux and stay completely silent about
   # it (today's default path, byte-identical).
-  out=$(PATH="$fb:$PATH" MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$TEST_HOME" \
+  printf '%s\n' auto > "$config/backend"
+  out=$(PATH="$fb:$PATH" MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$TEST_HOME" MX_BACKEND=auto \
     MX_STATE_OVERRIDE="$state" MX_DATA_OVERRIDE="$data" MX_CONFIG_OVERRIDE="$config" \
     MX_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" MX_SPAWN_NO_GUARD=1 TMUX="fake,1,0" HERDR_ENV=1 \
     MX_TMUX_LOG="$TMP_ROOT/nest.log" \
@@ -920,6 +934,7 @@ test_backend_detect_cmux_fallback_ancestry_pid_match
 test_backend_detect_cmux_fallback_ancestry_comm_match
 test_backend_detect_cmux_fallback_ancestry_stops_at_launchd
 test_backend_name_cmux_fallback_notice
+test_backend_auto_restores_detection
 test_backend_name_autodetect_notice
 test_backend_name_explicit_beats_detection
 test_backend_validate_refuses_unknown

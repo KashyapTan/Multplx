@@ -584,7 +584,8 @@ fn ambient_endpoint() -> (
             .filter(|value| !value.is_empty());
         return (backend, Some(target), None, None);
     }
-    if std::env::var_os("HERDR_MANAGED").is_some()
+    if (std::env::var("HERDR_ENV").as_deref() == Ok("1")
+        || std::env::var_os("HERDR_MANAGED").is_some())
         && let Some(pane) = std::env::var("HERDR_PANE_ID")
             .ok()
             .filter(|value| !value.is_empty())

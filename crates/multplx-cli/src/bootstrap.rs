@@ -50,38 +50,8 @@ fn missing(output: &mut String, tool: &str) {
     }
 }
 
-fn backend(paths: &Paths) -> String {
-    if let Ok(value) = std::env::var("MX_BACKEND")
-        && value != "auto"
-        && !value.trim().is_empty()
-    {
-        return value;
-    }
-    fs::read_to_string(paths.config.join("backend"))
-        .map(|value| value.trim().to_owned())
-        .ok()
-        .filter(|value| !value.is_empty() && value != "auto")
-        .unwrap_or_else(|| {
-            if std::env::var("HERDR_ENV").as_deref() == Ok("1") {
-                "herdr".to_owned()
-            } else {
-                "tmux".to_owned()
-            }
-        })
-}
-
-fn auto_detected_herdr(paths: &Paths) -> bool {
-    let environment_is_auto = std::env::var("MX_BACKEND")
-        .map(|value| value == "auto" || value.trim().is_empty())
-        .unwrap_or(true);
-    let configured_is_auto = fs::read_to_string(paths.config.join("backend"))
-        .map(|value| value.trim().is_empty() || value.trim() == "auto")
-        .unwrap_or(true);
-    environment_is_auto && configured_is_auto && std::env::var("HERDR_ENV").as_deref() == Ok("1")
-}
-
 fn tool_diagnostics(paths: &Paths, output: &mut String) {
-    let backend = backend(paths);
+    let (backend, _) = super::resolve_spawn_backend(&paths.config);
     let backend_tools: &[&str] = match backend.as_str() {
         "tmux" => &["tmux"],
         "herdr" => &["herdr", "jq"],
@@ -1169,8 +1139,9 @@ pub(crate) fn run(args: &[String], paths: &Paths) -> (i32, String, String) {
     let mut output = String::new();
     let migration_complete =
         detect_only || run_script(&paths.source_root.join("bin/mx-pr-check-migrate.sh"), &[]);
-    if auto_detected_herdr(paths) {
-        output.push_str("NOTICE: auto-detected herdr runtime (HERDR_ENV=1)\n");
+    if let (_, Some(notice)) = super::resolve_spawn_backend(&paths.config) {
+        output.push_str(&notice);
+        output.push('\n');
     }
     tool_diagnostics(paths, &mut output);
     self_checks(paths, &mut output, verbose);
