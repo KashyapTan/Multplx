@@ -584,6 +584,7 @@ Herdr 0.9.3 protocol 22 was exercised in a guarded `mx-lab-` named session with 
 An actual Herdr shell exposed `HERDR_ENV=1`, `HERDR_PANE_ID`, and `HERDR_SESSION`, but no `HERDR_MANAGED` marker.
 A real tmux server created from that pane supplied its own `TMUX` and `TMUX_PANE` while inheriting the Herdr markers.
 Running bootstrap inside those two real processes selected Herdr directly and tmux when nested, respectively.
+The reverse nesting probe launched a separate guarded Herdr server from that tmux pane; its new shell retained the exact Herdr identifiers and removed the outer `TMUX` markers, agreeing with the same precedence.
 The bootstrap dependency/notice path now uses the same Rust resolver as new task spawn; explicit environment/home configuration remains ahead of ambient markers, and `auto` advances to the next selection source.
 The shell compatibility resolver follows the same `auto` semantics.
 
