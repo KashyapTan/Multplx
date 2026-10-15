@@ -597,4 +597,4 @@ target/release/mx test-run tests/mx-backend-autodetect-smoke.test.sh tests/mx-ba
 All five focused scripts passed without gate skips.
 The native Herdr suites used inert synthetic harnesses to establish exact endpoint startup, capture, send, and cleanup; they do not establish paid provider execution or idle wake delivery.
 The launcher regression separately records `herdr` and the exact named-session pane from `HERDR_ENV=1` without the historical `HERDR_MANAGED` marker.
-The public Firstmate reference at `33503ab33737b76d1ec7d891b95d44ce020a1579` was inspected for selection mechanics; its existing marker order agrees with the retained Multplx precedence, and no source was imported.
+The public upstream reference at `33503ab33737b76d1ec7d891b95d44ce020a1579` was inspected for selection mechanics; its existing marker order agrees with the retained Multplx precedence, and no source was imported.
