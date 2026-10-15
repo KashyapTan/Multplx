@@ -29,7 +29,9 @@ the accepted outcome instead of applying a task-mode flag to a standing charter.
 Legacy --daemon defaults its charter role to sub-orchestrator; MX_AGENT_CHARTER and MX_AGENT_SCOPE supply its outcome and scope.
 --no-projects deliberately leaves project selection unbound; bind a repository
 before implementation. It is mutually exclusive with a project list.
-Replace {TASK} with the accepted outcome, acceptance criteria and constraints.
+Replace every {TASK} occurrence, including # Task and # Charter when present,
+with the accepted outcome, acceptance criteria and constraints before home-seed/spawn.
+A context file is appended evidence; it does not fill scaffold placeholders.
 --context-file copies UTF-8 handoff context verbatim, including original research
 pointers, accepted revision, known task/attempt identity, checkout and base commit.
 Launch binds the accepted brief bytes and task, attempt, parent and checkout identities.
@@ -537,6 +539,13 @@ pub fn run(
         })?;
     file.write_all(body.as_bytes())
         .map_err(|io| error(io.to_string()))?;
+    if persistent {
+        return Ok(format!(
+            "scaffolded: {} (standing {assignment_role}, output={}; replace every {{TASK}}, including # Task and # Charter, before home-seed/spawn)",
+            path.display(),
+            output.as_str()
+        ));
+    }
     Ok(match kind {
         Kind::Daemon
             if env::var("MX_AGENT_CHARTER")
@@ -566,6 +575,38 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn standing_scaffold_receipt_names_actual_role_and_all_placeholders() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path().join("data");
+        let state = temp.path().join("state");
+        for (id, role, output) in [
+            ("build", "implementer", "implementation"),
+            ("study", "researcher", "report"),
+        ] {
+            let receipt = run(
+                &args(&[
+                    id,
+                    "project",
+                    "--persistent",
+                    "--role",
+                    role,
+                    "--output",
+                    output,
+                ]),
+                temp.path(),
+                temp.path(),
+                &data,
+                &state,
+            )
+            .unwrap();
+            assert!(receipt.contains(&data.join(id).join("brief.md").display().to_string()));
+            assert!(receipt.contains(&format!("standing {role}, output={output}")));
+            assert!(receipt.contains("replace every {TASK}, including # Task and # Charter"));
+            assert!(!receipt.contains("mode="));
+        }
     }
 
     #[test]

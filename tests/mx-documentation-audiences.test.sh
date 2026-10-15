@@ -141,6 +141,26 @@ MD
   pass "local links resolve while dates, versions, commands, and incident prose remain semantically reviewed"
 }
 
+test_private_report_has_exact_ownership_boundary() {
+  local repo="$TMP_ROOT/private-report" report='LIVE_FIVE_PROJECT_EXPERIMENTS_2026-10-14.md'
+  mkdir -p "$repo/docs"
+  git -C "$repo" init -q
+  printf '%s\n' '[Setup](docs/setup.md) [Policy](docs/policy.md)' > "$repo/README.md"
+  printf '%s\n' '# Setup' > "$repo/docs/setup.md"
+  printf '%s\n' '# Policy' > "$repo/docs/policy.md"
+  printf '%s\n' '# Evidence' > "$repo/docs/evidence.md"
+  write_fixture_inventory "$repo"
+  # Exercise the actual ignore owner; unrelated prose must still be classified.
+  cp "$ROOT/.gitignore" "$repo/.gitignore"
+  printf '%s\n' 'Private evidence [pointer](/machine/specific/artifact).' > "$repo/$report"
+  git -C "$repo" add README.md docs .gitignore
+  git -C "$repo" check-ignore -q "$report" || fail 'private report is not ignored exactly'
+  "$CHECK" --root "$repo" >/dev/null || fail 'private report leaked into portable documentation'
+  printf '%s\n' '# Unclassified report' > "$repo/ANOTHER_EXPERIMENT_REPORT.md"
+  run_expect_failure 'unclassified: ANOTHER_EXPERIMENT_REPORT.md' "$CHECK" --root "$repo"
+  pass 'exact private report exclusion retains classification for unknown untracked reports'
+}
+
 test_deep_review_document_schema() {
   local config="$ROOT/.deep-review.yaml"
   assert_grep 'document:' "$config" "trusted Document config is missing"
@@ -204,4 +224,5 @@ test_duplicate_and_setup_classification_fail
 test_required_pointer_fails
 test_local_links_and_no_keyword_heuristic
 test_deep_review_document_schema
+test_private_report_has_exact_ownership_boundary
 test_adapter_cwd_schema_and_symlink_escape

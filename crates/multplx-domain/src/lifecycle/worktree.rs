@@ -1286,7 +1286,17 @@ pub fn run(args: &[std::ffi::OsString], home: &Path) -> Result<String> {
         .iter()
         .map(|s| s.to_str().ok_or_else(|| "non-UTF-8 argument".to_owned()))
         .collect::<Result<Vec<_>>>()?;
-    if args.is_empty() || args == ["--help"] || args == ["-h"] {
+    if args.is_empty()
+        || args == ["--help"]
+        || args == ["-h"]
+        || matches!(
+            args.as_slice(),
+            [
+                "acquire" | "list" | "inspect" | "release" | "retain" | "prune" | "legacy-inspect",
+                "--help" | "-h"
+            ]
+        )
+    {
         return Ok(USAGE.into());
     }
     if let ["legacy-inspect", source, paths @ ..] = args.as_slice() {
@@ -1414,6 +1424,28 @@ pub fn run(args: &[std::ffi::OsString], home: &Path) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subcommand_help_does_not_resolve_or_register_a_project() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("absent-home");
+        for operation in [
+            "acquire",
+            "list",
+            "inspect",
+            "release",
+            "retain",
+            "prune",
+            "legacy-inspect",
+        ] {
+            for flag in ["--help", "-h"] {
+                let args = [operation.into(), flag.into()];
+                assert_eq!(run(&args, &home).unwrap(), USAGE);
+                assert!(!home.exists(), "help mutated the operational home");
+            }
+        }
+        assert!(run(&["unknown".into(), "--help".into()], &home).is_err());
+    }
 
     fn fixture() -> (tempfile::TempDir, PathBuf, ProjectBinding) {
         let temp = tempfile::tempdir().unwrap();

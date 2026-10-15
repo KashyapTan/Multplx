@@ -14,6 +14,8 @@ Preserve task and accepted-revision evidence when scope changes.
 Workers execute their accepted deliverable; coordinators reconcile the result against scope and criteria, synthesize it and present it to the user.
 Inspect `mx task-model inspect TASK_ID` for the current task, attempt, accepted brief, checkout and delivery commit before claiming completion.
 Checks passing, implementation complete, review complete, PR ready and human merged are separate facts.
+For combined work, validate against the actual integrated implementation and accepted interface; distinguish preparatory test-double checks from production checks.
+Coordinators route integration changes and test corrections through the assigned worker; preserve the requirement behind each changed assertion, since passing tests alone do not justify relaxing accepted behavior.
 Record exact checks and observed results, limitations and original artifact pointers; an omitted or unrun check is not a pass.
 
 A standing worker keeps its runtime home separate from the parent task owner.

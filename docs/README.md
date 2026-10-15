@@ -47,6 +47,7 @@ The discoverable [operational skills](../.agents/skills/) include task dispatch,
 - [Decision hold lifecycle](decision-hold-lifecycle.md) explains how unresolved maintainer decisions survive teardown.
 - [Guard verification](verification/guards.md) holds current cross-harness empirical proof for those safety mechanisms.
 - [Orchestrator contract verification](verification/orchestrator-contract.md) records instruction discovery, delivery packaging and bounded behavioral trial evidence.
+- [Agent contract friction](verification/agent-contract-friction.md) distinguishes coordination instruction gaps, command usability defects and application scope limits from the October 2026 native trials.
 - [Supervision verification](verification/supervision.md) and [runtime backend verification](verification/runtime-backends.md) hold the other active version-scoped evidence.
 - [Transcript audit follow-ups](verification/transcript-audit-followups.md) record publication, startup and delivery usability repairs and their validation limits.
 - [Launcher verification](verification/launcher.md) records global path, shell, lock, harness, and performance evidence.

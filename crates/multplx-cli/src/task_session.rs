@@ -345,7 +345,11 @@ fn history(state: &Path, id: &str) -> Result<serde_json::Value, String> {
     )
 }
 pub(super) fn run(args: &[OsString], state: &Path) -> i32 {
-    if args.len() == 1 && matches!(args[0].to_str(), Some("--help" | "-h" | "help")) {
+    if (args.len() == 1 && matches!(args[0].to_str(), Some("--help" | "-h" | "help")))
+        || (args.len() == 2
+            && matches!(args[0].to_str(), Some("inspect" | "history"))
+            && matches!(args[1].to_str(), Some("--help" | "-h")))
+    {
         print!("{HELP}");
         return 0;
     }
@@ -403,6 +407,19 @@ pub(super) fn run(args: &[OsString], state: &Path) -> i32 {
 mod tests {
     use super::*;
     use multplx_domain::lifecycle::subagent_model::{ArtifactKind, AssignmentRole, write_meta};
+    #[test]
+    fn subcommand_help_requires_no_task_or_session_receipt() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = temp.path().join("absent-state");
+        for operation in ["inspect", "history"] {
+            for flag in ["--help", "-h"] {
+                assert_eq!(run(&[operation.into(), flag.into()], &state), 0);
+                assert!(!state.exists());
+            }
+        }
+        assert_eq!(run(&["unknown".into(), "--help".into()], &state), 1);
+    }
+
     const SESSION: &str = "12345678-1234-1234-1234-123456789abc";
     fn fixture() -> (tempfile::TempDir, PathBuf, TaskRecord) {
         let root = tempfile::tempdir().unwrap();
