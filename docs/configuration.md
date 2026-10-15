@@ -258,7 +258,7 @@ Tracked primary registration, Stop and SessionEnd hooks skip duplicate calls und
 The installed primary predicate verifies the exact packaged `target/release/mx` executable against the installer-owned package/root/home binding, as well as the public launcher entry.
 Native disabled choices remain authoritative; Multplx never writes the provider trust store, bypasses hook trust or supplies managed policy.
 Codex folder consent is a separate native decision from hook review and Multplx project registration.
-Before delegation into a new repository, use the explicit foreground `multplx projects consent SELECTOR --harness codex` action described in [workspace entry](workspace-entry.md#codex-folder-consent-before-delegation).
+Only if native review has not already been completed for this repository with the workers' `CODEX_HOME`, ask the user to run the foreground `multplx projects consent SELECTOR --harness codex` action described in [workspace entry](workspace-entry.md#codex-folder-consent-before-delegation) before delegation. Do not repeat known approval or invoke the command from an agent.
 It opens native Codex without model input or permission overrides, and does not claim that exiting the UI establishes trust.
 Custom CLI overrides of the same hook event arrays fail with a setup diagnostic rather than being silently overwritten; project and user hook files retain native review independently.
 A historical worker home with `.codex` files or a fresh Multplx development worktree containing tracked `.codex/hooks.json` can still require project-source review; the shared CLI bundle does not transfer that separate approval.
