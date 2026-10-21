@@ -1400,7 +1400,8 @@ fn wake_disposition(args: &[String]) -> Result<String, String> {
     }
     let processes = SystemProcessProbe::default();
     let (owner, _) = wake_handler_owner(&state, &processes)?;
-    let item = WakeQueue::new(state)
+    let queue = WakeQueue::new(&state);
+    let item = queue
         .record_disposition(
             event_id,
             &owner,
@@ -1418,7 +1419,39 @@ fn wake_disposition(args: &[String]) -> Result<String, String> {
             },
             &processes,
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            let original = error.to_string();
+            // Enrich only the existing transition guard; never replace owner or
+            // validation errors with a suggested state transition.
+            if !matches!(
+                error,
+                multplx_core::error::CoreError::MalformedRecord {
+                    kind: "wake disposition",
+                    reason: "event already has a different disposition"
+                }
+            ) {
+                return original;
+            }
+            let Ok(items) = queue.inbox_items(&processes) else {
+                return original;
+            };
+            let Some(item) = items.iter().find(|item| item.event_id == *event_id) else {
+                return original;
+            };
+            let Some(wait) = item.disposition.as_ref()
+                .filter(|wait| wait.kind == WakeDispositionKind::Waiting) else {
+                return original;
+            };
+            let trigger = wait.resume_trigger.as_deref().unwrap_or("recheck");
+            let quoted_trigger = format!("'{}'", trigger.replace('\'', "'\\''"));
+            let ack = if item.acknowledged_at.is_none() {
+                format!("mx wake ack {event_id}; then ")
+            } else {
+                String::new()
+            };
+            format!("{original}; waiting condition={}, trigger={}, recheck_at={}. In the same owning state, once the condition is met: {ack}mx wake resume {event_id} --trigger {quoted_trigger}; then disposition and ack. A fallback recheck requires its deadline to be due; inspect mx wake list --unfinished",
+                serde_json::json!(wait.condition), serde_json::json!(wait.resume_trigger), serde_json::json!(wait.recheck_after_epoch))
+        })?;
     serde_json::to_string(&item).map_err(|error| error.to_string())
 }
 

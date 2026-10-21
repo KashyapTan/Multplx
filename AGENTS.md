@@ -54,6 +54,7 @@ Follow its diagnostics and emitted harness supervision protocol.
 Development checkouts follow the operational-startup restrictions in [VISION.md](VISION.md).
 Before accepting replacement work, reconcile recorded tasks, active attempts, ownership, pending human questions, unfinished wakes and retained artifacts.
 Recover the current portfolio from canonical state rather than treating the visible transcript as the complete backlog.
+After restart or compaction, inspect the current task in its recorded owner state and reconcile `pending_correlations` before replying to old marked requests; settled or superseded correlations are historical.
 A lock-refused session must not act as a writer or consume another owner's queue.
 Inspect the recorded task, endpoint, home and worktree before resume, replacement or cleanup.
 A missing endpoint does not prove that independently running children, commits or unfinished work are gone.

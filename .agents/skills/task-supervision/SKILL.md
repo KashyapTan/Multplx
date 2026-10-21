@@ -18,6 +18,7 @@ Do not run repeating task/Git/capture/checkpoint inspections or timed sleeps as 
 Inspect bounded current state when the user asks, an actionable event arrives or concrete recovery requires it; an old status line is a notification, not current task truth.
 Background programs own continuous monitoring without a model turn.
 Read `mx task-model inspect TASK_ID --compact` for current owner/child-state routes, attempt/revision, endpoint/allocation, pending request IDs and expected delivery commit, and `bin/mx-actor-state.sh TASK_ID` for recorded execution state.
+After restart or compaction, reconcile `pending_correlations` in the recorded owner state before replying to marked messages retained in context; an old request may already be settled or superseded.
 Use `--full` when the accepted scope or retained history itself needs inspection; avoid repeating full embedded briefs for ordinary progress checks.
 `bin/mx-status-snapshot.sh --help` describes the bounded portfolio projection and freshness limits.
 Unavailable observations remain unknown rather than becoming healthy or completed state.
@@ -41,7 +42,10 @@ mx wake disposition EVENT_ID waiting --detail 'Awaiting the task decision' --con
 mx wake ack EVENT_ID
 ```
 
-Acknowledging a waiting receipt leaves it unfinished; resume through its trigger and settle it when the condition is resolved.
+Acknowledging a waiting receipt leaves it unfinished; inspect its condition, `resume_trigger` and `recheck_after_epoch` with `mx wake list --unfinished`.
+Once the condition is resolved, run `mx wake resume EVENT_ID --trigger RECORDED_TRIGGER` in the same owning state, then record the terminal disposition and acknowledge it.
+For a bounded recheck, `--trigger recheck` succeeds only when the recorded deadline is due; the next owner claim also resumes due rechecks.
+A waiting disposition cannot be overwritten directly with `handled`; acknowledge the original wait before resuming it.
 Printing or claiming an event never acknowledges it.
 Use `mx wake list --unfinished` and `mx wake pending` to inspect outstanding obligations; recover ownership only after the prior exact process lifetime is gone.
 [Durable coordination](../../../docs/durable-coordination.md) owns dispositions, receipt identity and request handling.

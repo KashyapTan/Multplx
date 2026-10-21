@@ -172,6 +172,49 @@ pub fn reusable(state: &Path, correlation: &str, task_id: &str) -> bool {
         && binding_is_current(state, &record)
 }
 
+/// Read-only rejection context for one task's supplied correlation.
+/// Missing, foreign and superseded records never become reply authority.
+#[must_use]
+pub fn rejected_correlation(state: &Path, task_id: &str, correlation: &str) -> &'static str {
+    if !Regex::new(r"^[A-Fa-f0-9]{16}$")
+        .expect("static id regex")
+        .is_match(correlation)
+    {
+        return "invalid correlation";
+    }
+    let record = path(state, correlation);
+    let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(&record, 64 * 1024) else {
+        return "no readable matching task request";
+    };
+    let Ok(text) = std::str::from_utf8(&bytes) else {
+        return "no readable matching task request";
+    };
+    let mut fields = std::collections::BTreeMap::new();
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            return "no readable matching task request";
+        };
+        if fields.insert(key, value).is_some() {
+            return "no readable matching task request";
+        }
+    }
+    let get = |key: &str| fields.get(key).copied().unwrap_or("");
+    if get("schema") != SCHEMA || get("task_id") != task_id || get("corr_id") != correlation {
+        return "no matching task request";
+    }
+    if !binding_is_current(state, &record) {
+        return "stale task/attempt/brief binding";
+    }
+    if get("phase") == "resolved"
+        && get("resolved_epoch")
+            .parse::<u64>()
+            .is_ok_and(|epoch| epoch > 0)
+    {
+        return "already settled";
+    }
+    "request phase requires reconciliation"
+}
+
 /// Current, delivered requests still requiring an answer or terminal response from this task.
 /// Resolves only exact validated envelopes; never infers authority from prose.
 pub fn outstanding(state: &Path, task_id: &str) -> Result<Vec<String>, String> {
@@ -1023,6 +1066,83 @@ pub fn tick(state: &Path, source_root: &Path, mut observe: impl FnMut(&str) -> &
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn rejected_correlation_diagnostics_are_read_only_and_task_scoped() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = temp.path().join("state");
+        fs::create_dir(&state).unwrap();
+        let corr = create(temp.path(), &state, "task", "request").unwrap();
+        let record = path(&state, &corr);
+        let initial = fs::read(&record).unwrap();
+        assert_eq!(
+            rejected_correlation(&state, "task", &corr),
+            "request phase requires reconciliation"
+        );
+        assert_eq!(
+            rejected_correlation(&state, "task", "../anything"),
+            "invalid correlation"
+        );
+        assert_eq!(
+            rejected_correlation(&state, "other", &corr),
+            "no matching task request"
+        );
+        assert_eq!(
+            rejected_correlation(&state, "task", "0000000000000000"),
+            "no readable matching task request"
+        );
+        assert_eq!(fs::read(&record).unwrap(), initial);
+        record_set(&record, "phase", "resolved").unwrap();
+        assert_eq!(
+            rejected_correlation(&state, "task", &corr),
+            "request phase requires reconciliation"
+        );
+        record_set(&record, "resolved_epoch", "1").unwrap();
+        let settled = fs::read(&record).unwrap();
+        assert_eq!(
+            rejected_correlation(&state, "task", &corr),
+            "already settled"
+        );
+        assert_eq!(fs::read(&record).unwrap(), settled);
+        record_set(&record, "attempt_id", "old-attempt").unwrap();
+        let stale = fs::read(&record).unwrap();
+        assert_eq!(
+            rejected_correlation(&state, "task", &corr),
+            "stale task/attempt/brief binding"
+        );
+        assert_eq!(fs::read(&record).unwrap(), stale);
+        let oversized = vec![b'x'; 64 * 1024 + 1];
+        fs::write(&record, &oversized).unwrap();
+        assert_eq!(
+            rejected_correlation(&state, "task", &corr),
+            "no readable matching task request"
+        );
+        assert_eq!(fs::read(&record).unwrap(), oversized);
+        for malformed in [
+            b"not a record".as_slice(),
+            b"schema=first\nschema=second\n".as_slice(),
+            b"\xff".as_slice(),
+        ] {
+            fs::write(&record, malformed).unwrap();
+            assert_eq!(
+                rejected_correlation(&state, "task", &corr),
+                "no readable matching task request"
+            );
+            assert_eq!(fs::read(&record).unwrap(), malformed);
+        }
+        fs::remove_file(&record).unwrap();
+        std::os::unix::fs::symlink(temp.path().join("absent"), &record).unwrap();
+        assert_eq!(
+            rejected_correlation(&state, "task", &corr),
+            "no readable matching task request"
+        );
+        assert!(
+            fs::symlink_metadata(&record)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+    }
 
     #[test]
     fn report_command_provenance_accepts_current_and_historical_helpers() {

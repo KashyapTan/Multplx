@@ -900,9 +900,17 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
                 .join(format!("{}-{message_id}.json", task.as_str()))
                 .is_file()
         {
-            return binding_error(
-                "reply disposition requires a current pending request correlation",
+            let reason = crate::lifecycle::pending_reply::rejected_correlation(
+                &state,
+                task.as_str(),
+                &envelope.correlation_id,
             );
+            let quoted_state = format!("'{}'", state.to_string_lossy().replace('\'', "'\\''"));
+            return binding_error(&format!(
+                "reply disposition requires a current pending request correlation; {}: {reason}. Reconcile current pending_correlations with MX_STATE_OVERRIDE={quoted_state} mx task-model inspect {} --compact; do not replay settled or stale marked requests",
+                envelope.correlation_id,
+                task.as_str(),
+            ));
         }
         let retained_policy = state
             .join("evidence")

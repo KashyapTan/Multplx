@@ -466,6 +466,39 @@ SH
   pass "interruptions restore before commitment and replay an unhandled committed claim once"
 }
 
+test_waiting_recovery_preserves_guard_and_names_supported_resume() {
+  local dir state
+  dir=$(make_case waiting-recovery)
+  state="$dir/state"
+  append_wake "$state" check review "check: review" || fail 'append wait fixture failed'
+  owned_wake_retain "$state" bash -c '
+    set -eu
+    mx=$1 state=$2
+    item=$("$mx" wake claim)
+    event=$(printf "%s" "$item" | jq -r .event_id)
+    "$mx" wake disposition "$event" waiting --detail "review pending" --condition "review complete" --trigger review-ready >/dev/null
+    receipt="$state/wake-inbox/$event.json"
+    cp "$receipt" "$state/before.json"
+    if "$mx" wake disposition "$event" handled --detail premature >"$state/error" 2>&1; then exit 1; fi
+    cmp "$receipt" "$state/before.json"
+    grep -F "review complete" "$state/error"
+    grep -F "mx wake ack $event" "$state/error"
+    grep -F "mx wake resume $event --trigger" "$state/error"
+    grep -F "review-ready" "$state/error"
+    "$mx" wake ack "$event" >/dev/null
+    cp "$receipt" "$state/before.json"
+    if "$mx" wake disposition "$event" handled --detail premature >/dev/null 2>&1; then exit 1; fi
+    if "$mx" wake resume "$event" --trigger wrong >/dev/null 2>&1; then exit 1; fi
+    cmp "$receipt" "$state/before.json"
+    "$mx" wake resume "$event" --trigger review-ready >/dev/null
+    "$mx" wake disposition "$event" handled --detail "review complete" >/dev/null
+    "$mx" wake ack "$event" >/dev/null
+    jq -e ".disposition.kind == \"handled\" and .acknowledged_at != null and (.disposition_history | length) == 1" "$receipt" >/dev/null
+    [ "$("$mx" wake pending)" = 0 ]
+  ' _ "$MX_RUST_BIN" "$state" || fail 'named waiting recovery failed'
+  pass 'waiting overwrite and wrong trigger preserve receipt; named resume permits handled and ack'
+}
+
 test_concurrent_append_and_drain
 test_signal_catchup_without_running_watcher
 test_stale_enqueue_before_suppressor
@@ -473,6 +506,7 @@ test_not_working_stale_enqueue_before_suppressor
 test_check_output_is_queued
 test_atomic_double_drain
 test_same_owner_concurrent_claim_and_explicit_ack
+test_waiting_recovery_preserves_guard_and_names_supported_resume
 test_drain_coalesces_heartbeat_but_retains_transition_events
 test_drain_asserts_watcher_liveness
 test_structural_signal_enrichment_preserves_raw_rows
