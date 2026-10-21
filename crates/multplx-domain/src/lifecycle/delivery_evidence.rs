@@ -397,7 +397,14 @@ impl TaskRecord {
                 return Err("stale attempt or accepted brief delivery evidence".into());
             }
             if self.delivery.current_commit != request.expected_current_commit {
-                return Err("current delivery commit changed".into());
+                return Err(format!(
+                    "current delivery commit changed: expected_current_commit={}, current_commit={}; re-read `mx task-model inspect {} --compact` in the same owning state (and --authority-state route, if used), verify the attempt/brief and worktree HEAD, then submit fresh evidence with the inspected expected_current_commit; do not edit task metadata",
+                    serde_json::to_string(&request.expected_current_commit)
+                        .expect("serializable token"),
+                    serde_json::to_string(&self.delivery.current_commit)
+                        .expect("serializable token"),
+                    self.task_id,
+                ));
             }
         } else if !self.delivery.history.iter().any(|evidence| {
             evidence.attempt_id == request.attempt_id
@@ -1121,10 +1128,17 @@ mod tests {
         );
         let mut conflict = request(&task, "second", 'b');
         conflict.expected_current_commit = None;
-        assert_eq!(
-            task.apply_delivery_evidence(&conflict).unwrap_err(),
-            "current delivery commit changed"
-        );
+        let before = task.clone();
+        let error = task.apply_delivery_evidence(&conflict).unwrap_err();
+        assert!(error.contains("expected_current_commit=null"));
+        assert!(error.contains(&format!("current_commit=\"{}\"", "a".repeat(40))));
+        assert!(error.contains("mx task-model inspect worker --compact"));
+        assert_eq!(task, before);
+        conflict.expected_current_commit = task.delivery.current_commit.clone();
+        task.apply_delivery_evidence(&conflict).unwrap();
+        assert_eq!(task.delivery.current_commit, Some("b".repeat(40)));
+        assert_eq!(task.delivery.history[0], before.delivery.history[0]);
+        assert_eq!(task.delivery.history.len(), 2);
     }
 
     #[test]

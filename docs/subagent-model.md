@@ -81,7 +81,7 @@ MX Viz uses that field to authorize exact nested-home evidence links.
 `mx task-model review-queue` returns dependency-ordered PR outcomes with priority, checks, limitations and revision freshness.
 `mx task-model inspect <task-id>` retains the full evidence history, including superseded commits and scopes.
 
-The closed request schema is owned by [`EvidenceRequest`](../crates/multplx-domain/src/lifecycle/delivery_evidence.rs).
+The complete closed request format and examples are in [delivery evidence guidance](delivery.md#delivery-evidence-request), included in installed runtimes.
 It binds a stable `evidence_id`, exact `attempt_id`, `attempt_generation`, `brief_revision`, `commit` and RFC3339 `observed_at` to the recorded result.
 `checks` contains named results (`passed`, `failed`, `not-run` or `unknown`), summaries and optional artifact pointers.
 `review` is optional independent evidence, not an implicit mandatory review or publication approval.
