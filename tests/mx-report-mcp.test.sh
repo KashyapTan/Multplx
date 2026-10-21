@@ -37,7 +37,7 @@ test_schema_matches_wrapper() {
         type:"object",
         properties:{
           state:{type:"string",enum:["working","paused","blocked","needs-decision","done","failed","resolved"]},
-          message:{type:"string",maxLength:300},
+          message:{type:"string",maxLength:300,description:(.result.tools[0].inputSchema.properties.message.description)},
           key:{type:"string",pattern:"^[A-Za-z0-9._-]+$",description:(.result.tools[0].inputSchema.properties.key.description)},
           workflow_revision:{type:"string",minLength:1,maxLength:256,description:(.result.tools[0].inputSchema.properties.workflow_revision.description)},
           correlation_id:{type:"string",minLength:1,maxLength:256,description:(.result.tools[0].inputSchema.properties.correlation_id.description)},
@@ -52,6 +52,11 @@ test_schema_matches_wrapper() {
         additionalProperties:false
       }
     }]' >/dev/null || fail "tools/list exposed the wrong report_status schema"
+  printf '%s\n' "$output" | jq -e \
+    'select(.id == 2) | .result.tools[0] |
+     (.description | contains("300 Unicode characters") and contains("Native collaboration /root")) and
+     (.inputSchema.properties.message.description | contains("One-line") and contains("300 Unicode characters") and contains("artifact"))' >/dev/null \
+    || fail "model-visible tool descriptions omitted message limits, artifacts or parent routing"
   schema_states=$(printf '%s\n' "$output" | jq -r \
     'select(.id == 2) | .result.tools[0].inputSchema.properties.state.enum[]')
   wrapper_states=$("$REPORT" --list-states)
@@ -98,6 +103,34 @@ test_schema_rejections_write_nothing() {
   pass "mx-report MCP: invalid enum values and extra properties are rejected before writes"
 }
 
+test_message_boundaries_preserve_unicode_and_artifacts() {
+  local home id output input ascii unicode full artifact
+  home="$TMP_ROOT/boundary-home"
+  id=mcp-boundary
+  mkdir -p "$home/state"
+  ascii=$(jq -nr '"x" * 300')
+  unicode=$(jq -nr '"🦀" * 300')
+  full=$(jq -nr '"Full findings 🦀 " * 100')
+  artifact="$home/full-findings.md"
+  printf '%s\n' "$full" > "$artifact"
+  input=$(jq -cn --arg ascii "$ascii" --arg unicode "$unicode" --arg artifact "$artifact" '
+    {jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"report_status",arguments:{state:"working",message:$ascii,artifact:$artifact}}},
+    {jsonrpc:"2.0",id:2,method:"tools/call",params:{name:"report_status",arguments:{state:"working",message:$unicode,artifact:$artifact}}},
+    {jsonrpc:"2.0",id:3,method:"tools/call",params:{name:"report_status",arguments:{state:"working",message:($ascii + "x")}}},
+    {jsonrpc:"2.0",id:4,method:"tools/call",params:{name:"report_status",arguments:{state:"working",message:($unicode + "🦀")}}},
+    {jsonrpc:"2.0",id:5,method:"tools/call",params:{name:"report_status",arguments:{state:"working",message:"two\r\nlines"}}}')
+  output=$(run_rpc "$home" "$id" "$input") || fail "boundary exchange failed"
+  printf '%s\n' "$output" | jq -se '
+    length == 5 and
+    (.[0:2] | all(.error == null and (.result.isError // false) == false)) and
+    (.[2:5] | all(.error.code == -32602))' >/dev/null \
+    || fail "300-character boundary or single-line validation changed"
+  [ "$(cat "$home/state/$id.status")" = "$(printf 'working: %s\nworking: %s' "$ascii" "$unicode")" ] \
+    || fail "accepted Unicode messages were truncated or rejected messages wrote status"
+  [ "$(cat "$artifact")" = "$full" ] || fail "full artifact was altered"
+  pass "mx-report MCP: 300 Unicode characters survive exactly; 301 and multiline reject without truncating artifacts"
+}
+
 test_missing_binding_fails_closed() {
   local home output
   home="$TMP_ROOT/unbound-home"
@@ -119,4 +152,5 @@ bash -n "$SERVER" || fail "mx-report-mcp adapter does not parse"
 test_schema_matches_wrapper
 test_valid_call_appends_and_stays_bound
 test_schema_rejections_write_nothing
+test_message_boundaries_preserve_unicode_and_artifacts
 test_missing_binding_fails_closed

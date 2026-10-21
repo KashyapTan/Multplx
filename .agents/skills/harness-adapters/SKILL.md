@@ -29,7 +29,11 @@ Use recorded endpoints for lifecycle control; a successful transport send alone 
 ## Reporting and supervision
 
 Spawn supplies `MX_TASK_ID` and `MX_REPORT_STATE_OVERRIDE`; the latter keeps a persistent child's parent report route separate from its own home.
-Use `report_status` when exposed or the absolute `bin/mx-report` fallback in the brief.
+Use the task-bound `multplx_status` server's `report_status` when exposed or the exact absolute `bin/mx-report` fallback in the brief.
+Keep its message to one line of at most 300 Unicode characters; retain full findings and evidence in an artifact.
+Native collaboration tools address the current provider session's local agent tree; `/root` is that local root, not the recorded Multplx parent.
+A native send receipt does not prove managed parent delivery, and a reporter failure does not authorize a native messaging fallback.
+Explicit human authorization for native delegation remains valid within its scope; it does not change an existing managed task's recorded parent route.
 Never append raw status-file lines.
 [Supervision protocols](../../../docs/supervision-protocols/) and [turn-end guards](../../../docs/turnend-guard.md) own the harness-specific wait and repair paths.
 Claude uses Stop-owned auto-arm, Cursor uses its tracked stop-hook park, Codex uses its Stop-owned exact-thread queue bridge when `MX_CODEX_IDLE_CLI=1` and a matched native SessionStart readiness receipt are present and `codex queue` is available, and Pi uses its tracked watcher extension with automatic first-cycle startup at native turn end.

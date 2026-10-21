@@ -21,6 +21,11 @@ Standing-agent briefs reject task-mode flags; express a local-only destination i
 The brief owner prints the exact `data/TASK_ID/brief.md` path; edit that file without replacing its coordination contract, and fill every `{TASK}` occurrence, including the standing Charter, before provisioning.
 Fill the outcome, scope, acceptance criteria, constraints, sources and real dependencies before launch.
 When parallel assignments share an interface, preserve its agreed inputs, outputs and failure behavior in both briefs, or record the unresolved dependency rather than inventing an API.
+For dependencies, name the prerequisite task/artifact, required revision or readiness condition, and who will send the readiness handoff to the dependent worker.
+Verify current canonical completion evidence before releasing dependent work, then send the artifact/revision through the dependent task's recorded endpoint using `mx send`.
+A paused worker can end its handling turn after reporting the condition and doing independent work; sibling completion does not automatically wake that worker.
+Arrange that explicit parent send rather than asking workers to loop over sibling Git/task inspections or sleeps.
+On receipt, the dependent worker verifies the named current evidence before proceeding.
 Identify who will integrate and check the combined implementation; test authors may prepare isolated checks early, but a test double does not verify the production result.
 Standing managed workers are the dispatch default, independently of assignment role or output.
 The low-level CLI remains task-scoped when `--persistent` is omitted for existing callers; dispatch must select it explicitly.
