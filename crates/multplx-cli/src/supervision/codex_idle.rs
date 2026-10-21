@@ -1488,7 +1488,18 @@ mod tests {
             let mut old = current.clone();
             old.thread = "123e4567-e89b-12d3-a456-426614174001".into();
             if !uncertain {
-                let mut process = Command::new("/bin/sleep").arg("60").spawn().unwrap();
+                // A spawned PID can precede exec's stable /proc command line.
+                // Keep the shell alive after its readiness handshake so this
+                // fixture observes a known process before testing its death.
+                let mut process = Command::new("/bin/sh")
+                    .args(["-c", "printf ready; read ignored"])
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::piped())
+                    .spawn()
+                    .unwrap();
+                let mut ready = [0; 5];
+                std::io::Read::read_exact(process.stdout.as_mut().unwrap(), &mut ready).unwrap();
+                assert_eq!(&ready, b"ready");
                 old.owner = SystemProcessProbe::default()
                     .identity(process.id())
                     .unwrap();
