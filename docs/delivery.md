@@ -130,10 +130,12 @@ Repeat the same outcome ID and payload after an uncertain write; a foreign paren
 An unbound parent must not set `MX_TASK_ID` to impersonate a worker report.
 Final integration and completion stay with the assigned worker, using current typed evidence and a proven `done` report.
 
+### Delivery evidence request
+
 From the assigned worker's activated environment, inspect the task and submit a JSON evidence file:
 
 ```sh
-mx task-model inspect TASK_ID
+mx task-model inspect TASK_ID --compact
 mx task-model evidence TASK_ID --request-file /absolute/path/evidence.json
 ```
 
@@ -147,6 +149,33 @@ Use a short check label in `checks[].name` (nonempty, at most 200 bytes); put th
 These text fields must be single lines without CR or LF; optional artifact references are nonempty single lines of at most 4096 bytes.
 Review summaries and each limitation have the same 20,000-byte single-line bound.
 Rejected evidence identifies the offending field and preserves the current task facts.
+On a current-commit conflict, run `mx task-model inspect TASK_ID --compact` again in the same owning state, retaining any `--authority-state` route.
+Verify the current attempt, accepted brief and actual worktree `HEAD`, then use the projection's exact `expected_current_commit` in a fresh submission.
+The submitted `commit` is the implementation being evidenced; the concurrency token is the previously recorded delivery commit and can differ from it.
+Never edit canonical metadata to recover a conflict.
+An uncertain accepted submission still uses its original evidence ID and identical payload; a new observation uses a new ID.
+
+This complete format is shipped with the runtime; no development source checkout is needed.
+Unknown fields are rejected at every object level, and the request file is limited to 1 MiB.
+All fields in the example are required except the nullable fields, which may be omitted or set to `null`.
+
+| Field | Accepted value |
+|---|---|
+| `evidence_id` | Stable observation ID: 1-64 ASCII letters, digits, `.`, `_`, `-`, without a leading dot. |
+| `attempt_id`, `attempt_generation`, `brief_revision` | Exact current inspected attempt ID, positive integer generation and accepted brief revision. |
+| `commit` | Actual full lowercase hexadecimal Git commit, 40 or 64 characters. |
+| `checks` | Array of objects with required `name`, `outcome`, `summary` and nullable `artifact`; an empty array records no checks. |
+| `checks[].outcome` | `passed`, `failed`, `not-run` or `unknown`. |
+| `review` | `null`, or object with required `outcome`, `summary` and nullable `artifact`; outcomes are `passed`, `findings`, `not-run`. |
+| `limitations` | Array of bounded single-line strings; `[]` when none. |
+| `pr_url` | `null`, or the already canonical PR URL; this command cannot introduce or replace PR identity. |
+| `outcome` | `evidence-updated` for this public command; `published`, `publication-failed`, `human-merged` are reserved for verified runtime owners. |
+| `observed_at` | Actual RFC3339 observation timestamp, for example `2026-10-20T20:00:00Z`. |
+| `mark_current` | Boolean; use `true` for current implementation evidence. `false` records an observation of an already retained exact attempt/brief/commit, without advancing the pointer. |
+| `expected_current_commit` | Nullable lowercase full commit token copied from compact inspection; required to match the current pointer when `mark_current` is `true`. |
+
+The example below covers a local implementation with no independent review or canonical PR.
+For independent review, replace `review: null` with an object such as `{"outcome":"passed","summary":"Actual review findings resolved","artifact":"/absolute/path/review.txt"}` only when that accurately describes observed evidence.
 
 ```json
 {

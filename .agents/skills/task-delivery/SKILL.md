@@ -24,7 +24,7 @@ Preserve current task, attempt and accepted revision identity when submitting ev
 
 Implementation completion requires current typed evidence matching the task attempt, brief and actual worktree `HEAD`, followed by a new task-bound `done` report.
 Keep check names short (nonempty single lines, at most 200 bytes); record exact commands and observed results in the summary (at most 20,000 bytes) or linked artifact.
-Prepare the closed JSON request documented in [delivery guidance](../../../docs/delivery.md#local-completion-and-dependent-work), using actual inspected values rather than placeholders.
+Prepare the closed JSON request documented in [delivery guidance](../../../docs/delivery.md#delivery-evidence-request), using actual inspected values rather than placeholders.
 Submit it through:
 
 ```sh
@@ -32,7 +32,9 @@ mx task-model evidence TASK_ID --request-file ABSOLUTE_EVIDENCE_JSON_PATH
 ```
 
 Repeat the same evidence ID and identical payload after an uncertain result.
-Use the inspected existing delivery commit as the concurrency token, or `null` only when no current delivery commit exists.
+Use `mx task-model inspect TASK_ID --compact` in the same owning state to obtain `expected_current_commit`; copy that exact value, including `null` only when no current delivery commit exists.
+If the concurrency guard rejects a submission, re-read that canonical projection, verify the attempt/brief and actual worktree `HEAD`, then prepare fresh evidence with the refreshed token.
+Retain the same owning state and any `--authority-state` route; never repair the token by editing metadata.
 Then use `report_status` when exposed, or the brief's absolute `bin/mx-report` fallback, bound to the assigned task and current attempt/generation/brief.
 Report and coordination assignments attach their existing regular-file result with the tool's `artifact` field or CLI `--artifact` when reporting `done`.
 Reply to each marked parent request with the exact structured `correlation_id` field or `--correlation-id TOKEN`; prose `corr=TOKEN` does not bind the report.

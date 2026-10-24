@@ -720,6 +720,87 @@ worker_report="$install/data/home/state/upgrade-worker.status"
 worker_attempt=$(sed -n 's/^canonical_model=//p' "$worker_meta" | jq -r '.attempt.id')
 worker_generation=$(sed -n 's/^canonical_model=//p' "$worker_meta" | jq -r '.attempt.generation')
 worker_revision=$(sed -n 's/^canonical_model=//p' "$worker_meta" | jq -r '.attempt.brief_revision')
+# Read the shipped guidance without a crates/ source tree, and submit its actual
+# example through the installed owner using the isolated accepted task above.
+python3 - "$install" "$TMP_ROOT" <<'PY_EVIDENCE'
+import copy, json, os, pathlib, re, subprocess, sys
+install, temporary = map(pathlib.Path, sys.argv[1:])
+runtime = install / 'data/runtime'
+assert not (runtime / 'crates').exists()
+guide = runtime / 'docs/delivery.md'
+model_guide = (runtime / 'docs/subagent-model.md').read_text()
+skill = (runtime / '.agents/skills/task-delivery/SKILL.md').read_text()
+assert 'delivery.md#delivery-evidence-request' in model_guide
+assert 'delivery.md#delivery-evidence-request' in skill
+assert '../crates/' not in model_guide.split('## Delivery evidence and human review', 1)[1].split('\n## ', 1)[0]
+text = guide.read_text().split('### Delivery evidence request', 1)[1]
+sample = json.loads(re.search(r'```json\n(.*?)\n```', text, re.S)[1])
+mx = install / 'bin/mx'
+task = 'upgrade-worker'
+state = install / 'data/home/state'
+request_path = temporary / 'installed-evidence.json'
+env = dict(os.environ, MX_STATE_OVERRIDE=str(state))
+def run(*args, success=True):
+    result = subprocess.run([str(mx), 'task-model', *args], env=env,
+                            capture_output=True, text=True, timeout=20)
+    assert (result.returncode == 0) == success, result
+    return result.stdout if success else result.stderr
+def inspect():
+    return json.loads(run('inspect', task, '--compact'))
+def submit(value, success=True):
+    request_path.write_text(json.dumps(value))
+    return run('evidence', task, '--request-file', str(request_path), success=success)
+binding = inspect()
+checkout = binding['allocation']['path']
+commit = subprocess.check_output(['git', '-C', checkout, 'rev-parse', 'HEAD'], text=True).strip()
+sample.update(evidence_id='installed-guide-1', attempt_id=binding['handle']['attempt']['id'],
+              attempt_generation=binding['handle']['attempt']['generation'],
+              brief_revision=binding['accepted_brief_revision'], commit=commit,
+              expected_current_commit=binding['expected_current_commit'],
+              observed_at='2026-10-20T20:00:00Z')
+sample['checks'][0].update(name='Fixture HEAD', summary='git rev-parse HEAD matched fixture commit')
+assert json.loads(submit(sample))['commit'] == commit
+meta = state / (task + '.meta')
+accepted = meta.read_bytes()
+# Closed schema, required enum fields, and no-mutation rejection.
+for mutate in [lambda x: x.update(unknown=True),
+               lambda x: x['checks'][0].update(unknown=True),
+               lambda x: x['checks'][0].pop('outcome'),
+               lambda x: x.pop('mark_current'),
+               lambda x: x.pop('commit'),
+               lambda x: x['checks'][0].update(outcome='success')]:
+    invalid = copy.deepcopy(sample)
+    invalid['evidence_id'] = 'invalid-guide'
+    mutate(invalid)
+    submit(invalid, success=False)
+    assert meta.read_bytes() == accepted
+stale = copy.deepcopy(sample)
+stale.update(evidence_id='installed-guide-2', expected_current_commit=None)
+error = submit(stale, success=False)
+assert 'expected_current_commit=null' in error and commit in error, error
+assert 'mx task-model inspect upgrade-worker --compact' in error, error
+assert meta.read_bytes() == accepted
+# Canonical refresh works; nullable and non-null review/artifact variants and
+# every documented check/review outcome remain accepted by the runtime owner.
+for index, outcome in enumerate(['passed', 'failed', 'not-run', 'unknown']):
+    fresh = copy.deepcopy(sample)
+    fresh.update(evidence_id=f'installed-guide-refresh-{index}',
+                 expected_current_commit=inspect()['expected_current_commit'])
+    fresh['checks'][0]['outcome'] = outcome
+    fresh['checks'][0]['artifact'] = str(guide)
+    fresh['review'] = dict(outcome=['passed', 'findings', 'not-run', 'not-run'][index],
+                           summary='Deterministic installed guidance fixture', artifact=None)
+    submit(fresh)
+optional = copy.deepcopy(sample)
+optional.update(evidence_id='installed-guide-omitted-optionals',
+                expected_current_commit=inspect()['expected_current_commit'])
+for field in ['review', 'pr_url']:
+    optional.pop(field)
+optional['checks'][0].pop('artifact')
+submit(optional)
+assert json.loads(run('inspect', task))['delivery']['history'][0]['evidence_id'] == 'installed-guide-1'
+PY_EVIDENCE
+pass 'installed closed evidence guidance validates with canonical CAS recovery and immutable history'
 cp "$MX_CMUX_FIXTURE/title" "$MX_CMUX_FIXTURE/expected-title"
 MX_MULTICALL_EXPLICIT=1 MX_TASK_ID=upgrade-worker MX_ATTEMPT_ID="$worker_attempt" \
   MX_ATTEMPT_GENERATION="$worker_generation" MX_BRIEF_REVISION="$worker_revision" \
