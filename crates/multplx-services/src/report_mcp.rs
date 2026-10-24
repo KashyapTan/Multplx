@@ -17,12 +17,12 @@ fn error(id: Value, code: i32, message: impl Into<String>) -> Value {
 fn tool_schema() -> Value {
     json!({
         "name":"report_status",
-        "description":"Append one validated status event for this task and return its acceptance receipt. Reply to marked parent requests with structured correlation_id; message prose corr= is not a binding. Completion requires current typed evidence or an existing report artifact.",
+        "description":"Report to this task's recorded Multplx parent and return an acceptance receipt. Message: one line, at most 300 Unicode characters; keep full details in an artifact. Native collaboration /root addresses the local agent tree, not this managed parent. Reply to marked parent requests with structured correlation_id; message prose corr= is not a binding. Completion requires current typed evidence or an existing report artifact.",
         "inputSchema":{
             "type":"object",
             "properties":{
                 "state":{"type":"string","enum":REPORT_STATES},
-                "message":{"type":"string","maxLength":300},
+                "message":{"type":"string","maxLength":300,"description":"One-line status summary, at most 300 Unicode characters (not UTF-8 bytes). Preserve full findings and evidence in a file; use artifact for report/coordination completion."},
                 "key":{"type":"string","pattern":"^[A-Za-z0-9._-]+$","description":"Required for needs-decision; becomes the stable human question id."},
                 "workflow_revision":{"type":"string","minLength":1,"maxLength":256,"description":"Optional workflow revision for a needs-decision question."},
                 "correlation_id":{"type":"string","minLength":1,"maxLength":256,"description":"Exact request correlation token; required for terminal replies to pending parent requests."},
@@ -345,6 +345,35 @@ mod tests {
         assert!(
             validate(&json!({"state":"done","message":"ok","workflow_revision":"flow-2"})).is_err()
         );
+    }
+
+    #[test]
+    fn message_constraints_are_visible_and_unicode_boundaries_are_exact() {
+        let schema = tool_schema();
+        assert_eq!(
+            schema["inputSchema"]["properties"]["message"]["maxLength"],
+            300
+        );
+        for description in [
+            schema["description"].as_str().unwrap(),
+            schema["inputSchema"]["properties"]["message"]["description"]
+                .as_str()
+                .unwrap(),
+        ] {
+            assert!(description.contains("one line") || description.contains("One-line"));
+            assert!(description.contains("300 Unicode characters"));
+            assert!(description.contains("artifact"));
+        }
+        for character in ["x", "é", "🦀"] {
+            assert!(validate(&json!({"state":"working","message":character.repeat(300)})).is_ok());
+            assert!(validate(&json!({"state":"working","message":character.repeat(301)})).is_err());
+        }
+        // Rust chars and JSON Schema maxLength count Unicode scalars, not graphemes.
+        assert!(validate(&json!({"state":"working","message":"e\u{301}".repeat(150)})).is_ok());
+        assert!(validate(&json!({"state":"working","message":"e\u{301}".repeat(151)})).is_err());
+        for message in ["first\nsecond", "first\rsecond", "first\r\nsecond"] {
+            assert!(validate(&json!({"state":"working","message":message})).is_err());
+        }
     }
 
     #[test]
