@@ -13,6 +13,14 @@ Multplx uses one filesystem-backed coordination path for watcher events and term
 The owning orchestrator remains the only process allowed to claim or acknowledge work in its home.
 There is no separate peer messaging service, and a recorded home does not imply that Multplx can attach to the owner's native conversation.
 
+After restart or compaction, read `MX_STATE_OVERRIDE=OWNER_STATE mx task-model inspect TASK --compact` using the task's recorded owner state and reconcile `pending_correlations` before replying to retained marked requests.
+Settled and superseded request IDs remain history; a missing ID is not permission to invent a new reply binding.
+An identical accepted report may be retried with its original message ID and payload after an uncertain result; a new answer requires a current pending request.
+
+Harness readiness output is a point-in-time observation.
+For Codex, inspect `bin/mx-codex-idle.sh --status` from the exact owned session when recovery is necessary; `ready-for-turn-end` means the Stop hook can establish the bridge when the turn ends.
+An absent bridge before the first Stop is not alone a degraded readiness diagnosis, and old pre-readiness output does not override the current emitted supervision protocol.
+
 ## Wake inbox
 
 Watcher events first enter `state/.wake-queue` and move into stable `state/wake-inbox/wake-*.json` receipts when the owner claims them.
@@ -41,6 +49,10 @@ Record a durable disposition before `ack`.
 `follow-up` accepts only a validated receipt in the owning state: a recoverable transition, routed request, shared message, or spawn-action receipt whose recorded home matches the owner.
 Missing receipts, receipts from another home, and copied spawn actions with a foreign owner state are rejected before acknowledgement.
 An item acknowledged as `waiting` remains in the unfinished count; resume it with the named trigger, or let the next owner claim resume a due periodic recheck, which preserves the earlier waiting disposition in history.
+A direct `waiting` to `handled` overwrite is rejected without changing the receipt.
+Inspect `condition`, `resume_trigger`, `recheck_after_epoch` and `acknowledged_at` with `mx wake list --unfinished` in the owning state.
+Acknowledge the existing wait if necessary, then, after its condition resolves, run `mx wake resume EVENT --trigger RECORDED_TRIGGER`, record `handled` and acknowledge again.
+For a fallback `--trigger recheck`, the recorded deadline must be due; an unrelated trigger cannot resume the wait.
 A replacement owner may recover a claim only after the former exact process lifetime is gone.
 Read-only and foreign sessions can list or count retained work but cannot claim, recover, disposition, resume, or acknowledge it.
 

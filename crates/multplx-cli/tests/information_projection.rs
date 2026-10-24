@@ -23,7 +23,7 @@ fn run(command: &mut Command) -> Output {
 #[test]
 fn accepted_information_preserves_actor_and_viz_state_without_hiding_real_work() {
     let temp = tempfile::tempdir().unwrap();
-    let home = temp.path().join("home");
+    let home = temp.path().join("home with 'quote");
     let state = home.join("state");
     let fakebin = temp.path().join("fakebin");
     fs::create_dir_all(&state).unwrap();
@@ -231,6 +231,81 @@ fn accepted_information_preserves_actor_and_viz_state_without_hiding_real_work()
         fs::write(&status_path, &accepted_status).unwrap();
     }
     assert_projection("done");
+    // A compacted worker may replay an old marked request with a new report ID.
+    // Preserve settled evidence and lifecycle, and point at the exact owner query.
+    let pending_path = pending_reply::path(&state, &correlation);
+    let before = ["worker.meta", "worker.status", ".wake-queue"]
+        .map(|name| (name, fs::read(state.join(name)).unwrap()));
+    let pending_before = fs::read(&pending_path).unwrap();
+    for (token, diagnostic) in [
+        (correlation.as_str(), "already settled"),
+        ("0000000000000000", "no readable matching task request"),
+    ] {
+        let rejected = mx()
+            .env("MX_TASK_ID", "worker")
+            .env("MX_ATTEMPT_ID", &attempt.id)
+            .env("MX_ATTEMPT_GENERATION", attempt.generation.to_string())
+            .env("MX_BRIEF_REVISION", attempt.brief_revision.to_string())
+            .args([
+                "supervision",
+                "mx-report",
+                "--state",
+                "working",
+                "--message",
+                "old answer",
+                "--correlation-id",
+                token,
+                "--reply-disposition",
+                "answered",
+                "--message-id",
+                "rejected-replay",
+            ])
+            .output()
+            .unwrap();
+        assert!(!rejected.status.success());
+        let error = String::from_utf8_lossy(&rejected.stderr);
+        assert!(error.contains(diagnostic), "{error}");
+        assert!(
+            error.contains("mx task-model inspect worker --compact"),
+            "{error}"
+        );
+        let quoted = format!("'{}'", state.to_string_lossy().replace('\'', "'\\''"));
+        assert!(
+            error.contains(&format!(
+                "MX_STATE_OVERRIDE={quoted} mx task-model inspect worker --compact"
+            )),
+            "{error}"
+        );
+        assert!(error.contains("pending_correlations"), "{error}");
+        for (name, bytes) in &before {
+            assert_eq!(fs::read(state.join(name)).unwrap(), *bytes, "{name}");
+        }
+        assert_eq!(fs::read(&pending_path).unwrap(), pending_before);
+        assert!(!state.join("evidence/worker-rejected-replay.json").exists());
+    }
+    let current = request("after-reconcile");
+    let inspected = run(mx().args(["task-model", "inspect", "worker", "--compact"]));
+    let inspected: Value = serde_json::from_slice(&inspected.stdout).unwrap();
+    assert_eq!(inspected["pending_correlations"], json!([current]));
+    report(&[
+        "--state",
+        "working",
+        "--message",
+        "current answer",
+        "--correlation-id",
+        &current,
+        "--reply-disposition",
+        "answered",
+        "--message-id",
+        "recovered-answer",
+    ]);
+    assert!(
+        pending_reply::outstanding(&state, "worker")
+            .unwrap()
+            .is_empty()
+    );
+    assert_projection("done");
+
     let working = report(&["--state", "working", "--message", "real new work"]);
     assert_eq!(
         serde_json::from_slice::<Value>(&working.stdout).unwrap()["completion_proven"],
