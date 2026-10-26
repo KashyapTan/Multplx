@@ -74,6 +74,15 @@ The nudge creates no recoverable state and no listener process; the append-only 
 A native runtime blocker closes the watcher cycle immediately even while attributed validation continues, while a schema-valid terminal report cannot be hidden by regex-only busy text.
 The resulting wake lets the orchestrator report both the blocker and any concurrent validation progress without waiting for that validation to finish.
 
+A canonical worker's accepted `paused` report suppresses short inactivity and wedge alerts only while the same attempt and brief retain a named wait in the owning home.
+That wait must belong to the current task schedule or to the exact pause report's durable waiting wake, with its recorded condition and trigger or bounded recheck.
+Resumed, handled, and superseded wake dispositions do not establish a wait, and an older same-text report cannot lend its wait to a new pause.
+The endpoint must still be alive and idle, with actor evidence of a pause or native turn completion and no conflicting validation evidence.
+Canonical signal handoffs use the same eligibility rule, so informational replies preserve the existing pause cadence while a new ordinary pause starts a fresh cadence.
+Native blocked or working evidence, unknown health, resume, and replacement or revised assignments retain ordinary detection.
+A valid pause clears prior wedge history and uses the existing `MX_PAUSE_RESURFACE_SECS` wait-confirmation cadence (six hours by default), which may emit an `awaiting external` recheck rather than a wedge alert.
+The configured long recheck can wake the parent to confirm the wait; it creates no new scheduler or automatic worker turn, and the parent's explicit handoff still resumes dependent work.
+
 ## Arm-layer cycle contract
 
 `bin/mx-watch-arm.sh` never returns a clean empty success.
