@@ -6,6 +6,558 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+struct PausedWorkerFixture {
+    root: tempfile::TempDir,
+    state: std::path::PathBuf,
+    record: multplx_domain::lifecycle::subagent_model::TaskRecord,
+}
+
+impl PausedWorkerFixture {
+    fn new() -> Self {
+        Self::create(false)
+    }
+
+    fn create(waiting_wake: bool) -> Self {
+        use multplx_domain::lifecycle::subagent_model::{
+            ArtifactKind, AssignmentRole, TaskRecord, WorkState,
+        };
+        let root = tempfile::tempdir().unwrap();
+        let state = root.path().join("state");
+        fs::create_dir(&state).unwrap();
+        fs::create_dir(root.path().join("fakebin")).unwrap();
+        let mut record = TaskRecord::new(
+            "paused-worker".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            "root".into(),
+            "root".into(),
+            root.path().to_string_lossy().into_owned(),
+        );
+        record.schedule.state = if waiting_wake {
+            WorkState::Running
+        } else {
+            WorkState::WaitingDependency
+        };
+        record.schedule.waiting_condition = (!waiting_wake).then(|| "production-ready".into());
+        record.runtime.endpoint = Some("fixture:mx-paused-worker".into());
+        let fixture = Self {
+            root,
+            state,
+            record,
+        };
+        fixture.save();
+        let report = fixture.report(&[
+            "--state",
+            "paused",
+            "--message",
+            "waiting for production-ready",
+        ]);
+        if waiting_wake {
+            fixture.wait_on_report(&report);
+        } else {
+            let drained = run(wake(&fixture.state).args(["supervision", "mx-wake-drain.sh"]));
+            assert!(
+                drained.status.success(),
+                "{}",
+                String::from_utf8_lossy(&drained.stderr)
+            );
+        }
+        fixture.prime_status();
+        fixture.write(
+            "actor",
+            "state: done · source: native-event · runtime done\n",
+        );
+        fixture.write("health", "codex\n");
+        fixture.script(
+            "fakebin/tmux",
+            r#"#!/bin/sh
+case "$1" in
+capture-pane) printf 'capture\n' >> "$MX_FIXTURE_ROOT/captures"; printf 'unchanged idle pane\n';;
+display-message) cat "$MX_FIXTURE_ROOT/health";;
+list-windows) printf 'mx-paused-worker\n';;
+*) exit 1;;
+esac
+"#,
+        );
+        fixture.script(
+            "actor-state",
+            r#"#!/bin/sh
+printf 'scan\n' >> "$MX_FIXTURE_ROOT/scans"
+cat "$MX_FIXTURE_ROOT/actor"
+"#,
+        );
+        fixture
+    }
+
+    fn report(&self, args: &[&str]) -> Output {
+        let attempt = self.record.attempt.as_ref().unwrap();
+        let output = run(mx()
+            .env("MX_TASK_ID", "paused-worker")
+            .env("MX_ATTEMPT_ID", &attempt.id)
+            .env("MX_ATTEMPT_GENERATION", attempt.generation.to_string())
+            .env("MX_BRIEF_REVISION", attempt.brief_revision.to_string())
+            .env("MX_REPORT_STATE_OVERRIDE", &self.state)
+            .env("MX_NUDGE", "0")
+            .args(["supervision", "mx-report"])
+            .args(args));
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output
+    }
+
+    fn wait_on_report(&self, report: &Output) {
+        use multplx_core::{
+            process::{ProcessProbe, SystemProcessProbe},
+            wake::{WakeDisposition, WakeDispositionKind, WakeQueue},
+        };
+        let receipt: serde_json::Value = serde_json::from_slice(&report.stdout).unwrap();
+        let key = format!("message-{}", receipt["message_id"].as_str().unwrap());
+        let probe = SystemProcessProbe::default();
+        let owner = probe.identity(std::process::id()).unwrap();
+        let queue = WakeQueue::new(&self.state);
+        let now = std::time::SystemTime::now();
+        let mut found = false;
+        for item in queue.claim_available(&owner, now, 16, &probe).unwrap() {
+            let waiting = item.record.key == key;
+            found |= waiting;
+            queue
+                .record_disposition(
+                    &item.event_id,
+                    &owner,
+                    WakeDisposition {
+                        kind: if waiting {
+                            WakeDispositionKind::Waiting
+                        } else {
+                            WakeDispositionKind::Handled
+                        },
+                        recorded_at: 1,
+                        detail: "Parent reconciled current report".into(),
+                        condition: waiting.then(|| "production artifact verified".into()),
+                        resume_trigger: waiting.then(|| "production-ready".into()),
+                        recheck_after_epoch: None,
+                        follow_up_id: None,
+                    },
+                    &probe,
+                )
+                .unwrap();
+            queue
+                .acknowledge(&item.event_id, &owner, now, &probe)
+                .unwrap();
+        }
+        assert!(found, "exact report wake must be claimable");
+    }
+
+    fn write(&self, name: &str, value: &str) {
+        fs::write(self.root.path().join(name), value).unwrap();
+    }
+    fn script(&self, name: &str, value: &str) {
+        self.write(name, value);
+        fs::set_permissions(
+            self.root.path().join(name),
+            fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+    }
+    fn save(&self) {
+        let meta = multplx_domain::lifecycle::subagent_model::write_meta(
+            "window=fixture:mx-paused-worker\nbackend=tmux\n",
+            &self.record,
+        )
+        .unwrap();
+        fs::write(self.state.join("paused-worker.meta"), meta).unwrap();
+    }
+    fn prime_status(&self) {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = fs::metadata(self.state.join("paused-worker.status")).unwrap();
+        fs::write(
+            self.state.join(".seen-paused-worker_status"),
+            format!(
+                "{}:{}.{:09}",
+                metadata.len(),
+                metadata.mtime(),
+                metadata.mtime_nsec()
+            ),
+        )
+        .unwrap();
+    }
+    fn checkpoint(&self, resurface: u64) -> Output {
+        let _ = fs::remove_file(self.root.path().join("captures"));
+        let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut child = mx()
+            .current_dir(self.root.path())
+            .env("MX_ROOT_OVERRIDE", self.root.path())
+            .env("MX_HOME", self.root.path())
+            .env("MX_STATE_OVERRIDE", &self.state)
+            .env("MX_RUST_SOURCE_ROOT", &source)
+            .env("MX_RUST_BIN", env!("CARGO_BIN_EXE_mx"))
+            .env("MX_FIXTURE_ROOT", self.root.path())
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    self.root.path().join("fakebin").display(),
+                    std::env::var("PATH").unwrap()
+                ),
+            )
+            .env("MX_ACTOR_STATE_BIN", self.root.path().join("actor-state"))
+            .env("MX_POLL", "0.1")
+            .env("MX_SIGNAL_GRACE", "0")
+            .env("MX_CHECK_INTERVAL", "999999")
+            .env("MX_HEARTBEAT", "999999")
+            .env("MX_STALE_ESCALATE_SECS", "0")
+            .env("MX_PAUSE_RESURFACE_SECS", resurface.to_string())
+            .args(["supervision", "mx-watch.sh"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        // Observe completed scans instead of assuming a loaded CI runner can
+        // reach the intended branch within a fixed quiet checkpoint window.
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            if child.try_wait().unwrap().is_some() {
+                return child.wait_with_output().unwrap();
+            }
+            let captures = fs::read_to_string(self.root.path().join("captures"))
+                .unwrap_or_default()
+                .lines()
+                .count();
+            if captures >= 6 {
+                assert!(
+                    Command::new("kill")
+                        .args(["-TERM", &child.id().to_string()])
+                        .status()
+                        .unwrap()
+                        .success()
+                );
+                return child.wait_with_output().unwrap();
+            }
+            if Instant::now() >= deadline {
+                child.kill().unwrap();
+                child.wait().unwrap();
+                panic!("watcher did not complete its scans");
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+    fn assert_stale(&self) {
+        let output = self.checkpoint(21_600);
+        assert!(
+            output.status.success(),
+            "{} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("stale: fixture:mx-paused-worker")
+        );
+    }
+}
+
+#[test]
+fn current_named_pause_absorbs_native_turn_done_across_repeated_scans() {
+    let mut fixture = PausedWorkerFixture::new();
+    // Seed a prior false alarm: a valid pause must withdraw wedge tracking too.
+    fs::write(
+        fixture.state.join(".stale-since-fixture_mx-paused-worker"),
+        "1\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture
+            .state
+            .join(".wedge-escalations-fixture_mx-paused-worker"),
+        "3\n",
+    )
+    .unwrap();
+    let output = fixture.checkpoint(21_600);
+    assert!(
+        output.stdout.is_empty(),
+        "{} {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        fs::read_to_string(fixture.root.path().join("scans"))
+            .unwrap()
+            .lines()
+            .count()
+            >= 3
+    );
+    assert!(
+        !fixture
+            .state
+            .join(".stale-since-fixture_mx-paused-worker")
+            .exists()
+    );
+    assert!(
+        !fixture
+            .state
+            .join(".wedge-escalations-fixture_mx-paused-worker")
+            .exists()
+    );
+    assert_eq!(
+        fs::metadata(fixture.state.join(".wake-queue"))
+            .unwrap()
+            .len(),
+        0
+    );
+    fixture.record.schedule.state = multplx_domain::lifecycle::subagent_model::WorkState::Running;
+    fixture.record.schedule.waiting_condition = None;
+    fixture.save();
+    let resumed = fixture.checkpoint(21_600);
+    assert!(resumed.status.success());
+    let reason = String::from_utf8_lossy(&resumed.stdout);
+    assert!(reason.contains("stale: fixture:mx-paused-worker"));
+    assert!(!reason.contains("demand-deep-inspection"), "{reason}");
+}
+
+#[test]
+fn current_pause_keeps_explicit_long_wait_recheck_without_wedge() {
+    let fixture = PausedWorkerFixture::new();
+    let output = fixture.checkpoint(0);
+    assert!(output.status.success());
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("awaiting external"), "{text}");
+    assert!(!text.contains("possible wedge"));
+}
+
+#[test]
+fn resumed_schedule_and_new_status_restore_stale_detection() {
+    use multplx_domain::lifecycle::subagent_model::WorkState;
+    for resumed_by_status in [false, true] {
+        let mut fixture = PausedWorkerFixture::new();
+        fixture.record.schedule.state = WorkState::Running;
+        fixture.record.schedule.waiting_condition = None;
+        fixture.save();
+        if resumed_by_status {
+            fs::write(
+                fixture.state.join("paused-worker.status"),
+                "working: resumed\n",
+            )
+            .unwrap();
+            fixture.prime_status();
+        }
+        fixture.assert_stale();
+    }
+}
+
+#[test]
+fn historical_pause_cannot_suppress_a_new_attempt_or_brief() {
+    for new_attempt in [false, true] {
+        let mut fixture = PausedWorkerFixture::new();
+        if new_attempt {
+            fixture.record.attempt.as_mut().unwrap().id = "replacement-attempt".into();
+            fixture.record.attempt.as_mut().unwrap().generation += 1;
+        } else {
+            fixture
+                .record
+                .revise_assignment(
+                    1,
+                    fixture.record.role,
+                    "new scope".into(),
+                    vec![],
+                    vec![],
+                    "new work".into(),
+                )
+                .unwrap();
+        }
+        fixture.save();
+        fixture.assert_stale();
+    }
+}
+
+#[test]
+fn current_pause_preserves_unhealthy_endpoint_and_native_block_detection() {
+    for health in ["bash\n", "\n"] {
+        let fixture = PausedWorkerFixture::new();
+        fixture.write("health", health);
+        fixture.assert_stale();
+    }
+    for actor in [
+        "state: blocked · source: native-event · runtime blocked\n",
+        "state: unknown · source: none\n",
+        "state: done · source: native-event · runtime done · run-step still validating\n",
+        "state: working · source: native-event · runtime working\n",
+    ] {
+        let fixture = PausedWorkerFixture::new();
+        fixture.write("actor", actor);
+        fixture.assert_stale();
+    }
+}
+
+#[test]
+fn cross_home_pause_and_unnamed_wait_are_not_current() {
+    for foreign_home in [false, true] {
+        let mut fixture = PausedWorkerFixture::new();
+        if foreign_home {
+            fixture.record.owner_state = Some(
+                fixture
+                    .root
+                    .path()
+                    .join("foreign-state")
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+            fs::create_dir(fixture.root.path().join("foreign-state")).unwrap();
+        } else {
+            fixture.record.schedule.waiting_condition = None;
+        }
+        fixture.save();
+        fixture.assert_stale();
+    }
+}
+
+#[test]
+fn report_bound_wait_absorbs_native_done_and_releases_on_its_exact_trigger() {
+    use multplx_core::{
+        process::{ProcessProbe, SystemProcessProbe},
+        wake::WakeQueue,
+    };
+    let fixture = PausedWorkerFixture::create(true);
+    let quiet = fixture.checkpoint(21_600);
+    assert!(
+        quiet.stdout.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&quiet.stdout)
+    );
+    let queue = WakeQueue::new(&fixture.state);
+    let items = queue.observe_inbox_items().unwrap();
+    assert_eq!(items.len(), 1);
+    let probe = SystemProcessProbe::default();
+    let owner = probe.identity(std::process::id()).unwrap();
+    queue
+        .resume_waiting(
+            &items[0].event_id,
+            "production-ready",
+            &owner,
+            std::time::SystemTime::now(),
+            &probe,
+        )
+        .unwrap();
+    // The old pause text is unchanged, but its durable wait is no longer current.
+    fixture.assert_stale();
+}
+
+#[test]
+fn native_done_information_preserves_pause_cadence_and_new_pause_resets_it() {
+    use multplx_domain::lifecycle::pending_reply::{self, ReplyBinding};
+    let fixture = PausedWorkerFixture::create(true);
+    assert!(fixture.checkpoint(21_600).stdout.is_empty());
+    let marker = fixture.state.join(".paused-fixture_mx-paused-worker");
+    let initial = fs::read_to_string(&marker).unwrap();
+    let old = std::time::SystemTime::now() - Duration::from_secs(30);
+    fs::File::open(&marker)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(old))
+        .unwrap();
+    let attempt = fixture.record.attempt.as_ref().unwrap();
+    let correlation = pending_reply::create_bound(
+        fixture.root.path(),
+        &fixture.state,
+        "paused-worker",
+        "status clarification",
+        &ReplyBinding {
+            message_id: Some("pause-info"),
+            parent_task_id: Some("root"),
+            recipient_task_id: Some("paused-worker"),
+            recipient_home: Some(fixture.root.path()),
+            attempt_id: Some(&attempt.id),
+            attempt_generation: Some(attempt.generation),
+            brief_revision: Some(attempt.brief_revision),
+        },
+    )
+    .unwrap();
+    pending_reply::confirm_delivery(&fixture.state, &correlation).unwrap();
+    fixture.report(&[
+        "--state",
+        "working",
+        "--message",
+        "wait remains unchanged",
+        "--correlation-id",
+        &correlation,
+        "--reply-disposition",
+        "answered",
+    ]);
+    let handoff = fixture.checkpoint(21_600);
+    assert!(
+        handoff.status.success(),
+        "{}",
+        String::from_utf8_lossy(&handoff.stderr)
+    );
+    assert!(String::from_utf8_lossy(&handoff.stdout).starts_with("signal:"));
+    assert_eq!(fs::read_to_string(&marker).unwrap(), initial);
+    assert_eq!(fs::metadata(&marker).unwrap().modified().unwrap(), old);
+
+    let fresh = fixture.report(&[
+        "--state",
+        "paused",
+        "--message",
+        "waiting for production-ready",
+    ]);
+    fixture.wait_on_report(&fresh);
+    assert!(fixture.checkpoint(21_600).stdout.is_empty());
+    assert_ne!(fs::read_to_string(&marker).unwrap(), initial);
+    assert!(fs::metadata(&marker).unwrap().modified().unwrap() > old);
+    assert!(
+        !fixture
+            .state
+            .join(".stale-since-fixture_mx-paused-worker")
+            .exists()
+    );
+}
+
+#[test]
+fn old_wait_cannot_absorb_a_fresh_same_text_pause_report() {
+    let fixture = PausedWorkerFixture::create(true);
+    fixture.report(&[
+        "--state",
+        "paused",
+        "--message",
+        "waiting for production-ready",
+    ]);
+    fixture.prime_status();
+    fixture.assert_stale();
+}
+
+#[test]
+fn a_foreign_task_receipt_cannot_establish_a_current_pause() {
+    let fixture = PausedWorkerFixture::new();
+    for entry in fs::read_dir(fixture.state.join("evidence"))
+        .unwrap()
+        .flatten()
+    {
+        let path = entry.path();
+        let Ok(bytes) = fs::read(&path) else { continue };
+        let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            continue;
+        };
+        if value["accepted"] == true {
+            value["envelope"]["task_id"] = "another-task".into();
+            fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
+        }
+    }
+    let line = "paused: waiting for production-ready";
+    assert_eq!(
+        multplx_domain::supervision::canonical_pause_wait(
+            &fixture.state,
+            "paused-worker",
+            line,
+            line.len() as u64 + 1
+        ),
+        Some(false)
+    );
+    // Corrupt accepted identity can surface notification-health evidence
+    // before stale scanning; neither path may silently absorb it as a pause.
+    let output = fixture.checkpoint(21_600);
+    assert!(output.status.success());
+    assert!(!output.stdout.is_empty());
+}
+
 fn run(command: &mut Command) -> Output {
     command.output().expect("run mx")
 }

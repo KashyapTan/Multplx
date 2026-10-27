@@ -328,9 +328,16 @@ fn publish_report_wake(
 pub struct StatusReportNotification {
     pub current: bool,
     pub pending: bool,
+    pub waiting: bool,
 }
 
-fn pending_wake_keys(state: &Path) -> Result<std::collections::BTreeSet<String>, String> {
+#[derive(Default)]
+struct ReportWakeKeys {
+    pending: std::collections::BTreeSet<String>,
+    waiting: std::collections::BTreeSet<String>,
+}
+
+fn report_wake_keys(state: &Path) -> Result<ReportWakeKeys, String> {
     let items = multplx_core::wake::WakeQueue::new(state)
         .observe_inbox_items()
         .map_err(|error| error.to_string())?;
@@ -338,14 +345,26 @@ fn pending_wake_keys(state: &Path) -> Result<std::collections::BTreeSet<String>,
         .iter()
         .map(|item| item.record.sequence)
         .collect::<std::collections::BTreeSet<_>>();
-    let mut keys = items
-        .into_iter()
+    let mut pending = items
+        .iter()
         .filter(|item| item.acknowledged_at.is_none())
-        .map(|item| item.record.key)
+        .map(|item| item.record.key.clone())
         .collect::<std::collections::BTreeSet<_>>();
+    // Acknowledged waiting work remains a current obligation. Only the latest
+    // disposition counts; resume moves it into history before handling begins.
+    let waiting = items
+        .into_iter()
+        .filter(|item| {
+            item.disposition.as_ref().is_some_and(|disposition| {
+                disposition.kind == multplx_core::wake::WakeDispositionKind::Waiting
+                    && disposition.validate().is_ok()
+            })
+        })
+        .map(|item| item.record.key)
+        .collect();
     let path = state.join(".wake-queue");
     if !path.exists() {
-        return Ok(keys);
+        return Ok(ReportWakeKeys { pending, waiting });
     }
     let bytes = multplx_core::filesystem::read_bounded_regular(path, 16 * 1024 * 1024)
         .map_err(|error| error.to_string())?;
@@ -354,10 +373,10 @@ fn pending_wake_keys(state: &Path) -> Result<std::collections::BTreeSet<String>,
         let record =
             multplx_core::wake::WakeRecord::parse(row).map_err(|error| error.to_string())?;
         if !known.contains(&record.sequence) {
-            keys.insert(record.key);
+            pending.insert(record.key);
         }
     }
-    Ok(keys)
+    Ok(ReportWakeKeys { pending, waiting })
 }
 
 /// Index retained canonical status endpoints once for each watcher status scan.
@@ -369,7 +388,7 @@ pub fn status_report_notifications(
     task: &str,
 ) -> std::collections::BTreeMap<(u64, String), StatusReportNotification> {
     let mut notifications = std::collections::BTreeMap::new();
-    let pending = pending_wake_keys(state).ok();
+    let wake_keys = report_wake_keys(state).ok();
     let current = multplx_core::filesystem::read_bounded_regular(
         state.join(format!("{task}.meta")),
         crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
@@ -405,22 +424,76 @@ pub fn status_report_notifications(
                 (end, line.to_owned()),
                 StatusReportNotification {
                     current: current.as_ref().is_some_and(|record| {
-                        value["envelope"]["attempt"]
-                            == serde_json::to_value(&record.attempt).expect("attempt JSON")
+                        value["envelope"]["task_id"] == task
+                            && value["envelope"]["attempt"]
+                                == serde_json::to_value(&record.attempt).expect("attempt JSON")
                             && value["envelope"]["brief_revision"]
                                 == serde_json::to_value(record.accepted_brief_revision)
                                     .expect("revision JSON")
                     }),
                     pending: value["envelope"]["message_id"].as_str().is_some_and(|id| {
-                        pending
+                        wake_keys
                             .as_ref()
-                            .is_none_or(|keys| keys.contains(&format!("message-{id}")))
+                            .is_none_or(|keys| keys.pending.contains(&format!("message-{id}")))
+                    }),
+                    waiting: value["envelope"]["message_id"].as_str().is_some_and(|id| {
+                        wake_keys
+                            .as_ref()
+                            .is_some_and(|keys| keys.waiting.contains(&format!("message-{id}")))
                     }),
                 },
             );
         }
     }
     notifications
+}
+
+/// Whether a canonical pause still belongs to a named wait in this owning home.
+/// A wait can be retained by the task schedule or by the exact report's durable
+/// wake disposition. The latter is how parents park an ordinary paused report
+/// without changing task scheduling semantics.
+/// Legacy records retain their existing pause policy; malformed canonical state
+/// cannot establish a wait. Resuming or revising the assignment invalidates it.
+#[must_use]
+pub fn canonical_pause_wait(state: &Path, task: &str, line: &str, end: u64) -> Option<bool> {
+    use crate::lifecycle::subagent_model::{WorkState, read_meta};
+    let record = multplx_core::filesystem::read_bounded_regular(
+        state.join(format!("{task}.meta")),
+        crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+    )
+    .ok()
+    .and_then(|bytes| String::from_utf8(bytes).ok())
+    .and_then(|text| read_meta(task, &text).ok());
+    let Some(record) = record else {
+        return Some(false);
+    };
+    if record.legacy_unknown {
+        return None;
+    }
+    Some(
+        validate_report_home(&record, state).is_ok()
+            && multplx_core::classification::status_line_verb(line) == "paused"
+            && status_report_notifications(state, task)
+                .get(&(end, line.to_owned()))
+                .is_some_and(|notification| {
+                    notification.current
+                        && ((matches!(
+                            record.schedule.state,
+                            WorkState::WaitingExternal
+                                | WorkState::WaitingDependency
+                                | WorkState::WaitingHuman
+                        ) && record
+                            .schedule
+                            .waiting_condition
+                            .as_deref()
+                            .is_some_and(|wait| !wait.trim().is_empty()))
+                            || (notification.waiting
+                                && matches!(
+                                    record.schedule.state,
+                                    WorkState::Running | WorkState::Accepted
+                                )))
+                }),
+    )
 }
 
 fn first_current_report(

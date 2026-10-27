@@ -683,6 +683,32 @@ fn reported_terminal_expected_idle(actor: &str, busy: bool, alive: bool) -> bool
             .is_some_and(|state| matches!(state, "done" | "failed" | "blocked" | "needs-decision"))
 }
 
+fn reported_pause_expected_idle(actor: &str, busy: bool, alive: bool) -> bool {
+    !busy
+        && alive
+        && !actor.contains("run-step still")
+        && (parse_actor_absorb_class(actor) == ActorAbsorbClass::Paused
+            || (actor.starts_with("state: done ") && actor.contains("source: native-event")))
+}
+
+fn reported_pause_wait(state: &Path, task: &str, line: &str) -> Option<bool> {
+    status_line_endpoint(state, task, line)
+        .and_then(|end| multplx_domain::supervision::canonical_pause_wait(state, task, line, end))
+}
+
+fn pause_absorbs_idle(
+    window: &RecordedWindow,
+    pause_wait: Option<bool>,
+    actor: Option<&str>,
+    busy: bool,
+) -> bool {
+    actor.is_some_and(|actor| match pause_wait {
+        None => parse_actor_absorb_class(actor) == ActorAbsorbClass::Paused,
+        Some(true) => reported_pause_expected_idle(actor, busy, backend_agent_alive(window)),
+        Some(false) => false,
+    })
+}
+
 fn stale_scan(source_root: &Path, state: &Path) -> Option<String> {
     let afk = state.join(".afk").exists();
     let escalate = Duration::from_secs(environment_u64("MX_STALE_ESCALATE_SECS", 240));
@@ -702,8 +728,11 @@ fn stale_scan(source_root: &Path, state: &Path) -> Option<String> {
                     .get(&(end, last.clone()))
                     .is_some_and(|notification| notification.current)
             });
+        let pause_wait = reported_pause_wait(state, &window.task, &last);
         let key = window_key(&window.endpoint);
-        if !status_paused_or_held(&last) && state.join(format!(".paused-{key}")).exists() {
+        if (!status_paused_or_held(&last) || pause_wait == Some(false))
+            && state.join(format!(".paused-{key}")).exists()
+        {
             clear_pause_tracking(state, &key);
             let _ = fs::remove_file(state.join(format!(".stale-{key}")));
             let _ = fs::remove_file(state.join(format!(".stale-since-{key}")));
@@ -727,6 +756,23 @@ fn stale_scan(source_root: &Path, state: &Path) -> Option<String> {
         let Some(hash) = pane_hash(&capture) else {
             continue;
         };
+        // Native turn completion describes runtime idleness, not assignment
+        // completion. A current named pause owns that idleness, while blocked,
+        // working, unknown and unhealthy endpoints retain ordinary detection.
+        if !afk
+            && pause_wait == Some(true)
+            && pause_absorbs_idle(
+                &window,
+                pause_wait,
+                actor_state_line(source_root, state, &window.task).as_deref(),
+                busy,
+            )
+        {
+            if let Some(reason) = handle_paused_stale(state, &window, &hash, resurface) {
+                return Some(reason);
+            }
+            continue;
+        }
         let hash_file = state.join(format!(".hash-{key}"));
         let count_file = state.join(format!(".count-{key}"));
         let previous = fs::read_to_string(&hash_file).unwrap_or_default();
@@ -736,7 +782,9 @@ fn stale_scan(source_root: &Path, state: &Path) -> Option<String> {
             let _ = fs::remove_file(state.join(format!(".stale-since-{key}")));
             let _ = fs::remove_file(state.join(format!(".wedge-escalations-{key}")));
             if !afk && status_paused_or_held(&last) && !busy {
-                if actor_absorb_class(source_root, state, &window.task) == ActorAbsorbClass::Paused
+                if pause_wait.is_none()
+                    && actor_absorb_class(source_root, state, &window.task)
+                        == ActorAbsorbClass::Paused
                     && let Some(reason) = handle_paused_stale(state, &window, &hash, resurface)
                 {
                     return Some(reason);
@@ -777,7 +825,11 @@ fn stale_scan(source_root: &Path, state: &Path) -> Option<String> {
         } else {
             ActorAbsorbClass::None
         };
-        if class == ActorAbsorbClass::None
+        if pause_wait.is_some() && class == ActorAbsorbClass::Paused {
+            class = ActorAbsorbClass::None;
+        }
+        if pause_wait.is_none()
+            && class == ActorAbsorbClass::None
             && status_paused_or_held(&last)
             && window.kind != "daemon"
             && backend_agent_dead(&window)
@@ -3715,8 +3767,12 @@ fn deliver_watcher_signals(
                 let Some(task) = observation.path.file_stem().and_then(|name| name.to_str()) else {
                     continue;
                 };
-                let paused = status_paused_or_held(&status_line(state, task));
-                let class = paused.then(|| actor_absorb_class(source_root, state, task));
+                let lifecycle = status_line(state, task);
+                let paused = status_paused_or_held(&lifecycle);
+                let pause_wait = reported_pause_wait(state, task, &lifecycle);
+                let actor = paused
+                    .then(|| actor_state_line(source_root, state, task))
+                    .flatten();
                 for window in recorded_windows(state)
                     .into_iter()
                     .filter(|window| window.task == task)
@@ -3726,7 +3782,11 @@ fn deliver_watcher_signals(
                         clear_pause_tracking(state, &key);
                         continue;
                     }
-                    if class != Some(ActorAbsorbClass::Paused) {
+                    let capture = backend_capture(&window);
+                    let verified = capture.as_ref().is_some_and(|(_, busy)| {
+                        pause_absorbs_idle(&window, pause_wait, actor.as_deref(), *busy)
+                    });
+                    if !verified {
                         // Retain the same explicit unknown fallback used
                         // by stale scanning. An empty marker never proves
                         // a pause identity or establishes its cadence.
@@ -3735,7 +3795,7 @@ fn deliver_watcher_signals(
                                 return Err(());
                             }
                         }
-                    } else if let Some((capture, _)) = backend_capture(&window)
+                    } else if let Some((capture, _)) = capture
                         && let Some(hash) = pane_hash(&capture)
                         && let Some(reminder) = handle_paused_stale(
                             state,

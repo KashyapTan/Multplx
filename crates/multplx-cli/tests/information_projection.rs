@@ -29,7 +29,7 @@ fn accepted_information_preserves_actor_and_viz_state_without_hiding_real_work()
     fs::create_dir_all(&state).unwrap();
     fs::create_dir_all(&fakebin).unwrap();
     let tmux = fakebin.join("tmux");
-    fs::write(&tmux, "#!/bin/sh\ncase \"$1\" in\nlist-windows) printf 'mx-worker\\n';;\ndisplay-message) printf '%%1\\n';;\ncapture-pane) printf 'idle prompt\\n';;\nesac\n").unwrap();
+    fs::write(&tmux, "#!/bin/sh\ncase \"$1\" in\nlist-windows) printf 'mx-worker\\n';;\ndisplay-message) case \"$*\" in *pane_current_command*) printf 'codex\\n';; *) printf '%%1\\n';; esac;;\ncapture-pane) printf 'idle prompt\\n';;\nesac\n").unwrap();
     fs::set_permissions(&tmux, fs::Permissions::from_mode(0o755)).unwrap();
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mx = || {
@@ -343,7 +343,60 @@ fn accepted_information_preserves_actor_and_viz_state_without_hiding_real_work()
         );
         output
     };
-    report(&["--state", "paused", "--message", "waiting for release"]);
+    // Preserve a legitimate parent-owned wait while informational replies are
+    // accepted. A pause with unreadable health or no named wait must not prove
+    // canonical inactivity suppression.
+    let pause_with_wait = || {
+        use multplx_core::{
+            process::{ProcessProbe, SystemProcessProbe},
+            wake::{WakeDisposition, WakeDispositionKind, WakeQueue},
+        };
+        let paused = report(&["--state", "paused", "--message", "waiting for release"]);
+        let receipt: Value = serde_json::from_slice(&paused.stdout).unwrap();
+        let key = format!("message-{}", receipt["message_id"].as_str().unwrap());
+        let queue = WakeQueue::new(&state);
+        let probe = SystemProcessProbe::default();
+        let owner = probe.identity(std::process::id()).unwrap();
+        let now = std::time::SystemTime::now();
+        let mut found_pause = false;
+        for item in queue.claim_available(&owner, now, 64, &probe).unwrap() {
+            let waiting = item.record.key == key;
+            found_pause |= waiting;
+            queue
+                .record_disposition(
+                    &item.event_id,
+                    &owner,
+                    WakeDisposition {
+                        kind: if waiting {
+                            WakeDispositionKind::Waiting
+                        } else {
+                            WakeDispositionKind::Handled
+                        },
+                        recorded_at: 1,
+                        detail: "Parent reconciled the accepted report".into(),
+                        condition: waiting.then(|| "verified release available".into()),
+                        resume_trigger: waiting.then(|| "release-ready".into()),
+                        recheck_after_epoch: None,
+                        follow_up_id: None,
+                    },
+                    &probe,
+                )
+                .unwrap();
+            // Keep the initial pause notification pending until its watcher
+            // handoff establishes cadence, as this projection test intends.
+            // Acknowledged waiting wakes are exercised by supervision_runtime.
+            if !waiting {
+                queue
+                    .acknowledge(&item.event_id, &owner, now, &probe)
+                    .unwrap();
+            }
+        }
+        assert!(
+            found_pause,
+            "fresh report wake must be claimable: {receipt}"
+        );
+    };
+    pause_with_wait();
     let pause_marker = state.join(".paused-broker_mx-worker");
     let recheck_marker = state.join(".paused-rechecked-broker_mx-worker");
     let resurface_marker = state.join(".paused-resurfaced-broker_mx-worker");
@@ -464,7 +517,7 @@ fn accepted_information_preserves_actor_and_viz_state_without_hiding_real_work()
             .set_times(fs::FileTimes::new().set_modified(old_pause))
             .unwrap();
     }
-    report(&["--state", "paused", "--message", "waiting for release"]);
+    pause_with_wait();
     let correlation = request("fresh-pause");
     report(&[
         "--state",
@@ -522,7 +575,7 @@ fn unavailable_actor_query_does_not_establish_a_verified_pause_cadence() {
     fs::create_dir_all(&state).unwrap();
     fs::create_dir_all(&fakebin).unwrap();
     let tmux = fakebin.join("tmux");
-    fs::write(&tmux, "#!/bin/sh\ncase \"$1\" in\nlist-windows) printf 'mx-worker\\n';;\ndisplay-message) printf '%%1\\n';;\ncapture-pane) printf 'idle prompt\\n';;\nesac\n").unwrap();
+    fs::write(&tmux, "#!/bin/sh\ncase \"$1\" in\nlist-windows) printf 'mx-worker\\n';;\ndisplay-message) case \"$*\" in *pane_current_command*) printf 'codex\\n';; *) printf '%%1\\n';; esac;;\ncapture-pane) printf 'idle prompt\\n';;\nesac\n").unwrap();
     fs::set_permissions(&tmux, fs::Permissions::from_mode(0o755)).unwrap();
     // Model an unavailable query only until the real watcher records its
     // conservative fallback. Recovery executes the actual actor-state owner.
@@ -560,6 +613,8 @@ fn unavailable_actor_query_does_not_establish_a_verified_pause_cadence() {
         home.to_string_lossy().into_owned(),
     );
     record.runtime.endpoint = Some("broker:mx-worker".into());
+    record.schedule.state = multplx_domain::lifecycle::subagent_model::WorkState::WaitingDependency;
+    record.schedule.waiting_condition = Some("verified release available".into());
     fs::write(
         state.join("worker.meta"),
         write_meta(
