@@ -110,6 +110,10 @@ cat "$MX_FIXTURE_ROOT/actor"
     }
 
     fn wait_on_report(&self, report: &Output) {
+        self.wait_on_report_with_ack(report, true);
+    }
+
+    fn wait_on_report_with_ack(&self, report: &Output, acknowledged: bool) {
         use multplx_core::{
             process::{ProcessProbe, SystemProcessProbe},
             wake::{WakeDisposition, WakeDispositionKind, WakeQueue},
@@ -144,9 +148,11 @@ cat "$MX_FIXTURE_ROOT/actor"
                     &probe,
                 )
                 .unwrap();
-            queue
-                .acknowledge(&item.event_id, &owner, now, &probe)
-                .unwrap();
+            if acknowledged {
+                queue
+                    .acknowledge(&item.event_id, &owner, now, &probe)
+                    .unwrap();
+            }
         }
         assert!(found, "exact report wake must be claimable");
     }
@@ -185,6 +191,9 @@ cat "$MX_FIXTURE_ROOT/actor"
         .unwrap();
     }
     fn checkpoint(&self, resurface: u64) -> Output {
+        self.checkpoint_during(resurface, || {})
+    }
+    fn checkpoint_during(&self, resurface: u64, mut transition: impl FnMut()) -> Output {
         let _ = fs::remove_file(self.root.path().join("captures"));
         let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut child = mx()
@@ -219,6 +228,7 @@ cat "$MX_FIXTURE_ROOT/actor"
         // reach the intended branch within a fixed quiet checkpoint window.
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
+            transition();
             if child.try_wait().unwrap().is_some() {
                 return child.wait_with_output().unwrap();
             }
@@ -255,6 +265,106 @@ cat "$MX_FIXTURE_ROOT/actor"
         assert!(
             String::from_utf8_lossy(&output.stdout).contains("stale: fixture:mx-paused-worker")
         );
+    }
+}
+
+#[test]
+fn wait_established_during_native_completion_revalidates_publication_health() {
+    for acknowledged in [false, true] {
+        for fault in [None, Some("dead"), Some("unknown")] {
+            let mut fixture = PausedWorkerFixture::new();
+            fixture.record.schedule.state =
+                multplx_domain::lifecycle::subagent_model::WorkState::Running;
+            fixture.record.schedule.waiting_condition = None;
+            fixture.save();
+            let report = fixture.report(&[
+                "--state",
+                "paused",
+                "--message",
+                "waiting for production-ready",
+            ]);
+            fixture.prime_status();
+            fixture.write(
+                "actor",
+                "state: working · source: native-event · runtime working\n",
+            );
+            // The first stale actor read happens after stale_scan cached the absent
+            // canonical wait. Hold that real subprocess until the parent records it
+            // and the reporting worker ends its native turn (or becomes unhealthy).
+            fixture.script(
+                "actor-state",
+                r#"#!/bin/sh
+if mkdir "$MX_FIXTURE_ROOT/barrier-once" 2>/dev/null; then
+  touch "$MX_FIXTURE_ROOT/actor-entered"
+  while [ ! -f "$MX_FIXTURE_ROOT/parent-released" ]; do sleep 0.01; done
+fi
+printf 'scan\n' >> "$MX_FIXTURE_ROOT/scans"
+cat "$MX_FIXTURE_ROOT/actor"
+"#,
+            );
+            let mut established = false;
+            let output = fixture.checkpoint_during(21_600, || {
+                if !established && fixture.root.path().join("actor-entered").exists() {
+                    fixture.wait_on_report_with_ack(&report, acknowledged);
+                    fixture.write(
+                        "actor",
+                        if fault == Some("unknown") {
+                            "state: unknown · source: none\n"
+                        } else {
+                            "state: done · source: native-event · runtime done\n"
+                        },
+                    );
+                    if fault == Some("dead") {
+                        fixture.write("health", "bash\n");
+                    }
+                    fixture.write("parent-released", "");
+                    established = true;
+                }
+            });
+            assert!(established, "scan must cross the controlled transition");
+            let queued = fs::read_to_string(fixture.state.join(".wake-queue")).unwrap();
+            if fault.is_some() {
+                assert!(output.status.success());
+                assert!(
+                    String::from_utf8_lossy(&output.stdout)
+                        .contains("stale: fixture:mx-paused-worker")
+                );
+                assert!(queued.lines().any(|line| line.contains("\tstale\t")));
+            } else {
+                assert!(
+                    output.stdout.is_empty(),
+                    "early notification: {} {}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                assert!(!queued.lines().any(|line| line.contains("\tstale\t")));
+                assert!(
+                    !fixture
+                        .state
+                        .join(".stale-since-fixture_mx-paused-worker")
+                        .exists()
+                );
+                assert!(
+                    !fixture
+                        .state
+                        .join(".wedge-escalations-fixture_mx-paused-worker")
+                        .exists()
+                );
+                assert!(
+                    !fs::read_to_string(fixture.state.join(".paused-fixture_mx-paused-worker"))
+                        .unwrap()
+                        .is_empty()
+                );
+                let waits = multplx_core::wake::WakeQueue::new(&fixture.state)
+                    .observe_inbox_items()
+                    .unwrap();
+                assert!(waits.iter().any(|item| {
+                    item.disposition
+                        .as_ref()
+                        .is_some_and(|d| d.kind == multplx_core::wake::WakeDispositionKind::Waiting)
+                }));
+            }
+        }
     }
 }
 

@@ -538,7 +538,6 @@ fn triage_log(state: &Path, message: &str) {
 }
 
 fn surface_stale(state: &Path, window: &RecordedWindow, hash: &str, reason: &str) -> bool {
-    let key = window_key(&window.endpoint);
     if !append_wake(
         state,
         multplx_core::wake::WakeKind::Stale,
@@ -547,12 +546,64 @@ fn surface_stale(state: &Path, window: &RecordedWindow, hash: &str, reason: &str
     ) {
         return false;
     }
+    mark_stale_surfaced(state, window, hash)
+}
+
+fn mark_stale_surfaced(state: &Path, window: &RecordedWindow, hash: &str) -> bool {
+    let key = window_key(&window.endpoint);
     if !store_marker(&state.join(format!(".stale-{key}")), hash) {
         return false;
     }
     let _ = fs::remove_file(state.join(format!(".stale-since-{key}")));
     mark_status_surfaced(state, &state.join(format!("{}.status", window.task)));
     true
+}
+
+// A parent can establish Waiting while the stale scan's actor read completes.
+// Observe health outside the queue lock, then serialize the exact current wait
+// check with publication against record_disposition, acknowledgement and resume.
+// A healthy wait ordered before publication wins; publication ordered first
+// remains a legitimate observation from before that wait was established.
+fn surface_unexpected_stale(
+    source_root: &Path,
+    state: &Path,
+    window: &RecordedWindow,
+    hash: &str,
+    reason: &str,
+    resurface: Duration,
+) -> Option<String> {
+    let lifecycle = status_line(state, &window.task);
+    let healthy_pause = status_paused_or_held(&lifecycle)
+        && backend_capture(window).is_some_and(|(_, busy)| {
+            actor_state_line(source_root, state, &window.task).is_some_and(|actor| {
+                reported_pause_expected_idle(&actor, busy, backend_agent_alive(window))
+            })
+        });
+    let published = multplx_core::wake::WakeQueue::new(state).append_if(
+        multplx_core::wake::WakeKind::Stale,
+        &window.endpoint,
+        reason,
+        SystemTime::now(),
+        &SystemProcessProbe::default(),
+        || {
+            !(healthy_pause
+                && status_line(state, &window.task) == lifecycle
+                && reported_pause_wait(state, &window.task, &lifecycle) == Some(true))
+        },
+    );
+    match published {
+        Ok(None) => handle_paused_stale(state, window, hash, resurface),
+        Ok(Some(_)) if mark_stale_surfaced(state, window, hash) => {
+            if status_paused_or_held(&lifecycle) {
+                let key = window_key(&window.endpoint);
+                for prefix in [".paused-", ".paused-rechecked-", ".paused-resurfaced-"] {
+                    let _ = store_marker(&state.join(format!("{prefix}{key}")), "");
+                }
+            }
+            Some(reason.to_owned())
+        }
+        _ => Some(String::new()),
+    }
 }
 
 fn clear_pause_tracking(state: &Path, key: &str) {
@@ -842,13 +893,12 @@ fn stale_scan(source_root: &Path, state: &Path) -> Option<String> {
         {
             if !already {
                 let reason = format!("stale: {}", window.endpoint);
-                if surface_stale(state, &window, &hash, &reason) {
-                    let _ = store_marker(&state.join(format!(".paused-{key}")), "");
-                    let _ = store_marker(&state.join(format!(".paused-rechecked-{key}")), "");
-                    let _ = store_marker(&state.join(format!(".paused-resurfaced-{key}")), "");
+                if let Some(reason) =
+                    surface_unexpected_stale(source_root, state, &window, &hash, &reason, resurface)
+                {
                     return Some(reason);
                 }
-                return Some(String::new());
+                continue;
             }
             let _ = fs::remove_file(state.join(format!(".stale-since-{key}")));
             continue;
@@ -879,15 +929,12 @@ fn stale_scan(source_root: &Path, state: &Path) -> Option<String> {
             }
             _ if !already => {
                 let reason = format!("stale: {}", window.endpoint);
-                if surface_stale(state, &window, &hash, &reason) {
-                    if status_paused_or_held(&last) {
-                        let _ = store_marker(&state.join(format!(".paused-{key}")), "");
-                        let _ = store_marker(&state.join(format!(".paused-rechecked-{key}")), "");
-                        let _ = store_marker(&state.join(format!(".paused-resurfaced-{key}")), "");
-                    }
+                if let Some(reason) =
+                    surface_unexpected_stale(source_root, state, &window, &hash, &reason, resurface)
+                {
                     return Some(reason);
                 }
-                return Some(String::new());
+                continue;
             }
             _ => {
                 let since_file = state.join(format!(".stale-since-{key}"));
@@ -924,10 +971,12 @@ fn stale_scan(source_root: &Path, state: &Path) -> Option<String> {
                     window.endpoint,
                     now.saturating_sub(since)
                 );
-                if surface_stale(state, &window, &hash, &reason) {
+                if let Some(reason) =
+                    surface_unexpected_stale(source_root, state, &window, &hash, &reason, resurface)
+                {
                     return Some(reason);
                 }
-                return Some(String::new());
+                continue;
             }
         }
     }

@@ -1104,13 +1104,33 @@ impl WakeQueue {
         now: SystemTime,
         processes: &impl ProcessProbe,
     ) -> Result<WakeRecord> {
+        self.append_if(kind, key, payload, now, processes, || true)
+            .map(|record| record.expect("unconditional append"))
+    }
+
+    /// Revalidate a publication decision under the same lock as dispositions
+    /// and append. The callback must only observe state, never acquire this
+    /// queue's lock or perform slow external observations. A rejected decision
+    /// consumes neither a sequence nor an event.
+    pub fn append_if(
+        &self,
+        kind: WakeKind,
+        key: &str,
+        payload: &str,
+        now: SystemTime,
+        processes: &impl ProcessProbe,
+        should_publish: impl FnOnce() -> bool,
+    ) -> Result<Option<WakeRecord>> {
         let _lock = DirectoryLock::acquire_wait(&self.lock, processes, Duration::from_secs(5))?;
+        if !should_publish() {
+            return Ok(None);
+        }
         let sequence = self.next_sequence_locked()?;
         atomic_replace(&self.sequence, format!("{sequence}\n").as_bytes(), 0o600)?;
         let epoch = now.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
         let record = WakeRecord::new(epoch, sequence, kind, key, payload);
         append_single_write(&self.queue, record.render().as_bytes(), 0o600)?;
-        Ok(record)
+        Ok(Some(record))
     }
 
     /// Append one event only when its stable kind/key identity is absent from
@@ -1396,6 +1416,51 @@ mod tests {
                 value: pid.to_string(),
             })
         }
+    }
+
+    #[test]
+    fn conditional_append_serializes_decision_and_does_not_consume_rejected_sequence() {
+        let temp = tempfile::tempdir().unwrap();
+        let queue = WakeQueue::new(temp.path());
+        let processes = FakeProcesses::default();
+        let rejected = queue
+            .append_if(
+                WakeKind::Stale,
+                "pane",
+                "stale",
+                UNIX_EPOCH,
+                &processes,
+                || {
+                    assert!(
+                        crate::locks::DirectoryLock::try_acquire(
+                            temp.path().join(".wake-queue.lock"),
+                            &processes
+                        )
+                        .is_err()
+                    );
+                    false
+                },
+            )
+            .unwrap();
+        assert!(rejected.is_none());
+        assert!(!temp.path().join(".wake-queue").exists());
+        let accepted = queue
+            .append_if(
+                WakeKind::Stale,
+                "pane",
+                "stale",
+                UNIX_EPOCH,
+                &processes,
+                || true,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(accepted.sequence, 1);
+        assert!(
+            fs::read_to_string(temp.path().join(".wake-queue"))
+                .unwrap()
+                .contains(&accepted.render())
+        );
     }
 
     #[test]
