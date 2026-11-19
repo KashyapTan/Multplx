@@ -1,5 +1,9 @@
 # Phase 12 implementation evidence
 
+Capacity update (2026-11-19): the CPU, load and memory capacity inputs mentioned in this historical evidence are retired.
+Current admission uses a configurable running-agent concurrency limit, defaulting to 20 across all harnesses, without resource sampling or resource-triggered termination.
+See [current dispatch capacity configuration](../../docs/configuration.md#dispatch-capacity-configapi-capacity--configadmission-capacityjson--statedispatch-queue).
+
 ## Status and source boundary
 
 Status: implemented and merged under the user-approved reduced live scope; tested package delivered and the user’s repository filename cutover completed.

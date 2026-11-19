@@ -3106,7 +3106,7 @@ test_native_herdr_allocation_failure_and_recovery() (
   printf '#!/bin/sh\nexit 0\n' > "$fb/codex"; chmod +x "$fb/codex"
   export PATH="$fb:$PATH" MX_HOME="$home" MX_ROOT_OVERRIDE="$ROOT"
   export MX_HERDR_BIN="$fb/herdr" MX_HERDR_LOG="$log" MX_FAKE_HERDR_STATE="$state" HERDR_SESSION=fmtest
-  export MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 MX_HEADROOM_MEM_AVAILABLE_BYTES=34359738368 MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY=8
+  export MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY=8
   : > "$log"
   if MX_SPAWN_FAULT=after-endpoint "$ROOT/bin/mx-spawn.sh" retained "$project" codex --backend herdr > "$dir/failure.out" 2>&1; then
     fail 'endpoint-before-metadata fault unexpectedly succeeded'

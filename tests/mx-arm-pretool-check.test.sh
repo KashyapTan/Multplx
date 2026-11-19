@@ -57,6 +57,19 @@ matrix_case R17 allow "printf '%s\\n' 'mx-watch.sh; a && b || c > out' | sed -n 
 matrix_case R18 allow "sh -c 'tmux send-keys -t lab \"bin/mx-watch-arm.sh &\" Enter'"
 matrix_case R19 allow "eval 'printf \"%s\\n\" \"bin/mx-watch-arm.sh &\"'"
 
+matrix_case R20 allow 'git status; cat bin/mx-watch.sh'
+matrix_case R21 allow 'git status; rg -n headroom crates bin/mx-watch.sh; cat docs/configuration.md'
+matrix_case R22 allow 'wc -l bin/mx-watch.sh && head -20 bin/mx-watch.sh'
+matrix_case R23 allow "bash -lc 'git status; cat bin/mx-watch.sh'"
+matrix_case R24 allow 'cat bin/mx-watch.sh | sed -n 1p'
+matrix_case R25 allow 'git diff -- bin/mx-watch.sh'
+matrix_case R26 allow 'ls bin/mx-watch.sh; true'
+
+matrix_case D59 deny 'rg mx-watch docs; bin/mx-watch.sh'
+matrix_case D60 deny 'python3 -c "print(1)"; bin/mx-watch-arm.sh &'
+matrix_case D61 deny 'sed -n 1p bin/mx-watch.sh; pkill -f mx-watch'
+matrix_case D62 deny 'cat bin/mx-watch.sh; bin/mx-watch-checkpoint.sh >out'
+
 matrix_case D01 deny 'bin/mx-watch-arm.sh &'
 matrix_case D02 deny 'nohup bin/mx-watch-arm.sh'
 matrix_case D03 deny 'bin/mx-watch-arm.sh & disown'

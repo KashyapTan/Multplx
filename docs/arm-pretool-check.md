@@ -76,6 +76,8 @@ This covers statically-visible literal words in command position; opaque dynamic
 A direct `bin/mx-watch.sh` execution - relative, `<code-root>`-anchored, `$VAR`-prefixed, or `~`-prefixed - always denies with `watcher-direct`, whose reason points the caller at `bin/mx-watch-arm.sh` and `bin/mx-watch-checkpoint.sh`.
 
 The same bytes in an argument, comment, assertion, documentation query, Python string, `printf`, or `tmux send-keys` payload are data and do not make the outer command relevant.
+Each node of a command list is checked separately, so `git status; cat bin/mx-watch.sh` is allowed, while `rg mx-watch docs; bin/mx-watch.sh` still denies.
+Literal shell `-c` and `eval` payloads containing only such data operations are allowed through the same command-position check.
 
 Literal `sh`, `bash`, or `zsh` `-c` payloads and literal `eval` payloads are recursively classified.
 A literal nested payload that only runs a data-bearing command is allowed.

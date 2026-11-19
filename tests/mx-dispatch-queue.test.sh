@@ -47,9 +47,6 @@ done
 
 queue_cmd() {
   MX_HOME="$HOME_DIR" MX_BACKEND=tmux \
-  MX_HEADROOM_CPU_COUNT="${MX_QUEUE_CPU_COUNT:-8}" \
-  MX_HEADROOM_LOAD1="${MX_QUEUE_LOAD1:-0}" \
-  MX_HEADROOM_MEM_AVAILABLE_BYTES="${MX_QUEUE_MEM:-17179869184}" \
   MX_HEADROOM_IN_USE="${MX_QUEUE_IN_USE:-0}" \
   MX_HEADROOM_API_CAPACITY="${MX_QUEUE_API_CAPACITY:-4}" \
   MX_HEADROOM_SPAWN_BIN="$FAKE_SPAWN" \
@@ -64,8 +61,8 @@ test_spawn_boundary_parks_before_allocation() {
   # Pin the asserted backend independently of the terminal running this test.
   out=$(MX_HOME="$home" MX_STATE_OVERRIDE="$home/state" MX_CONFIG_OVERRIDE="$home/config" \
     MX_DATA_OVERRIDE="$home/data" MX_PROJECTS_OVERRIDE="$home/projects" \
-    MX_SPAWN_NO_GUARD=1 MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 \
-    MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_IN_USE=0 \
+    MX_SPAWN_NO_GUARD=1 \
+    MX_HEADROOM_IN_USE=0 \
     MX_HEADROOM_API_CAPACITY=0 "$ROOT/bin/mx-spawn.sh" parked "$project" --harness codex --backend tmux --mode direct-PR --yolo on --resource gpu=2) \
     || fail "at-limit spawn boundary should return a queued outcome"
   assert_contains "$out" 'queued: parked parked until dispatch capacity is available' \
@@ -79,7 +76,7 @@ test_spawn_boundary_parks_before_allocation() {
   assert_grep 'mode=direct-PR' "$home/state/.dispatch-queue/parked.request" 'queue lost selected mode'
   assert_grep 'yolo=off' "$home/state/.dispatch-queue/parked.request" 'legacy yolo became active in queue'
   assert_grep '"gpu":2' "$home/state/.dispatch-queue/parked.request" 'queue lost requested custom resource units'
-  MX_HOME="$home" MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY=4 MX_HEADROOM_SPAWN_BIN="$FAKE_SPAWN" MX_QUEUE_TEST_SPAWN_LOG="$home/spawn.log" "$HEADROOM" --queue-drain >/dev/null || fail 'mode queue drain failed'
+  MX_HOME="$home" MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY=4 MX_HEADROOM_SPAWN_BIN="$FAKE_SPAWN" MX_QUEUE_TEST_SPAWN_LOG="$home/spawn.log" "$HEADROOM" --queue-drain >/dev/null || fail 'mode queue drain failed'
   assert_grep '--mode direct-PR --yolo off' "$home/spawn.log" 'drain lost selected authority'
 
   pass "at-limit spawn parks intent before worktree or endpoint allocation"
@@ -208,8 +205,8 @@ test_queued_registry_and_existing_task_authority_fail_closed() {
   parked_spawn() {
     MX_HOME="$home" MX_STATE_OVERRIDE="$home/state" MX_CONFIG_OVERRIDE="$home/config" \
       MX_DATA_OVERRIDE="$home/data" MX_PROJECTS_OVERRIDE="$home/projects" \
-      MX_SPAWN_NO_GUARD=1 MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 \
-      MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_IN_USE=0 \
+      MX_SPAWN_NO_GUARD=1 \
+      MX_HEADROOM_IN_USE=0 \
       MX_HEADROOM_API_CAPACITY=0 "$ROOT/bin/mx-spawn.sh" "$@"
   }
   out=$(parked_spawn registry projects/app codex --scout --backend cmux --model pinned --effort high) || fail 'registered scout did not park'
@@ -218,7 +215,7 @@ test_queued_registry_and_existing_task_authority_fail_closed() {
   assert_grep 'yolo=off' "$home/state/.dispatch-queue/registry.request" 'legacy registry yolo became active'
   before=$(cat "$home/state/.dispatch-queue/registry.request")
   printf '%s\n' '- app [local-only] - app' > "$home/data/projects.md"
-  MX_HOME="$home" MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY=4 MX_HEADROOM_SPAWN_BIN="$FAKE_SPAWN" MX_QUEUE_TEST_SPAWN_LOG="$home/spawn.log" "$HEADROOM" --queue-drain >/dev/null || fail 'registry queue drain failed'
+  MX_HOME="$home" MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY=4 MX_HEADROOM_SPAWN_BIN="$FAKE_SPAWN" MX_QUEUE_TEST_SPAWN_LOG="$home/spawn.log" "$HEADROOM" --queue-drain >/dev/null || fail 'registry queue drain failed'
   assert_grep '--mode direct-PR --yolo off' "$home/spawn.log" 'registry edit silently changed queued authority'
   assert_grep '--backend cmux' "$home/spawn.log" 'registry queue lost backend'
   assert_grep '"role":"researcher"' "$home/spawn.log.models" 'registry queue lost canonical researcher assignment'

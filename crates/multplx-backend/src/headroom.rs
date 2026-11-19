@@ -1,4 +1,4 @@
-//! Composite local/API dispatch capacity and private durable dispatch queue.
+//! Configured concurrency capacity and private durable dispatch queue.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
@@ -39,7 +39,6 @@ pub struct HeadroomPaths {
     pub root_home: PathBuf,
     pub state: PathBuf,
     pub config: PathBuf,
-    pub proc_root: PathBuf,
 }
 
 impl HeadroomPaths {
@@ -62,9 +61,6 @@ impl HeadroomPaths {
             config: std::env::var_os("MX_CONFIG_OVERRIDE")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| home.join("config")),
-            proc_root: std::env::var_os("MX_HEADROOM_PROC_ROOT")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("/proc")),
         }
     }
 
@@ -76,9 +72,6 @@ impl HeadroomPaths {
         Self {
             state: root_home.join("state"),
             config: root_home.join("config"),
-            proc_root: std::env::var_os("MX_HEADROOM_PROC_ROOT")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("/proc")),
             root_home,
         }
     }
@@ -104,14 +97,6 @@ pub struct CandidateHeadroom {
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub struct LocalHeadroom {
-    cpu_count: f64,
-    load_one: f64,
-    memory_available_bytes: u64,
-    available: u64,
-}
-
-#[derive(Clone, Debug, Serialize)]
 pub struct ApiHeadroom {
     source: &'static str,
     capacity: u64,
@@ -130,7 +115,6 @@ pub struct Headroom {
     workers_in_use: u64,
     coordinators_in_use: u64,
     unknown_session_use: u64,
-    local: LocalHeadroom,
     api: ApiHeadroom,
     candidates: BTreeMap<String, CandidateHeadroom>,
     #[serde(skip)]
@@ -181,7 +165,7 @@ fn admission_classes(paths: &HeadroomPaths) -> Result<(u64, u64, u64)> {
 }
 
 impl Headroom {
-    /// Report whether the composite local/API capacity boundary is exhausted.
+    /// Report whether the configured concurrency boundary is exhausted.
     #[must_use]
     pub const fn at_limit(&self) -> bool {
         self.at_limit
@@ -196,135 +180,6 @@ fn parse_nonnegative_integer(value: &str) -> Option<u64> {
     (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()))
         .then(|| value.parse().ok())
         .flatten()
-}
-
-fn parse_nonnegative_number(value: &str) -> Option<f64> {
-    if value.is_empty()
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || byte == b'.')
-    {
-        return None;
-    }
-    let number = value.parse::<f64>().ok()?;
-    number.is_finite().then_some(number)
-}
-
-fn parse_positive_number(value: &str) -> Option<f64> {
-    parse_nonnegative_number(value).filter(|number| *number > 0.0)
-}
-
-fn command_text(program: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(program)
-        .args(args)
-        .env("LC_ALL", "C")
-        .output()
-        .ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8(output.stdout).ok())
-        .flatten()
-}
-
-fn platform() -> String {
-    std::env::var("MX_HEADROOM_PLATFORM").unwrap_or_else(|_| {
-        command_text("uname", &["-s"])
-            .map(|value| value.trim().to_owned())
-            .unwrap_or_default()
-    })
-}
-
-fn cpu_count(paths: &HeadroomPaths) -> Result<f64> {
-    if let Ok(value) = std::env::var("MX_HEADROOM_CPU_COUNT") {
-        return parse_positive_number(&value)
-            .ok_or_else(|| message("CPU capacity signal is unreadable"));
-    }
-    match platform().as_str() {
-        "Darwin" => command_text("sysctl", &["-n", "hw.logicalcpu"])
-            .and_then(|value| parse_positive_number(value.trim()))
-            .ok_or_else(|| message("CPU capacity signal is unreadable")),
-        "Linux" => fs::read_to_string(paths.proc_root.join("cpuinfo"))
-            .ok()
-            .map(|text| {
-                text.lines()
-                    .filter(|line| line.trim_start().starts_with("processor") && line.contains(':'))
-                    .count() as f64
-            })
-            .filter(|count| *count > 0.0)
-            .ok_or_else(|| message("CPU capacity signal is unreadable")),
-        _ => Err(message("CPU capacity signal is unreadable")),
-    }
-}
-
-fn load_one(paths: &HeadroomPaths) -> Result<f64> {
-    if let Ok(value) = std::env::var("MX_HEADROOM_LOAD1") {
-        return parse_nonnegative_number(&value)
-            .ok_or_else(|| message("one-minute load signal is unreadable"));
-    }
-    match platform().as_str() {
-        "Darwin" => command_text("sysctl", &["-n", "vm.loadavg"])
-            .and_then(|text| {
-                text.split_whitespace()
-                    .find_map(|word| parse_nonnegative_number(word.trim_matches(['{', '}'])))
-            })
-            .ok_or_else(|| message("one-minute load signal is unreadable")),
-        "Linux" => fs::read_to_string(paths.proc_root.join("loadavg"))
-            .ok()
-            .and_then(|text| {
-                text.split_whitespace()
-                    .next()
-                    .and_then(parse_nonnegative_number)
-            })
-            .ok_or_else(|| message("one-minute load signal is unreadable")),
-        _ => Err(message("one-minute load signal is unreadable")),
-    }
-}
-
-fn memory_available(paths: &HeadroomPaths) -> Result<u64> {
-    if let Ok(value) = std::env::var("MX_HEADROOM_MEM_AVAILABLE_BYTES") {
-        return parse_nonnegative_integer(&value)
-            .ok_or_else(|| message("available-memory signal is unreadable"));
-    }
-    match platform().as_str() {
-        "Darwin" => {
-            let text = command_text("vm_stat", &[])
-                .ok_or_else(|| message("available-memory signal is unreadable"))?;
-            let page = text
-                .lines()
-                .next()
-                .and_then(|line| line.split_whitespace().find_map(parse_nonnegative_integer))
-                .ok_or_else(|| message("available-memory signal is unreadable"))?;
-            let pages = text
-                .lines()
-                .filter(|line| {
-                    [
-                        "Pages free:",
-                        "Pages inactive:",
-                        "Pages speculative:",
-                        "Pages purgeable:",
-                    ]
-                    .iter()
-                    .any(|prefix| line.starts_with(prefix))
-                })
-                .filter_map(|line| {
-                    parse_nonnegative_integer(line.split_whitespace().last()?.trim_end_matches('.'))
-                })
-                .sum::<u64>();
-            Ok(page.saturating_mul(pages))
-        }
-        "Linux" => fs::read_to_string(paths.proc_root.join("meminfo"))
-            .ok()
-            .and_then(|text| {
-                text.lines().find_map(|line| {
-                    let rest = line.strip_prefix("MemAvailable:")?;
-                    parse_nonnegative_integer(rest.split_whitespace().next()?)
-                        .map(|value| value.saturating_mul(1024))
-                })
-            })
-            .ok_or_else(|| message("available-memory signal is unreadable")),
-        _ => Err(message("available-memory signal is unreadable")),
-    }
 }
 
 fn metadata_value(path: &Path, key: &str) -> Option<String> {
@@ -610,26 +465,9 @@ fn configured_candidates(paths: &HeadroomPaths) -> Result<Vec<String>> {
 }
 
 pub fn evaluate(paths: &HeadroomPaths) -> Result<Headroom> {
-    let cpu_count = cpu_count(paths)?;
-    let load_one = load_one(paths)?;
-    let memory_available = memory_available(paths)?;
     let (in_use, harness_use, observed_active_receipts) = live_counts(paths)?;
     let admission = admission_config(paths)?;
     let (workers_in_use, coordinators_in_use, classified_unknown) = admission_classes(paths)?;
-    let cpu_per_actor = std::env::var("MX_HEADROOM_CPU_PER_ACTOR")
-        .ok()
-        .map(|value| parse_positive_number(&value))
-        .unwrap_or(Some(0.25))
-        .ok_or_else(|| message("MX_HEADROOM_CPU_PER_ACTOR must be positive"))?;
-    let memory_per_actor = std::env::var("MX_HEADROOM_MEM_PER_ACTOR_BYTES")
-        .ok()
-        .map(|value| parse_nonnegative_integer(&value))
-        .unwrap_or(Some(268_435_456))
-        .filter(|value| *value > 0)
-        .ok_or_else(|| message("MX_HEADROOM_MEM_PER_ACTOR_BYTES must be positive"))?;
-    let cpu_slots = (((cpu_count - load_one) / cpu_per_actor).floor().max(0.0)) as u64;
-    let memory_slots = memory_available / memory_per_actor;
-    let local_available = cpu_slots.min(memory_slots);
     let global_capacity = configured_capacity(paths, None)?;
     let global_available = global_capacity.saturating_sub(in_use);
     let overridden_use = std::env::var("MX_HEADROOM_IN_USE")
@@ -657,12 +495,12 @@ pub fn evaluate(paths: &HeadroomPaths) -> Result<Headroom> {
             },
         );
     }
-    let available = local_available
-        .min(candidate_max.ok_or_else(|| message("configured dispatch candidates are empty"))?);
+    let available =
+        candidate_max.ok_or_else(|| message("configured dispatch candidates are empty"))?;
     Ok(Headroom {
-        model: "local+api",
+        model: "configured-concurrency",
         accounting_scope: "root-home-and-descendants",
-        capacity: in_use + available,
+        capacity: global_capacity,
         in_use,
         available,
         at_limit: available == 0,
@@ -672,12 +510,6 @@ pub fn evaluate(paths: &HeadroomPaths) -> Result<Headroom> {
         unknown_session_use: in_use
             .saturating_sub(workers_in_use.saturating_add(coordinators_in_use))
             .max(classified_unknown),
-        local: LocalHeadroom {
-            cpu_count,
-            load_one,
-            memory_available_bytes: memory_available,
-            available: local_available,
-        },
         api: ApiHeadroom {
             source: "configured-budget",
             capacity: global_capacity,
@@ -2697,18 +2529,18 @@ mod tests {
 
     use super::{
         AdmissionConfig, AdmissionDecision, AdmissionState, ApiHeadroom, Dependency, DispatchState,
-        Headroom, HeadroomPaths, LocalHeadroom, ProcessIdentity, QueueRecord, absolute_ps_identity,
+        Headroom, HeadroomPaths, ProcessIdentity, QueueRecord, absolute_ps_identity,
         admission_config, admission_finish, admission_owner_identity, admission_reconcile_inactive,
         admission_release_execution, admission_resume_reserved, admission_retryable,
         admission_try_reserve, admission_try_reserve_evaluated,
         aged_coordinator_may_yield_worker_reserve, configured_candidates, configured_capacity,
         dependency_completed, dispatch_proves_never_started, dispatch_score, evaluate,
         existing_admission_decision, fits, live_counts_with_probe, metadata_reconciled,
-        metadata_value, now_epoch, parse_nonnegative_integer, parse_nonnegative_number,
-        parse_positive_number, profile_harnesses, queue_add, queue_cancel, queue_drain_with,
-        queue_drain_with_headroom, queue_list, queue_priority, queue_records, read_compact,
-        read_receipt, reservation_owner_is_live, reserve, resource_use, same_receipt_identity,
-        valid_id, validate_dependency_graph, validate_record, write_receipt,
+        metadata_value, now_epoch, parse_nonnegative_integer, profile_harnesses, queue_add,
+        queue_cancel, queue_drain_with, queue_drain_with_headroom, queue_list, queue_priority,
+        queue_records, read_compact, read_receipt, reservation_owner_is_live, reserve,
+        resource_use, same_receipt_identity, valid_id, validate_dependency_graph, validate_record,
+        write_receipt,
     };
 
     fn paths(temp: &tempfile::TempDir) -> HeadroomPaths {
@@ -2720,7 +2552,6 @@ mod tests {
             root_home: temp.path().to_path_buf(),
             state,
             config,
-            proc_root: temp.path().join("proc"),
         }
     }
 
@@ -2759,7 +2590,7 @@ mod tests {
 
     fn synthetic_headroom(available: u64) -> Headroom {
         Headroom {
-            model: "local+api",
+            model: "configured-concurrency",
             accounting_scope: "root-home-and-descendants",
             capacity: available,
             in_use: 0,
@@ -2769,12 +2600,6 @@ mod tests {
             workers_in_use: 0,
             coordinators_in_use: 0,
             unknown_session_use: 0,
-            local: LocalHeadroom {
-                cpu_count: 8.0,
-                load_one: 0.0,
-                memory_available_bytes: u64::MAX,
-                available,
-            },
             api: ApiHeadroom {
                 source: "configured-budget",
                 capacity: available,
@@ -2881,10 +2706,6 @@ mod tests {
         assert_eq!(parse_nonnegative_integer("42"), Some(42));
         assert_eq!(parse_nonnegative_integer(""), None);
         assert_eq!(parse_nonnegative_integer("-1"), None);
-        assert_eq!(parse_nonnegative_number("1.5"), Some(1.5));
-        assert_eq!(parse_nonnegative_number("NaN"), None);
-        assert_eq!(parse_nonnegative_number("1.2.3"), None);
-        assert_eq!(parse_positive_number("0"), None);
         assert!(valid_id("task-1.ok"));
         assert!(!valid_id("bad/id"));
 
@@ -3285,6 +3106,71 @@ mod tests {
     }
 
     #[test]
+    fn twenty_running_sessions_share_one_configurable_limit_across_all_harnesses() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        for index in 0..20 {
+            let id = format!("worker-{index}");
+            let harness = ["codex", "cursor", "pi", "claude"][index % 4];
+            let mut record = admission_record(&paths, &id, &id);
+            record.harness = harness.into();
+            record.resources =
+                BTreeMap::from([("session".into(), 1), (format!("harness:{harness}"), 1)]);
+            assert_eq!(
+                admission_try_reserve(&paths, &record).unwrap(),
+                AdmissionDecision::Granted
+            );
+            admission_finish(&paths, &id, Some(format!("session:{id}")), None, None).unwrap();
+        }
+        let full = evaluate(&paths).unwrap();
+        assert_eq!((full.capacity, full.in_use, full.available), (20, 20, 0));
+        let next = admission_record(&paths, "next", "next");
+        assert_eq!(
+            admission_try_reserve(&paths, &next).unwrap(),
+            AdmissionDecision::Deferred
+        );
+        assert_eq!(super::receipts(&paths).unwrap().len(), 20);
+
+        // Raising the configured cap takes effect immediately and never
+        // modifies the active execution receipts.
+        std::fs::write(paths.config.join("api-capacity"), "24\n").unwrap();
+        assert_eq!(evaluate(&paths).unwrap().available, 4);
+        std::fs::write(paths.config.join("api-capacity"), "10\n").unwrap();
+        let reduced = evaluate(&paths).unwrap();
+        assert_eq!(
+            (reduced.capacity, reduced.in_use, reduced.available),
+            (10, 20, 0)
+        );
+        assert!(
+            super::receipts(&paths)
+                .unwrap()
+                .iter()
+                .all(|receipt| receipt.state == AdmissionState::Active)
+        );
+
+        std::fs::write(paths.config.join("api-capacity"), "20\n").unwrap();
+        assert!(
+            admission_release_execution(
+                &paths,
+                "worker-0",
+                &paths.state,
+                "attempt-1",
+                "session:worker-0"
+            )
+            .unwrap()
+        );
+        assert_eq!(evaluate(&paths).unwrap().available, 1);
+        assert_eq!(
+            admission_try_reserve(&paths, &next).unwrap(),
+            AdmissionDecision::Granted
+        );
+        assert_eq!(
+            admission_try_reserve(&paths, &admission_record(&paths, "extra", "extra")).unwrap(),
+            AdmissionDecision::Deferred
+        );
+    }
+
+    #[test]
     fn shared_receipts_serialize_competing_homes_and_release_requires_exact_execution() {
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = paths(&temp);
@@ -3631,11 +3517,6 @@ mod tests {
     fn public_admission_recovers_dead_reservation_and_keeps_active_custom_units() {
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = paths(&temp);
-        #[cfg(target_os = "linux")]
-        let paths = HeadroomPaths {
-            proc_root: PathBuf::from("/proc"),
-            ..paths
-        };
         std::fs::write(
             paths.config.join("admission-capacity.json"),
             r#"{"version":1,"aging_seconds":5,"resources":{"gpu":2}}"#,
@@ -3718,11 +3599,6 @@ mod tests {
     fn actual_headroom_counts_nested_root_and_persistent_active_receipts_once() {
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = paths(&temp);
-        #[cfg(target_os = "linux")]
-        let paths = HeadroomPaths {
-            proc_root: PathBuf::from("/proc"),
-            ..paths
-        };
         std::fs::write(paths.config.join("api-capacity"), "3\n").expect("global capacity");
         std::fs::write(paths.config.join("api-capacity-codex"), "2\n").expect("codex capacity");
         std::fs::write(paths.config.join("api-capacity-opaque"), "1\n").expect("opaque capacity");
@@ -3810,11 +3686,6 @@ mod tests {
     fn nested_active_receipt_exhausts_a_one_session_root_budget() {
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = paths(&temp);
-        #[cfg(target_os = "linux")]
-        let paths = HeadroomPaths {
-            proc_root: PathBuf::from("/proc"),
-            ..paths
-        };
         std::fs::write(paths.config.join("api-capacity"), "1\n").expect("capacity");
         let mut nested = admission_record(&paths, "nested-request", "nested");
         nested.owner_home = temp.path().join("child-home");
@@ -3847,11 +3718,6 @@ mod tests {
     fn admission_recounts_receipts_activated_after_the_headroom_snapshot() {
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = paths(&temp);
-        #[cfg(target_os = "linux")]
-        let paths = HeadroomPaths {
-            proc_root: PathBuf::from("/proc"),
-            ..paths
-        };
         std::fs::write(paths.config.join("api-capacity"), "1\n").expect("capacity");
         let record = admission_record(&paths, "racing-request", "racing");
         reserve(&paths, &record, 1).expect("reserved before snapshot");

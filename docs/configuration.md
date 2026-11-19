@@ -344,9 +344,13 @@ The root home's `config/`, `state/.dispatch-queue/`, and `state/.admissions/` th
 Active admission receipts charge sessions and harness resources across descendant homes, including persistent sessions.
 Root endpoint metadata contributes legacy live executions only when no exact task, attempt and endpoint receipt already accounts for them.
 Reserved and uncertain admissions remain charged, including reservations that become active while a capacity snapshot is being evaluated.
-Its JSON combines spare CPU and memory with a conservative configured API concurrency budget.
-The default local reservation is one-quarter logical CPU and 256 MiB per additional sub-agent; `MX_HEADROOM_CPU_PER_ACTOR` and `MX_HEADROOM_MEM_PER_ACTOR_BYTES` retain strict test and specialized-setup overrides.
-The optional global budget is the nonnegative integer in `config/api-capacity`, with per-harness refinements in `config/api-capacity-<harness>`; absent configuration uses twenty.
+Admission uses a configurable concurrency limit, defaulting to twenty running sub-agents across Codex, Cursor, Pi and Claude combined.
+CPU load, CPU count and available memory are neither sampled nor used to delay, block or terminate agents.
+The retired `MX_HEADROOM_CPU_*`, `MX_HEADROOM_LOAD1`, `MX_HEADROOM_MEM_*`, `MX_HEADROOM_PLATFORM` and `MX_HEADROOM_PROC_ROOT` settings have no effect.
+Set the nonnegative integer in the root home's `config/api-capacity` to change the limit at any time, including above twenty; `MX_HEADROOM_API_CAPACITY` overrides this file when nonempty.
+Optional `config/api-capacity-<harness>` files refine individual harness concurrency within the shared limit.
+Reducing the limit queues new launches until enough slots are released; it never stops existing agents.
+Completed task records and idle persistent homes without an active execution do not consume running-agent slots; reserved or uncertain launches retain their slots until reconciled.
 This signal is labeled `configured-budget`, not live provider quota.
 A provider omitted from the configured snapshot has an opaque native limit: the shared session budget still applies, while Multplx does not invent a zero or claim knowledge of that provider's quota.
 
@@ -416,7 +420,7 @@ An unknown resolved backend emits `BACKEND_INVALID` and blocks dispatch instead 
 A Herdr or cmux home is therefore never told `tmux` is missing; every supported backend uses built-in worktree acquisition.
 Bootstrap validates canonical dispatch profiles and the legacy alias in the Rust owner; `jq` remains part of the current general toolchain.
 Bootstrap self-checks that `bin/mx-headroom.sh --json` succeeds and emits valid JSON.
-An unreadable local capacity signal or malformed configured API budget reports `HEADROOM_INVALID` and blocks dispatch.
+An unreadable running-agent count or malformed configured concurrency budget reports `HEADROOM_INVALID` and blocks dispatch.
 Bootstrap does not probe vplan or deep-review assets.
 An explicit `bin/mx-vplan.sh --self-check`, `new` or `review` validates the Rust service boundary, seed template, review SDK and pinned Mermaid hash.
 Doctor reports an optional-tool failure only when an active vplan run depends on invalid assets.
