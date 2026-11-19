@@ -251,6 +251,9 @@ jobs:
                               'memory': memory}}
           (destination / 'manifest.json').write_text(json.dumps(facts, indent=2) + '\n')
           PY
+          cargo llvm-cov report --json \
+            --output-path "$RUNNER_TEMP/rust-coverage-failure/coverage.json" \
+            || echo "::warning::Coverage JSON export failed; raw inputs are retained"
       - name: Upload failed coverage inputs
         if: failure() && steps.coverage.outcome == 'failure'
         uses: actions/upload-artifact@v4

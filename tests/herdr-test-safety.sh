@@ -11,11 +11,8 @@ set -u
 export MX_GATE_REFUSE_BYPASS=1
 
 # Real-Herdr suites exercise backend lifecycle, not dispatch-capacity policy.
-# Pin explicit ample signals so host load cannot turn a spawn assertion into a
-# queued-dispatch assertion; mx-headroom.test.sh owns capacity behavior.
-export MX_HEADROOM_CPU_COUNT=8
-export MX_HEADROOM_LOAD1=0
-export MX_HEADROOM_MEM_AVAILABLE_BYTES=34359738368
+# Pin explicit concurrency inputs so the suite reaches its lifecycle boundary;
+# mx-headroom.test.sh owns capacity behavior.
 export MX_HEADROOM_IN_USE=0
 export MX_HEADROOM_API_CAPACITY=8
 

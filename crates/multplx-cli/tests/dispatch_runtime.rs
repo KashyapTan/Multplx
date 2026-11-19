@@ -124,7 +124,7 @@ esac
 }
 
 #[test]
-fn headroom_discovers_linux_signals_and_preserves_failed_queue_records() {
+fn headroom_ignores_retired_metrics_and_preserves_failed_queue_records() {
     let temp = tempfile::tempdir().expect("tempdir");
     let home = temp.path().join("home");
     let project = queued_project(&home, &["retained", "default-spawn"]);
@@ -134,17 +134,6 @@ fn headroom_discovers_linux_signals_and_preserves_failed_queue_records() {
     fs::create_dir_all(&state).expect("state");
     fs::create_dir_all(&config).expect("config");
     fs::create_dir_all(&proc_root).expect("proc");
-    fs::write(
-        proc_root.join("cpuinfo"),
-        "processor : 0\nprocessor : 1\nprocessor : 2\nprocessor : 3\n",
-    )
-    .expect("cpuinfo");
-    fs::write(proc_root.join("loadavg"), "0.50 0.25 0.10 1/100 1\n").expect("loadavg");
-    fs::write(
-        proc_root.join("meminfo"),
-        "MemTotal: 1 kB\nMemAvailable: 1048576 kB\n",
-    )
-    .expect("meminfo");
     fs::write(
         config.join("actor-dispatch.json"),
         r#"{"rules":[{"use":[{"harness":"codex"},{"harness":"pi"}]}],"default":{"harness":"claude"}}"#,
@@ -164,7 +153,9 @@ fn headroom_discovers_linux_signals_and_preserves_failed_queue_records() {
     let output = run(&home, &["headroom", "--json"], &environment);
     assert_success(&output);
     let json = String::from_utf8_lossy(&output.stdout);
-    assert!(json.contains("\"cpu_count\":4.0"));
+    assert!(json.contains("\"model\":\"configured-concurrency\""));
+    assert!(!json.contains("cpu_count"));
+    assert!(!json.contains("local"));
     assert!(json.contains("\"codex\""));
 
     for (name, value) in [
@@ -176,11 +167,9 @@ fn headroom_discovers_linux_signals_and_preserves_failed_queue_records() {
     ] {
         let mut invalid = environment.to_vec();
         invalid.push((name, Path::new(value)));
-        assert!(
-            !run(&home, &["headroom", "--json"], &invalid)
-                .status
-                .success()
-        );
+        let result = run(&home, &["headroom", "--json"], &invalid);
+        assert_success(&result);
+        assert_eq!(result.stdout, output.stdout, "retired metric {name}");
     }
 
     assert_success(&run(
@@ -259,26 +248,25 @@ fn headroom_discovers_linux_signals_and_preserves_failed_queue_records() {
 }
 
 #[test]
-fn headroom_discovers_darwin_signals_and_counts_live_metadata() {
+fn headroom_never_probes_darwin_metrics_and_counts_live_metadata() {
     let temp = tempfile::tempdir().expect("tempdir");
     let home = temp.path().join("home");
     let state = home.join("state");
     let config = home.join("config");
-    let proc_root = temp.path().join("proc");
     let fake_bin = temp.path().join("fake-bin");
     fs::create_dir_all(&state).expect("state");
     fs::create_dir_all(&config).expect("config");
-    fs::create_dir_all(&proc_root).expect("proc");
     fs::create_dir_all(&fake_bin).expect("fake bin");
-    executable(&fake_bin.join("uname"), "#!/bin/sh\nprintf 'Darwin\\n'\n");
-    executable(
-        &fake_bin.join("sysctl"),
-        "#!/bin/sh\ncase \"$*\" in *hw.logicalcpu*) printf '8\\n' ;; *) printf '{ 1.25 0.5 0.25 }\\n' ;; esac\n",
-    );
-    executable(
-        &fake_bin.join("vm_stat"),
-        "#!/bin/sh\nprintf 'Mach Virtual Memory Statistics: (page size of 4096 bytes)\\nPages free: 100.\\nPages inactive: 200.\\nPages speculative: 50.\\nPages purgeable: 25.\\n'\n",
-    );
+    let probe_log = temp.path().join("resource-probes");
+    for probe in ["uname", "sysctl", "vm_stat"] {
+        executable(
+            &fake_bin.join(probe),
+            &format!(
+                "#!/bin/sh\nprintf called >> '{}'\nexit 1\n",
+                probe_log.display()
+            ),
+        );
+    }
     let tmux = fake_bin.join("tmux");
     executable(&tmux, "#!/bin/sh\nprintf '%%1\\n'\n");
     fs::write(
@@ -296,14 +284,16 @@ fn headroom_discovers_darwin_signals_and_counts_live_metadata() {
     let environment = [
         ("MX_STATE_OVERRIDE", state.as_path()),
         ("MX_CONFIG_OVERRIDE", config.as_path()),
-        ("MX_HEADROOM_PROC_ROOT", proc_root.as_path()),
         ("MX_TMUX_BIN", tmux.as_path()),
         ("PATH", fake_bin.as_path()),
     ];
     let output = run(&home, &["headroom", "--json"], &environment);
     assert_success(&output);
     let json = String::from_utf8_lossy(&output.stdout);
-    assert!(json.contains("\"cpu_count\":8.0"));
+    assert!(
+        !probe_log.exists(),
+        "admission must never sample host metrics"
+    );
     assert!(json.contains("\"in_use\":1"));
 }
 
@@ -911,10 +901,8 @@ fn harness_headroom_queue_and_launcher_commands_cover_public_outcomes() {
     let project = queued_project(&home, &["task", "cancel"]);
     let state = home.join("state");
     let config = home.join("config");
-    let proc_root = temp.path().join("proc");
     fs::create_dir_all(&state).expect("state");
     fs::create_dir_all(&config).expect("config");
-    fs::create_dir_all(&proc_root).expect("proc");
     fs::write(config.join("actor-harness"), "codex\n").expect("actor");
     fs::write(config.join("daemon-harness"), "pi model high\n").expect("daemon");
 
@@ -932,26 +920,19 @@ fn harness_headroom_queue_and_launcher_commands_cover_public_outcomes() {
         assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
     }
 
-    let platform = Path::new("Linux");
-    let cpu = Path::new("8");
-    let load = Path::new("1");
-    let memory = Path::new("1073741824");
     let in_use = Path::new("2");
     let ignore = Path::new("1");
     let headroom_env = [
         ("MX_STATE_OVERRIDE", state.as_path()),
         ("MX_CONFIG_OVERRIDE", config.as_path()),
-        ("MX_HEADROOM_PROC_ROOT", proc_root.as_path()),
-        ("MX_HEADROOM_PLATFORM", platform),
-        ("MX_HEADROOM_CPU_COUNT", cpu),
-        ("MX_HEADROOM_LOAD1", load),
-        ("MX_HEADROOM_MEM_AVAILABLE_BYTES", memory),
         ("MX_HEADROOM_IN_USE", in_use),
         ("MX_HEADROOM_IGNORE_DISPATCH_CONFIG", ignore),
     ];
     let evaluated = run(&home, &["headroom", "--json"], &headroom_env);
     assert_success(&evaluated);
-    assert!(String::from_utf8_lossy(&evaluated.stdout).contains("\"model\":\"local+api\""));
+    assert!(
+        String::from_utf8_lossy(&evaluated.stdout).contains("\"model\":\"configured-concurrency\"")
+    );
 
     let added = run(
         &home,
@@ -1167,9 +1148,6 @@ fn nested_headroom_commands_service_the_validated_root_queue() {
     fs::create_dir_all(root_home.join("config")).expect("root config");
     let queued_repo = queued_project(&root_home, &["queued-child"]);
     let capacity = [
-        ("MX_HEADROOM_CPU_COUNT", Path::new("8")),
-        ("MX_HEADROOM_LOAD1", Path::new("0")),
-        ("MX_HEADROOM_MEM_AVAILABLE_BYTES", Path::new("17179869184")),
         ("MX_HEADROOM_IN_USE", Path::new("0")),
         ("MX_HEADROOM_API_CAPACITY", Path::new("4")),
     ];
@@ -1213,9 +1191,6 @@ fn nested_headroom_commands_service_the_validated_root_queue() {
         .env("MX_ATTEMPT_GENERATION", attempt.generation.to_string())
         .env("MX_BRIEF_REVISION", attempt.brief_revision.to_string())
         .env("MX_HEADROOM_SPAWN_BIN", &queue_spawn)
-        .env("MX_HEADROOM_CPU_COUNT", "8")
-        .env("MX_HEADROOM_LOAD1", "0")
-        .env("MX_HEADROOM_MEM_AVAILABLE_BYTES", "17179869184")
         .env("MX_HEADROOM_IN_USE", "0")
         .env("MX_HEADROOM_API_CAPACITY", "4")
         .output()
@@ -1282,9 +1257,6 @@ esac
         .env("MX_BRIEF_REVISION", attempt.brief_revision.to_string())
         .env("MX_TMUX_BIN", &fake_tmux)
         .env("MX_SPAWN_NO_GUARD", "1")
-        .env("MX_HEADROOM_CPU_COUNT", "8")
-        .env("MX_HEADROOM_LOAD1", "0")
-        .env("MX_HEADROOM_MEM_AVAILABLE_BYTES", "17179869184")
         .env("MX_HEADROOM_IN_USE", "0")
         .env("MX_HEADROOM_API_CAPACITY", "4")
         .output()

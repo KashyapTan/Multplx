@@ -265,6 +265,52 @@ fn protected_kind(normalized: &str) -> Option<&'static str> {
     }
 }
 
+// Inspect command positions in every node before applying watcher restrictions.
+// A pathname passed to a reader, search tool or file editor is data, including
+// inside a list or a shell -c payload. Do not exempt the whole list just because
+// its first command is a reader: a later node may execute the watcher.
+fn watcher_data_only(command: &str) -> bool {
+    let parsed = syntax(command);
+    if parsed.malformed
+        || parsed.nested_protected
+        || command.contains("$(")
+        || command.contains('`')
+        || command.contains("<(")
+        || command.contains(">(")
+    {
+        return false;
+    }
+    let nodes = command_nodes(command);
+    !nodes.is_empty()
+        && nodes.iter().all(|words| {
+            let Some(index) = executable_index(words) else {
+                return false;
+            };
+            let executable = words[index].rsplit('/').next().unwrap_or(&words[index]);
+            if protected_kind(executable).is_some() || executable.starts_with('$') {
+                return false;
+            }
+            match executable {
+                "bash" | "sh" | "zsh" | "dash" | "ksh" => words
+                    .get(index + 1..)
+                    .and_then(|args| {
+                        args.windows(2).find_map(|pair| {
+                            matches!(pair[0].as_str(), "-c" | "-lc").then_some(&pair[1])
+                        })
+                    })
+                    .is_some_and(|body| watcher_data_only(body)),
+                "eval" => watcher_data_only(&words[index + 1..].join(" ")),
+                // Known data consumers do not execute later pathname arguments.
+                // Unknown programs and wrappers keep the conservative policy.
+                "cd" | "pushd" | "popd" | "pwd" | "export" | "test" | "[" | "cat" | "head"
+                | "tail" | "wc" | "ls" | "stat" | "file" | "rg" | "grep" | "sed" | "git"
+                | "diff" | "less" | "more" | "echo" | "printf" | "ps" | "pgrep"
+                | "assert_contains" | "tmux" | "python3" | "true" | "false" => true,
+                _ => false,
+            }
+        })
+}
+
 /// Classify one shell command without evaluating or executing it.
 pub fn watcher_arm(command: &str) -> Result<(), Denial> {
     if let Some(comment) = command.find(" #") {
@@ -281,22 +327,7 @@ pub fn watcher_arm(command: &str) -> Result<(), Denial> {
     let normalized = decode_quotes(&command.replace("\\\r\n", "").replace("\\\n", ""));
     let trimmed = normalized.trim_start();
     let parsed = syntax(command);
-    let obvious_data_command = [
-        "pgrep ",
-        "ps ",
-        "rg ",
-        "git grep ",
-        "sed ",
-        "assert_contains ",
-        "tmux send-keys ",
-        "python3 ",
-    ]
-    .iter()
-    .any(|prefix| trimmed.starts_with(prefix))
-        || (trimmed.starts_with("bash -lc ") && normalized.contains("rg -n "))
-        || (trimmed.starts_with("sh -c ") && normalized.contains("tmux send-keys "))
-        || (trimmed.starts_with("eval ") && normalized.contains("printf "));
-    if obvious_data_command {
+    if watcher_data_only(command) {
         return Ok(());
     }
     let broad_kill = normalized.contains("mx-watch")
@@ -868,6 +899,32 @@ mod tests {
             ] {
                 assert!(watcher_arm(&command).is_ok(), "data position: {command}");
             }
+        }
+    }
+
+    #[test]
+    fn watcher_paths_in_compound_read_commands_are_data() {
+        for command in [
+            "git status; cat bin/mx-watch.sh",
+            "cd /tmp && cat bin/mx-watch.sh",
+            "pwd; cat bin/mx-watch.sh",
+            "git status; rg -n headroom crates bin/mx-watch.sh; cat docs/configuration.md",
+            "cat bin/mx-watch.sh | sed -n 1p",
+            "wc -l bin/mx-watch.sh && head -20 bin/mx-watch.sh",
+            "bash -lc 'git status; cat bin/mx-watch.sh'",
+            "eval 'git status; cat bin/mx-watch.sh'",
+            "git diff -- bin/mx-watch.sh",
+            "ls bin/mx-watch.sh; true",
+        ] {
+            assert!(watcher_arm(command).is_ok(), "{command}");
+        }
+        for command in [
+            "rg mx-watch docs; bin/mx-watch.sh",
+            "python3 -c 'print(1)'; bin/mx-watch-arm.sh &",
+            "sed -n 1p bin/mx-watch.sh; pkill -f mx-watch",
+            "cat bin/mx-watch.sh; bin/mx-watch-checkpoint.sh >out",
+        ] {
+            assert!(watcher_arm(command).is_err(), "{command}");
         }
     }
 

@@ -234,8 +234,7 @@ SH
   chmod +x "$fakebin/tmux"
   export PATH="$fakebin:$PATH" MX_HOME="$home" MX_ROOT_OVERRIDE="$ROOT"
   export MX_RUST_SOURCE_ROOT="$ROOT" MX_HEADROOM_SKIP_QUEUE=0
-  export MX_HEADROOM_CPU_COUNT=64 MX_HEADROOM_LOAD1=0
-  export MX_HEADROOM_MEM_AVAILABLE_BYTES=68719476736 MX_HEADROOM_IN_USE=0
+  export MX_HEADROOM_IN_USE=0
   export MX_HEADROOM_API_CAPACITY=20 MX_MULTICALL_EXPLICIT=1
   printf 'fixture\n' > "$project/README.md"
   git -C "$project" init -q -b main || fail 'dependency Git init failed'

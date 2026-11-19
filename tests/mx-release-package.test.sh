@@ -708,8 +708,7 @@ export MX_CMUX_BIN="$cmux" MX_CMUX_FIXTURE="$TMP_ROOT/upgrade-cmux-state"
 export PATH="$TMP_ROOT/upgrade-cmux-bin:$PATH"
 export MX_REAL_CODEX=/bin/true
 export MX_HOME="$install/data/home" MX_ROOT_OVERRIDE="$install/data/runtime"
-export MX_HEADROOM_SKIP_QUEUE=1 MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0
-export MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_API_CAPACITY=8 MX_HEADROOM_IN_USE=0
+export MX_HEADROOM_SKIP_QUEUE=1 MX_HEADROOM_API_CAPACITY=8 MX_HEADROOM_IN_USE=0
 mkdir -p "$install/data/home/data/upgrade-worker"
 printf 'Inspect this upgrade fixture and leave its work unfinished.\n' \
   >"$install/data/home/data/upgrade-worker/brief.md"

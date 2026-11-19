@@ -52,7 +52,10 @@ export PATH
 mx_backend_source tmux || fail "mx_backend_source tmux failed"
 
 # Prefix matches are not ownership: exercise both owners on this private socket.
+# Keep the private server alive while each owner deletes its final test session;
+# otherwise the next new-session can race the old server's exit-empty shutdown.
 unset TMUX
+tmux new-session -d -s fixture-anchor || fail "fixture server anchor failed"
 for owner in shell rust; do
   tmux new-session -d -s primary-other || fail "prefix fixture primary failed"
   tmux new-session -d -s broker-other || fail "prefix fixture legacy failed"

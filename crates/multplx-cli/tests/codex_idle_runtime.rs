@@ -261,7 +261,7 @@ spawn=root/'bin/fake-spawn'
 spawn.write_text('#!/bin/sh\nprintf "launched\\n" >> "$MX_STATE_OVERRIDE/launches"\nprintf "1\\t1\\tsignal\\tqueued-worker\\tstarted\\n" > "$MX_STATE_OVERRIDE/.wake-queue"\n');spawn.chmod(0o700)
 watch=root/'bin/mx-watch.sh'
 watch.write_text('#!/bin/sh\ntouch "$MX_STATE_OVERRIDE/watcher-started"\nwhile [ ! -f "$MX_STATE_OVERRIDE/capacity-available" ]; do sleep .05; done\n"$MX_RUST_BIN" headroom --queue-drain > "$MX_STATE_OVERRIDE/drain-output" 2>&1\nwhile :; do sleep .05; done\n');watch.chmod(0o700)
-env=dict(os.environ,MX_ROOT_OVERRIDE=str(root),MX_HOME=str(root),MX_ROOT_HOME=str(root),MX_STATE_OVERRIDE=str(state),MX_CONFIG_OVERRIDE=str(root/'config'),MX_RUST_SOURCE_ROOT=str(root),MX_RUST_BIN=mx,MX_CODEX_IDLE_CLI='1',CODEX_HOME=str(root/'home'),MX_REAL_CODEX=str(codex),MX_HEADROOM_SPAWN_BIN=str(spawn),MX_HEADROOM_IGNORE_DISPATCH_CONFIG='1',MX_HEADROOM_CPU_COUNT='8',MX_HEADROOM_LOAD1='0',MX_HEADROOM_MEM_AVAILABLE_BYTES='17179869184',MX_HEADROOM_IN_USE='0',MX_HEADROOM_API_CAPACITY='8')
+env=dict(os.environ,MX_ROOT_OVERRIDE=str(root),MX_HOME=str(root),MX_ROOT_HOME=str(root),MX_STATE_OVERRIDE=str(state),MX_CONFIG_OVERRIDE=str(root/'config'),MX_RUST_SOURCE_ROOT=str(root),MX_RUST_BIN=mx,MX_CODEX_IDLE_CLI='1',CODEX_HOME=str(root/'home'),MX_REAL_CODEX=str(codex),MX_HEADROOM_SPAWN_BIN=str(spawn),MX_HEADROOM_IGNORE_DISPATCH_CONFIG='1',MX_HEADROOM_IN_USE='0',MX_HEADROOM_API_CAPACITY='8')
 for name in ['MX_TASK_ID','MX_CURRENT_ADMISSION_ID','MX_REPORT_STATE_OVERRIDE','MX_ADMISSION_REQUEST_ID']:env.pop(name,None)
 thread='123e4567-e89b-12d3-a456-426614174000'
 def call(args=[]):

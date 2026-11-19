@@ -53,6 +53,10 @@ tr:nth-child(even) td{background:var(--surface)}
 </style>
 </head>
 <body>
+<p role="note"><strong>Capacity update (2026-11-19):</strong> The local CPU/memory admission model described in this historical plan is superseded.
+Current admission uses a configurable running-agent concurrency limit, defaulting to 20 across all harnesses; CPU and memory never throttle or terminate agents.
+See <a href="../docs/configuration.md#dispatch-capacity-configapi-capacity--configadmission-capacityjson--statedispatch-queue">current dispatch capacity configuration</a>.</p>
+
 <header class="hero"><div class="wrap">
   <div class="plan-num">Plan 15 · Multplx</div>
   <h1>mx-viz — One Live Web View of the Whole System</h1>

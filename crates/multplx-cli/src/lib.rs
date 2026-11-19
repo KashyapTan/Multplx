@@ -7173,7 +7173,7 @@ fn run_headroom(args: &[OsString]) -> i32 {
             "--queue-priority" => Err("--queue-priority requires a request id and signed priority".to_owned()),
             "--queue-drain" => Err("--queue-drain takes no arguments".to_owned()),
             "--queue-add" => Err("--queue-add requires task id and project".to_owned()),
-            "-h" | "--help" => Ok("Composite dispatch capacity and durable root-scoped admission queue.\n\nUsage:\n  mx-headroom.sh --json\n  mx-headroom.sh --queue\n  mx-headroom.sh --queue-add <id> <project> [profile flags]\n  mx-headroom.sh --queue-cancel <request-id>\n  mx-headroom.sh --queue-priority <request-id> <signed-priority>\n  mx-headroom.sh --queue-drain\n".to_owned()),
+            "-h" | "--help" => Ok("Configured concurrency capacity and durable root-scoped admission queue. Default: 20 running sub-agents across all harnesses; configure config/api-capacity.\n\nUsage:\n  mx-headroom.sh --json\n  mx-headroom.sh --queue\n  mx-headroom.sh --queue-add <id> <project> [profile flags]\n  mx-headroom.sh --queue-cancel <request-id>\n  mx-headroom.sh --queue-priority <request-id> <signed-priority>\n  mx-headroom.sh --queue-drain\n".to_owned()),
             _ => Err("usage: mx-headroom.sh --json|--queue|--queue-add|--queue-cancel|--queue-priority|--queue-drain".to_owned()),
         }
     })();

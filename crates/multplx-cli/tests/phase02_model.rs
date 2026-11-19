@@ -558,9 +558,6 @@ fn concurrent_three_repository_queue_writers_keep_task_routes_and_bases_immutabl
             .env("MX_HOME", home)
             .env("MX_ROOT_OVERRIDE", home)
             // Deterministic capacity observations; no provider/session is launched.
-            .env("MX_HEADROOM_CPU_COUNT", "8")
-            .env("MX_HEADROOM_LOAD1", "0")
-            .env("MX_HEADROOM_MEM_AVAILABLE_BYTES", "8589934592")
             .env("MX_HEADROOM_IN_USE", "0")
             .env("MX_HEADROOM_IGNORE_DISPATCH_CONFIG", "1");
         command

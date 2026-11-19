@@ -21,7 +21,7 @@ The [scoped coordinator reference](scoped-coordinators.md) describes domain assi
 Coordinator summaries supplement original task facts; each home retains its own inbox consumption boundary.
 Portion 04 makes `multplx-backend` the typed owner of the runtime-backend interface, bounded subprocess transport, tmux adapter, selector resolution, and sub-agent-state reconciliation.
 Portion 05 adds the typed Herdr runtime, bounded AF_UNIX event and workspace-move transports, presentation journals and focus safety, restored-shell cleanup, isolated lab and CI cleanup, and pinned installer verification.
-Portion 06 adds the typed cmux runtime, harness detection and primary launch, composite headroom and durable dispatch queue.
+Portion 06 adds the typed cmux runtime, harness detection and primary launch, configured concurrency headroom and durable dispatch queue.
 Portion 07 adds typed task and persistent-sub-agent lifecycle state machines behind the stable lifecycle entry points.
 Portion 08 makes Rust the production entry owner for supervision, watcher, wake, hook, reporting, and away-mode paths.
 Portion 09 makes Rust the production entry owner for session start, bootstrap, doctor, snapshots, system view, supervision instructions, the native session-start nudge, and timeline rendering.
