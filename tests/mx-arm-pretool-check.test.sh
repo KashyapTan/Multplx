@@ -64,6 +64,8 @@ matrix_case R23 allow "bash -lc 'git status; cat bin/mx-watch.sh'"
 matrix_case R24 allow 'cat bin/mx-watch.sh | sed -n 1p'
 matrix_case R25 allow 'git diff -- bin/mx-watch.sh'
 matrix_case R26 allow 'ls bin/mx-watch.sh; true'
+matrix_case R27 allow 'cd /tmp && cat bin/mx-watch.sh'
+matrix_case R28 allow 'pwd; cat bin/mx-watch.sh'
 
 matrix_case D59 deny 'rg mx-watch docs; bin/mx-watch.sh'
 matrix_case D60 deny 'python3 -c "print(1)"; bin/mx-watch-arm.sh &'

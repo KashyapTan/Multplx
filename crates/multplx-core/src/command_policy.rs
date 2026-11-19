@@ -302,8 +302,9 @@ fn watcher_data_only(command: &str) -> bool {
                 "eval" => watcher_data_only(&words[index + 1..].join(" ")),
                 // Known data consumers do not execute later pathname arguments.
                 // Unknown programs and wrappers keep the conservative policy.
-                "cat" | "head" | "tail" | "wc" | "ls" | "stat" | "file" | "rg" | "grep" | "sed"
-                | "git" | "diff" | "less" | "more" | "echo" | "printf" | "ps" | "pgrep"
+                "cd" | "pushd" | "popd" | "pwd" | "export" | "test" | "[" | "cat" | "head"
+                | "tail" | "wc" | "ls" | "stat" | "file" | "rg" | "grep" | "sed" | "git"
+                | "diff" | "less" | "more" | "echo" | "printf" | "ps" | "pgrep"
                 | "assert_contains" | "tmux" | "python3" | "true" | "false" => true,
                 _ => false,
             }
@@ -905,6 +906,8 @@ mod tests {
     fn watcher_paths_in_compound_read_commands_are_data() {
         for command in [
             "git status; cat bin/mx-watch.sh",
+            "cd /tmp && cat bin/mx-watch.sh",
+            "pwd; cat bin/mx-watch.sh",
             "git status; rg -n headroom crates bin/mx-watch.sh; cat docs/configuration.md",
             "cat bin/mx-watch.sh | sed -n 1p",
             "wc -l bin/mx-watch.sh && head -20 bin/mx-watch.sh",
