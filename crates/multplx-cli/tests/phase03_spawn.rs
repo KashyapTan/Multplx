@@ -203,6 +203,229 @@ esac
     cmux
 }
 
+// These are inert provider processes, not authenticated coding-agent launches.
+// Exercise the public admission/launch/stop/queue path for every harness and
+// both task-scoped and standing report workers under unusable host metrics.
+#[test]
+fn all_harnesses_launch_and_reuse_the_twentieth_slot_without_host_metrics() {
+    fn report_home(path: &std::path::Path, id: &str) {
+        for directory in ["state", "data", "config", "projects", "bin"] {
+            fs::create_dir_all(path.join(directory)).unwrap();
+        }
+        fs::write(path.join(".mx-agent-home"), format!("{id}\n")).unwrap();
+        fs::write(path.join("AGENTS.md"), "# Isolated report fixture\n").unwrap();
+        fs::write(
+            path.join("data/charter.md"),
+            "Inspect the capacity fixture.\n",
+        )
+        .unwrap();
+    }
+    for harness in ["codex", "cursor", "pi", "claude"] {
+        for persistent in [false, true] {
+            let f = Fixture::new();
+            fs::write(f.home.join("config/actor-harness"), format!("{harness}\n")).unwrap();
+            for provider in ["codex", "agent", "pi", "claude"] {
+                let path = f.fake.join(provider);
+                fs::write(&path, "#!/bin/sh\necho fixture-provider\n").unwrap();
+                fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            let cmux = install_fake_cmux(&f);
+            let body = fs::read_to_string(&cmux).unwrap().replace(
+                "close-workspace) rm -f \"$MX_CMUX_FIXTURE/title\" ;;",
+                "close-workspace) rm -f \"$MX_CMUX_FIXTURE/title\" \"$MX_CMUX_FIXTURE/titles\" ;;",
+            );
+            fs::write(&cmux, body).unwrap();
+            let tmux = f.fake.join("tmux");
+            if persistent {
+                fs::write(
+                    f.fake.join("inert-terminal-tmux.sh"),
+                    include_str!("../../../tests/inert-terminal-tmux.sh"),
+                )
+                .unwrap();
+                fs::write(
+                    &tmux,
+                    r#"#!/bin/sh
+set -eu
+fixture=$(dirname "$0")
+bash "$fixture/inert-terminal-tmux.sh" "$@"
+case "$1" in
+  has-session|new-session|set-window-option) exit 0 ;;
+  new-window)
+    previous=
+    for argument do
+      [ "$previous" != -n ] || printf '%s\n' "$argument" > "$fixture/window"
+      [ "$previous" != -c ] || printf '%s\n' "$argument" > "$fixture/window-cwd"
+      previous=$argument
+    done
+    printf '@slot\n' ;;
+  list-windows)
+    if [ -f "$fixture/window" ]; then
+      case " $* " in *' -a '*) printf 'primary:' ;; esac
+      cat "$fixture/window"
+    fi ;;
+  display-message)
+    case "$*" in
+      *pane_current_path*) cat "$fixture/window-cwd" ;;
+      *pane_current_command*) printf '%s\n' "$MX_TEST_PROVIDER_COMMAND" ;;
+      *cursor_y*) printf '0\n' ;;
+      *) printf '%%1\n' ;;
+    esac ;;
+  send-keys)
+    previous=
+    for argument do
+      if [ "$previous" = -l ]; then
+        script=${argument#\'}; script=${script%\'}
+        cat "$script" > "$fixture/launch-script"
+      fi
+      previous=$argument
+    done ;;
+  capture-pane) printf '❯\n' ;;
+  kill-window) rm -f "$fixture/window" ;;
+  *) exit 0 ;;
+esac
+"#,
+                )
+                .unwrap();
+                fs::set_permissions(&tmux, fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            let backend = if persistent { "tmux" } else { "cmux" };
+            let extra_home = f.home.parent().unwrap().join("extra-home");
+            if persistent {
+                report_home(&f.project, "task");
+                report_home(&extra_home, "extra");
+            } else {
+                fs::create_dir_all(f.home.join("data/extra")).unwrap();
+                fs::write(
+                    f.home.join("data/extra/brief.md"),
+                    "Inspect the next slot.\n",
+                )
+                .unwrap();
+            }
+            let invoke = |args: &[&str]| {
+                let template = f.spawn(&[]);
+                let mut command = Command::new(template.get_program());
+                command.current_dir(&f.home).args(args);
+                for (key, value) in template.get_envs() {
+                    if let Some(value) = value {
+                        command.env(key, value);
+                    } else {
+                        command.env_remove(key);
+                    }
+                }
+                command
+                    .env("MX_RUST_BIN", env!("CARGO_BIN_EXE_mx"))
+                    .env(
+                        "MX_HEADROOM_SPAWN_BIN",
+                        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../bin/mx-spawn.sh"),
+                    )
+                    .env("MX_CMUX_FIXTURE", &f.fake)
+                    .env("MX_CMUX_BIN", &cmux)
+                    .env("MX_TMUX_BIN", &tmux)
+                    .env(
+                        "MX_TEST_PROVIDER_COMMAND",
+                        if harness == "cursor" {
+                            "agent"
+                        } else {
+                            harness
+                        },
+                    )
+                    .env("MX_HEADROOM_SKIP_QUEUE", "0")
+                    .env("MX_HEADROOM_API_CAPACITY", "20")
+                    .env("MX_HEADROOM_IN_USE", "19")
+                    .env(
+                        "MX_HEADROOM_CPU_COUNT",
+                        if persistent { "invalid" } else { "1" },
+                    )
+                    .env("MX_HEADROOM_LOAD1", "99999")
+                    .env("MX_HEADROOM_MEM_AVAILABLE_BYTES", "0")
+                    .env("MX_HEADROOM_CPU_PER_ACTOR", "0")
+                    .env("MX_HEADROOM_MEM_PER_ACTOR_BYTES", "0");
+                command
+            };
+            let spawn = |id: &str, home: &std::path::Path| {
+                let mut command = invoke(&[
+                    "spawn",
+                    id,
+                    home.to_str().unwrap(),
+                    "--backend",
+                    backend,
+                    "--harness",
+                    harness,
+                ]);
+                if persistent {
+                    command.args([
+                        "--persistent",
+                        "--role",
+                        "researcher",
+                        "--output",
+                        "report",
+                        "--model",
+                        "fixture-model",
+                        "--effort",
+                        "high",
+                    ]);
+                }
+                command
+            };
+            let launched = success(&mut spawn("task", &f.project));
+            assert!(
+                String::from_utf8_lossy(&launched.stdout).contains("spawned task"),
+                "{harness}, persistent={persistent}"
+            );
+            let metadata = fs::read_to_string(f.home.join("state/task.meta")).unwrap();
+            let record = read_meta("task", &metadata).unwrap();
+            assert_eq!(record.persistent, persistent);
+            let launch = fs::read_to_string(f.fake.join("launch-script")).unwrap();
+            let provider_marker = match harness {
+                "codex" => "MX_CODEX_IDLE_CLI=1",
+                "cursor" => "--plugin-dir",
+                "pi" => "mx-native-delegation-observe.ts",
+                "claude" => "native-observer-claude.json",
+                _ => unreachable!(),
+            };
+            assert!(launch.contains(provider_marker), "{harness}: {launch}");
+            let full = success(&mut invoke(&["headroom", "--json"]));
+            let full: serde_json::Value = serde_json::from_slice(&full.stdout).unwrap();
+            assert_eq!(full["capacity"], 20);
+            assert_eq!(full["in_use"], 20);
+            assert_eq!(full["available"], 0);
+            assert!(full.get("local").is_none());
+            let target = if persistent { &extra_home } else { &f.project };
+            let queued = success(&mut spawn("extra", target));
+            assert!(String::from_utf8_lossy(&queued.stdout).contains("queued: extra"));
+            assert!(!f.home.join("state/extra.meta").exists());
+            // Stopping one exact execution frees a slot; retained homes and
+            // historical metadata must not become a lifetime agent count.
+            if persistent {
+                success(&mut invoke(&[
+                    "backend",
+                    "kill",
+                    record.runtime.endpoint.as_deref().unwrap(),
+                ]));
+                assert!(f.project.join("data/charter.md").is_file());
+                assert!(f.home.join("state/task.meta").is_file());
+            } else {
+                success(&mut invoke(&["teardown", "task"]));
+                let released = success(&mut invoke(&["headroom", "--json"]));
+                let released: serde_json::Value = serde_json::from_slice(&released.stdout).unwrap();
+                assert_eq!(released["in_use"], 19);
+                assert_eq!(released["available"], 1);
+            }
+            let drained = success(&mut invoke(&["headroom", "--queue-drain"]));
+            assert!(String::from_utf8_lossy(&drained.stdout).contains("launched extra"));
+            let replacement = fs::read_to_string(f.home.join("state/extra.meta")).unwrap();
+            assert_eq!(
+                read_meta("extra", &replacement).unwrap().persistent,
+                persistent
+            );
+            let full_again = success(&mut invoke(&["headroom", "--json"]));
+            let full_again: serde_json::Value = serde_json::from_slice(&full_again.stdout).unwrap();
+            assert_eq!(full_again["in_use"], 20);
+            assert_eq!(full_again["available"], 0);
+        }
+    }
+}
+
 #[test]
 fn herdr_repository_launch_preserves_real_allocation_and_nested_owner_routes() {
     use std::ffi::OsString;

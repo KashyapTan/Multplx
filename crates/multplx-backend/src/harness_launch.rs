@@ -1952,6 +1952,186 @@ mod tests {
         assert!(path.is_symlink(), "linked reservation was replaced");
     }
 
+    // An owned interpreter fixture, never an authenticated provider. The reaper
+    // also runs while stop_upgrade_primary checks that its exact PID disappeared.
+    struct InertPrimary {
+        pid: u32,
+        stop: std::sync::mpsc::Sender<()>,
+        reaper: Option<std::thread::JoinHandle<std::process::ExitStatus>>,
+    }
+    impl InertPrimary {
+        fn start(directory: &Path) -> Self {
+            let script = directory.join("codex");
+            let ready = directory.join("ready");
+            fs::write(&script, "import pathlib,sys,time\npathlib.Path(sys.argv[1]).write_text('ready')\ntime.sleep(30)\n").unwrap();
+            let mut child = std::process::Command::new("python3")
+                .arg(&script)
+                .arg(&ready)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .unwrap();
+            let pid = child.id();
+            let (stop, receive) = std::sync::mpsc::channel();
+            let reaper = std::thread::spawn(move || {
+                loop {
+                    if let Some(status) = child.try_wait().unwrap() {
+                        break status;
+                    }
+                    if !matches!(
+                        receive.try_recv(),
+                        Err(std::sync::mpsc::TryRecvError::Empty)
+                    ) {
+                        child.kill().unwrap();
+                        break child.wait().unwrap();
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            });
+            let owned = Self {
+                pid,
+                stop,
+                reaper: Some(reaper),
+            };
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while !ready.is_file() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "inert interpreter did not become ready"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            owned
+        }
+    }
+    impl Drop for InertPrimary {
+        fn drop(&mut self) {
+            let _ = self.stop.send(());
+            if let Some(reaper) = self.reaper.take() {
+                reaper.join().unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_upgrade_stop_requires_unchanged_exact_owner_and_reconciles_only_its_reservation() {
+        for registered in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let home = fs::canonicalize(temp.path()).unwrap();
+            fs::create_dir(home.join("state")).unwrap();
+            let owned = InertPrimary::start(&home);
+            let probe = SystemProcessProbe::default();
+            let identity = probe.identity(owned.pid).unwrap();
+            let owner = lifetime(identity.clone());
+            super::write_reservation(&home, owner.clone()).unwrap();
+            if registered {
+                super::write_connection(&home, "codex", owner).unwrap();
+                fs::write(home.join("state/.lock"), format!("{}\n", owned.pid)).unwrap();
+            }
+            let approved = super::inspect_upgrade_primary(&home).unwrap().unwrap();
+            assert_eq!(approved.pid, owned.pid);
+            assert_eq!(approved.identity, identity);
+            assert_eq!(approved.connection.is_some(), registered);
+            assert!(approved.reservation.is_some());
+            // A still-live owner cannot have its launch reservation reconciled.
+            assert!(super::reconcile_stopped_upgrade_launch(&approved).is_err());
+            let original = fs::read(reservation_path(&home)).unwrap();
+            super::write_reservation(&home, lifetime(probe.identity(std::process::id()).unwrap()))
+                .unwrap();
+            assert!(super::stop_upgrade_primary(&approved).is_err());
+            assert_eq!(probe.identity(owned.pid).unwrap(), identity);
+            fs::write(reservation_path(&home), &original).unwrap();
+            if registered {
+                let connection = fs::read(connection_path(&home)).unwrap();
+                fs::write(connection_path(&home), b"{}").unwrap();
+                assert!(
+                    super::inspect_upgrade_primary(&home)
+                        .unwrap_err()
+                        .contains("no verified exact")
+                );
+                assert!(super::stop_upgrade_primary(&approved).is_err());
+                assert_eq!(probe.identity(owned.pid).unwrap(), identity);
+                fs::write(connection_path(&home), &connection).unwrap();
+            }
+            super::stop_upgrade_primary(&approved).unwrap();
+            assert!(!probe.is_alive(owned.pid));
+            // A replacement reservation after the stop must be retained too.
+            super::write_reservation(&home, lifetime(probe.identity(std::process::id()).unwrap()))
+                .unwrap();
+            let replacement = fs::read(reservation_path(&home)).unwrap();
+            assert!(super::reconcile_stopped_upgrade_launch(&approved).is_err());
+            assert_eq!(fs::read(reservation_path(&home)).unwrap(), replacement);
+            fs::write(reservation_path(&home), &original).unwrap();
+            super::reconcile_stopped_upgrade_launch(&approved).unwrap();
+            assert!(!reservation_path(&home).exists());
+            super::reconcile_stopped_upgrade_launch(&approved).unwrap();
+        }
+    }
+
+    #[test]
+    fn upgrade_inspection_retains_unknown_records_and_never_stops_the_calling_process() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = fs::canonicalize(temp.path()).unwrap();
+        fs::create_dir(home.join("state")).unwrap();
+        assert_eq!(super::inspect_upgrade_primary(&home).unwrap(), None);
+        fs::write(home.join("state/.lock"), [0xff]).unwrap();
+        assert!(
+            super::inspect_upgrade_primary(&home)
+                .unwrap_err()
+                .contains("unreadable")
+        );
+        fs::remove_file(home.join("state/.lock")).unwrap();
+        fs::write(reservation_path(&home), b"{}").unwrap();
+        assert!(super::inspect_upgrade_primary(&home).is_err());
+        let identity = SystemProcessProbe::default()
+            .identity(std::process::id())
+            .unwrap();
+        super::write_reservation(&home, lifetime(identity.clone())).unwrap();
+        let approved = super::inspect_upgrade_primary(&home).unwrap().unwrap();
+        assert!(
+            super::stop_upgrade_primary(&approved)
+                .unwrap_err()
+                .contains("own process")
+        );
+        assert_eq!(
+            SystemProcessProbe::default()
+                .identity(std::process::id())
+                .unwrap(),
+            identity
+        );
+        let mut no_reservation = approved;
+        no_reservation.reservation = None;
+        super::reconcile_stopped_upgrade_launch(&no_reservation).unwrap();
+        assert!(reservation_path(&home).is_file());
+    }
+
+    #[test]
+    fn unrelated_live_launch_owner_is_not_authority_to_stop_a_registered_primary() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = fs::canonicalize(temp.path()).unwrap();
+        fs::create_dir(home.join("state")).unwrap();
+        let primary_dir = home.join("primary");
+        let launcher_dir = home.join("launcher");
+        fs::create_dir(&primary_dir).unwrap();
+        fs::create_dir(&launcher_dir).unwrap();
+        let primary = InertPrimary::start(&primary_dir);
+        let launcher = InertPrimary::start(&launcher_dir);
+        let probe = SystemProcessProbe::default();
+        let primary_identity = probe.identity(primary.pid).unwrap();
+        let launcher_identity = probe.identity(launcher.pid).unwrap();
+        super::write_connection(&home, "codex", lifetime(primary_identity.clone())).unwrap();
+        fs::write(home.join("state/.lock"), format!("{}\n", primary.pid)).unwrap();
+        super::write_reservation(&home, lifetime(launcher_identity.clone())).unwrap();
+        assert!(
+            super::inspect_upgrade_primary(&home)
+                .unwrap_err()
+                .contains("does not own")
+        );
+        assert_eq!(probe.identity(primary.pid).unwrap(), primary_identity);
+        assert_eq!(probe.identity(launcher.pid).unwrap(), launcher_identity);
+    }
+
     struct PrimaryProbe {
         alive: bool,
         identity: CoreResult<ProcessIdentity>,
