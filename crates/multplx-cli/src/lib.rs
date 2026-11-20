@@ -2957,7 +2957,7 @@ fn launch_process_started(task_tmp: &Path, identity: &str, harness: &str) -> boo
     let Ok(row) = SystemProcessProbe::default().ancestry_row(pid) else {
         return false;
     };
-    let expected = harness_executable(harness);
+    let expected = worker_harness_executable(harness);
     harness_process_row_matches(&row, harness, expected.as_deref())
 }
 
@@ -2982,7 +2982,7 @@ fn launch_process_diagnostic(task_tmp: &Path) -> String {
     }
 }
 
-fn harness_executable(harness: &str) -> Option<PathBuf> {
+fn worker_harness_executable(harness: &str) -> Option<PathBuf> {
     let (variable, program) = match harness {
         "codex" => ("MX_REAL_CODEX", "codex"),
         "claude" => ("MX_REAL_CLAUDE", "claude"),
@@ -2999,6 +2999,23 @@ fn harness_executable(harness: &str) -> Option<PathBuf> {
         &shim,
         std::env::var_os("PATH").as_deref(),
     )
+}
+
+fn harness_executable(harness: &str) -> Option<PathBuf> {
+    let (variable, program) = match harness {
+        "codex" => ("MX_REAL_CODEX", "codex"),
+        "claude" => ("MX_REAL_CLAUDE", "claude"),
+        "cursor" => ("MX_REAL_CURSOR_AGENT", "agent"),
+        "pi" => ("MX_REAL_PI", "pi"),
+        _ => return None,
+    };
+    std::env::var_os(variable).map(PathBuf::from).or_else(|| {
+        std::env::var_os("PATH").and_then(|paths| {
+            std::env::split_paths(&paths)
+                .map(|directory| directory.join(program))
+                .find(|path| path.is_file())
+        })
+    })
 }
 
 fn harness_process_row_matches(
