@@ -2888,7 +2888,13 @@ fn worker_harness_word(harness: &str) -> Result<String, String> {
         if !path.is_absolute() {
             return Err(format!("{variable} is not an absolute executable path"));
         }
-        return launch_path_word(&path);
+        let shim = std::env::var_os("MX_SHIM_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        let resolved = launcher::refreshed_harness_path(
+            Some(path.as_os_str()), &[fallback], &shim, std::env::var_os("PATH").as_deref(),
+        ).ok_or_else(|| format!("{variable} points to unavailable executable {}; no replacement {fallback} exists on PATH outside the Multplx shim", path.display()))?;
+        return launch_path_word(&resolved);
     }
     if std::env::var_os("MX_SHIM_DIR").is_some() {
         return Err(format!(
@@ -2955,6 +2961,27 @@ fn launch_process_started(task_tmp: &Path, identity: &str, harness: &str) -> boo
     harness_process_row_matches(&row, harness, expected.as_deref())
 }
 
+fn launch_process_diagnostic(task_tmp: &Path) -> String {
+    let pid = fs::read_to_string(task_tmp.join("launch-started"))
+        .ok()
+        .and_then(|text| text.lines().nth(1)?.parse::<u32>().ok());
+    let Some(pid) = pid.filter(|pid| *pid > 1) else {
+        return "no launcher PID receipt; the terminal may not have executed the command".into();
+    };
+    match SystemProcessProbe::default().ancestry_row(pid) {
+        Ok(row) => format!(
+            "launcher PID {pid} still reports executable {} (the requested harness has not been verified)",
+            Path::new(&row.command)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        ),
+        Err(_) => format!(
+            "launcher PID {pid} could not be observed; inspect the exact pane for an exit or signal"
+        ),
+    }
+}
+
 fn harness_executable(harness: &str) -> Option<PathBuf> {
     let (variable, program) = match harness {
         "codex" => ("MX_REAL_CODEX", "codex"),
@@ -2963,13 +2990,15 @@ fn harness_executable(harness: &str) -> Option<PathBuf> {
         "pi" => ("MX_REAL_PI", "pi"),
         _ => return None,
     };
-    std::env::var_os(variable).map(PathBuf::from).or_else(|| {
-        std::env::var_os("PATH").and_then(|paths| {
-            std::env::split_paths(&paths)
-                .map(|directory| directory.join(program))
-                .find(|path| path.is_file())
-        })
-    })
+    let shim = std::env::var_os("MX_SHIM_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    launcher::refreshed_harness_path(
+        std::env::var_os(variable).as_deref(),
+        &[program],
+        &shim,
+        std::env::var_os("PATH").as_deref(),
+    )
 }
 
 fn harness_process_row_matches(
@@ -5627,7 +5656,10 @@ fn run_spawn(args: &[OsString]) -> i32 {
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         while !launch_process_started(&task_tmp, &launch_identity, &request.harness) {
             if std::time::Instant::now() >= deadline {
-                return Err("harness process startup is unverified after submission; retain endpoint and launch intent, inspect before retry (shell receipt is not model acceptance)".into());
+                let diagnostic = launch_process_diagnostic(&task_tmp);
+                return Err(format!(
+                    "harness process startup is unverified after submission: {diagnostic}; retain endpoint and launch intent, inspect before retry (shell receipt is not model acceptance)"
+                ));
             }
             std::thread::sleep(Duration::from_millis(100));
         }
@@ -9284,6 +9316,26 @@ mod tests {
             "pi",
             Some(&pi)
         ));
+    }
+
+    #[test]
+    fn launcher_diagnostic_distinguishes_missing_receipt_from_live_wrapper() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(launch_process_diagnostic(dir.path()).contains("no launcher PID receipt"));
+        fs::write(
+            dir.path().join("launch-started"),
+            format!("identity\n{}\n", std::process::id()),
+        )
+        .unwrap();
+        let diagnostic = launch_process_diagnostic(dir.path());
+        assert!(
+            diagnostic.contains("still reports executable"),
+            "{diagnostic}"
+        );
+        assert!(
+            !diagnostic.contains("--"),
+            "must not expose command arguments"
+        );
     }
 
     #[test]

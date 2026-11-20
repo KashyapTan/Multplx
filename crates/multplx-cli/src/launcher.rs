@@ -412,14 +412,39 @@ fn same_file(left: &Path, right: &Path) -> bool {
 }
 
 fn find_executable(name: &str, skip: &Path) -> Option<PathBuf> {
-    let path = env::var_os("PATH")?;
-    for directory in env::split_paths(&path) {
+    find_executable_on_path(name, skip, env::var_os("PATH").as_deref())
+}
+
+fn find_executable_on_path(name: &str, skip: &Path, path: Option<&OsStr>) -> Option<PathBuf> {
+    for directory in env::split_paths(path?) {
         let candidate = directory.join(name);
         if is_executable(&candidate) && !same_file(&candidate, &skip.join(name)) {
             return candidate.canonicalize().ok().or(Some(candidate));
         }
     }
     None
+}
+
+// Captured provider paths outlive package-manager upgrades in standing shells.
+// Never resolve back to our shim, which would recursively launch Multplx.
+pub(crate) fn refreshed_harness_path(
+    captured: Option<&OsStr>,
+    names: &[&str],
+    shim: &Path,
+    path: Option<&OsStr>,
+) -> Option<PathBuf> {
+    if let Some(captured) = captured.map(Path::new)
+        && captured.is_absolute()
+        && is_executable(captured)
+        && !names
+            .iter()
+            .any(|name| same_file(captured, &shim.join(name)))
+    {
+        return Some(captured.to_path_buf());
+    }
+    names
+        .iter()
+        .find_map(|name| find_executable_on_path(name, shim, path))
 }
 
 fn current_binary() -> Result<PathBuf, String> {
@@ -468,7 +493,13 @@ fn capture_harnesses(shim: &Path) -> Vec<(OsString, OsString)> {
         ("MX_REAL_PI", &["pi"][..]),
     ] {
         let value = if active {
-            env::var_os(variable).unwrap_or_default()
+            refreshed_harness_path(
+                env::var_os(variable).as_deref(),
+                names,
+                shim,
+                env::var_os("PATH").as_deref(),
+            )
+            .map_or_else(OsString::new, PathBuf::into_os_string)
         } else {
             names
                 .iter()
@@ -4549,6 +4580,50 @@ exec "$root/bin/mx-launcher.sh" "$@"
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn captured_harness_recovers_after_upgrade_without_using_shim() {
+        let dir = tempfile::tempdir().unwrap();
+        let shim = dir.path().join("shims");
+        let bin = dir.path().join("bin");
+        fs::create_dir_all(&shim).unwrap();
+        fs::create_dir_all(&bin).unwrap();
+        for executable in [shim.join("codex"), bin.join("codex")] {
+            fs::write(&executable, "#!/bin/sh\nexit 0\n").unwrap();
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let path = env::join_paths([&shim, &bin]).unwrap();
+        let removed = dir.path().join("removed-version/codex");
+        assert_eq!(
+            refreshed_harness_path(Some(removed.as_os_str()), &["codex"], &shim, Some(&path)),
+            Some(bin.join("codex").canonicalize().unwrap())
+        );
+        let shim_only = env::join_paths([&shim]).unwrap();
+        assert_eq!(
+            refreshed_harness_path(
+                Some(removed.as_os_str()),
+                &["codex"],
+                &shim,
+                Some(&shim_only)
+            ),
+            None
+        );
+        assert_eq!(
+            refreshed_harness_path(
+                Some(shim.join("codex").as_os_str()),
+                &["codex"],
+                &shim,
+                Some(&path)
+            ),
+            Some(bin.join("codex").canonicalize().unwrap())
+        );
+        let custom = dir.path().join("custom-codex");
+        fs::copy(bin.join("codex"), &custom).unwrap();
+        assert_eq!(
+            refreshed_harness_path(Some(custom.as_os_str()), &["codex"], &shim, Some(&path)),
+            Some(custom)
+        );
+    }
+
     use super::*;
     use std::os::unix::ffi::OsStringExt;
 
