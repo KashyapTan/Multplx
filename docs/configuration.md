@@ -279,6 +279,11 @@ Conflicting canonical and legacy files refuse launch instead of silently choosin
 An explicit harness argument to `mx-spawn.sh` still overrides either config file for that spawn only.
 An explicit `--model` or `--effort` overrides the matching persistent default; an explicit verified harness starts with clean model and effort defaults unless those flags are also passed.
 Model selection is validated before worker allocation, coordinator home provisioning and provider endpoint launch.
+Captured harness executable paths are refreshed from PATH, excluding Multplx's own shim, when an upgrade removes the old executable.
+Existing executable overrides remain selected.
+An unverified-startup error identifies the recorded launcher PID and executable when observable; a live `env` wrapper is not evidence that Codex or another harness started.
+On managed macOS hosts, inspect the exact pane and host execution diagnostics before attributing a delayed or killed wrapper to agent capacity or hooks.
+
 Supply the provider's canonical single-token model ID (for example `gpt-6-luna` for Codex), rather than a human display label such as `GPT-6 Luna`.
 Unknown custom single-token IDs pass through unchanged; local syntax validation does not establish provider or account availability.
 Changing a model requires a replacement provider process; sending a retry message to the original endpoint does not change its model argument.
