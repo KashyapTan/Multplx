@@ -2020,7 +2020,7 @@ mod tests {
             let temp = tempfile::tempdir().unwrap();
             let home = fs::canonicalize(temp.path()).unwrap();
             fs::create_dir(home.join("state")).unwrap();
-            let owned = InertPrimary::start(&home);
+            let mut owned = InertPrimary::start(&home);
             let probe = SystemProcessProbe::default();
             let identity = probe.identity(owned.pid).unwrap();
             let owner = lifetime(identity.clone());
@@ -2055,6 +2055,14 @@ mod tests {
                 fs::write(connection_path(&home), &connection).unwrap();
             }
             super::stop_upgrade_primary(&approved).unwrap();
+            // wait_gone permits an exited lifetime before the fixture reaper
+            // has collected its zombie. Synchronize with that owner before
+            // asserting PID absence, and verify the requested TERM caused exit.
+            let exit = owned.reaper.take().unwrap().join().unwrap();
+            assert_eq!(
+                std::os::unix::process::ExitStatusExt::signal(&exit),
+                Some(15)
+            );
             assert!(!probe.is_alive(owned.pid));
             // A replacement reservation after the stop must be retained too.
             super::write_reservation(&home, lifetime(probe.identity(std::process::id()).unwrap()))
