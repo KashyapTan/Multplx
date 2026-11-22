@@ -79,6 +79,12 @@ cargo build --release --workspace --locked
 target/release/mx shadow-diagnostic
 ```
 
+The line-coverage job pins Rust 1.99.1 and its matching LLVM tools with `cargo-llvm-cov` 0.8.7 for the existing 93 percent measurement baseline.
+Product build, test, lint and release jobs continue to use latest stable Rust.
+The coverage job's `RUSTUP_TOOLCHAIN` also applies to fixture builds and diagnostic exports, keeping their instrumentation and reporting tools consistent.
+Record compiler/LLVM versions and a same-source comparison when updating the measurement toolchain; coverage denominators can change across compiler versions.
+The [launcher verification record](docs/verification/launcher.md#coverage-measurement-toolchain) retains the observed compiler drift and its measurements.
+
 The Rust `test-run` command is the single owner of behavior-suite selection, the resource-conflict manifest, resource-aware scheduling, generated portable CI lanes, timing markers, family totals, the coverage guard, assertion parity, and JSON timing artifacts.
 Its `--help` output owns the flags, family labels, lanes, and changed-file map; this section only documents the entry points.
 The Rust `test-isolation-proof` command consumes the runner manifest and owns repeated conflict-matrix and leak proof; see `docs/mx-test-isolation-proof.md`.
