@@ -706,7 +706,10 @@ mkdir -p "$TMP_ROOT/upgrade-cmux-state"
 cp "$ROOT/tests/inert-terminal-start.sh" "$TMP_ROOT/upgrade-cmux-state/inert-terminal-start.sh"
 export MX_CMUX_BIN="$cmux" MX_CMUX_FIXTURE="$TMP_ROOT/upgrade-cmux-state"
 export PATH="$TMP_ROOT/upgrade-cmux-bin:$PATH"
-export MX_REAL_CODEX=/bin/true
+upgrade_codex="$TMP_ROOT/upgrade-codex"
+printf '#!/bin/sh\nexit 0\n' >"$upgrade_codex"
+chmod +x "$upgrade_codex"
+export MX_REAL_CODEX="$upgrade_codex"
 export MX_HOME="$install/data/home" MX_ROOT_OVERRIDE="$install/data/runtime"
 export MX_HEADROOM_SKIP_QUEUE=1 MX_HEADROOM_API_CAPACITY=8 MX_HEADROOM_IN_USE=0
 mkdir -p "$install/data/home/data/upgrade-worker"

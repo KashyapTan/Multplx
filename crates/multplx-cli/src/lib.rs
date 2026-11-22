@@ -2876,11 +2876,11 @@ fn worker_runtime_binary() -> Result<PathBuf, String> {
 }
 
 fn worker_harness_word(harness: &str) -> Result<String, String> {
-    let (variable, fallback) = match harness {
-        "claude" => ("MX_REAL_CLAUDE", "claude"),
-        "codex" => ("MX_REAL_CODEX", "codex"),
-        "cursor" => ("MX_REAL_CURSOR_AGENT", "agent"),
-        "pi" => ("MX_REAL_PI", "pi"),
+    let (variable, names) = match harness {
+        "claude" => ("MX_REAL_CLAUDE", &["claude"][..]),
+        "codex" => ("MX_REAL_CODEX", &["codex"][..]),
+        "cursor" => ("MX_REAL_CURSOR_AGENT", &["agent", "cursor-agent"][..]),
+        "pi" => ("MX_REAL_PI", &["pi"][..]),
         _ => return Err(format!("unknown harness '{harness}'")),
     };
     if let Some(value) = std::env::var_os(variable).filter(|value| !value.is_empty()) {
@@ -2892,8 +2892,8 @@ fn worker_harness_word(harness: &str) -> Result<String, String> {
             .map(PathBuf::from)
             .unwrap_or_default();
         let resolved = launcher::refreshed_harness_path(
-            Some(path.as_os_str()), &[fallback], &shim, std::env::var_os("PATH").as_deref(),
-        ).ok_or_else(|| format!("{variable} points to unavailable executable {}; no replacement {fallback} exists on PATH outside the Multplx shim", path.display()))?;
+            Some(path.as_os_str()), names, &shim, std::env::var_os("PATH").as_deref(),
+        ).ok_or_else(|| format!("{variable} points to unavailable executable {}; no replacement {} exists on PATH outside the Multplx shim", path.display(), names.join(" or ")))?;
         return launch_path_word(&resolved);
     }
     if std::env::var_os("MX_SHIM_DIR").is_some() {
@@ -2901,7 +2901,7 @@ fn worker_harness_word(harness: &str) -> Result<String, String> {
             "{variable} is missing while the primary harness shim path is active"
         ));
     }
-    Ok(fallback.to_owned())
+    Ok(names[0].to_owned())
 }
 
 fn write_terminal_launch_script(task_tmp: &Path, launch: &str) -> Result<String, String> {
@@ -2983,11 +2983,11 @@ fn launch_process_diagnostic(task_tmp: &Path) -> String {
 }
 
 fn worker_harness_executable(harness: &str) -> Option<PathBuf> {
-    let (variable, program) = match harness {
-        "codex" => ("MX_REAL_CODEX", "codex"),
-        "claude" => ("MX_REAL_CLAUDE", "claude"),
-        "cursor" => ("MX_REAL_CURSOR_AGENT", "agent"),
-        "pi" => ("MX_REAL_PI", "pi"),
+    let (variable, names) = match harness {
+        "codex" => ("MX_REAL_CODEX", &["codex"][..]),
+        "claude" => ("MX_REAL_CLAUDE", &["claude"][..]),
+        "cursor" => ("MX_REAL_CURSOR_AGENT", &["agent", "cursor-agent"][..]),
+        "pi" => ("MX_REAL_PI", &["pi"][..]),
         _ => return None,
     };
     let shim = std::env::var_os("MX_SHIM_DIR")
@@ -2995,7 +2995,7 @@ fn worker_harness_executable(harness: &str) -> Option<PathBuf> {
         .unwrap_or_default();
     launcher::refreshed_harness_path(
         std::env::var_os(variable).as_deref(),
-        &[program],
+        names,
         &shim,
         std::env::var_os("PATH").as_deref(),
     )

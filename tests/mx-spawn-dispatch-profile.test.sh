@@ -41,7 +41,13 @@ case "${1:-}" in
     previous=
     for argument in "$@"; do
       if [ "$previous" = "-l" ]; then
-        bash "$MX_TEST_REPO_ROOT/tests/inert-terminal-start.sh" "$argument"
+        if [ "${MX_TEST_EXECUTE_PROVIDER_FIXTURE:-}" = 1 ]; then
+          launch_script=${argument#\'}
+          launch_script=${launch_script%\'}
+          bash "$launch_script" >/dev/null 2>&1 </dev/null &
+        else
+          bash "$MX_TEST_REPO_ROOT/tests/inert-terminal-start.sh" "$argument"
+        fi
       fi
       previous=$argument
     done
@@ -597,6 +603,46 @@ test_canonical_harness_alias_conflict() {
   pass 'conflicting canonical and legacy harness defaults refuse before launch'
 }
 
+test_stale_harness_paths_skip_shims_and_preserve_overrides() {
+  local spec harness program variable mode rec id out status launch shim expected tool
+  for spec in codex:codex:MX_REAL_CODEX claude:claude:MX_REAL_CLAUDE cursor:cursor-agent:MX_REAL_CURSOR_AGENT pi:pi:MX_REAL_PI; do
+    IFS=: read -r harness program variable <<EOF
+$spec
+EOF
+    for mode in stale override; do
+      id="recover-$harness-$mode"
+      rec=$(make_spawn_case "$id" "$harness" "$id")
+      read_case_record "$rec"
+      shim="$CASE_DIR/shims"
+      mkdir -p "$shim" "$CASE_DIR/providers" "$CASE_DIR/tools"
+      for tool in jq rg; do
+        ln -s "$(command -v "$tool")" "$CASE_DIR/tools/$tool"
+      done
+      printf '#!/bin/sh\nexit 97\n' > "$shim/$program"
+      printf '#!/usr/bin/env python3\nimport time\ntime.sleep(2)\n' > "$CASE_DIR/providers/provider-entry"
+      chmod +x "$shim/$program" "$CASE_DIR/providers/provider-entry"
+      ln -s provider-entry "$CASE_DIR/providers/$program"
+      expected="$(cd "$CASE_DIR/providers" && pwd -P)/provider-entry"
+      if [ "$mode" = override ]; then
+        expected="$CASE_DIR/custom-provider"
+        cp "$CASE_DIR/providers/provider-entry" "$expected"
+        chmod +x "$expected"
+        printf -v "$variable" '%s' "$expected"
+      else
+        printf -v "$variable" '%s' "$CASE_DIR/removed-version/$program"
+      fi
+      export "$variable"
+      out=$(MX_TEST_EXECUTE_PROVIDER_FIXTURE=1 MX_SHIM_DIR="$shim" PATH="$shim:$CASE_DIR/providers:$CASE_DIR/tools:/usr/bin:/bin:/usr/sbin:/sbin" run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness "$harness")
+      status=$?
+      unset "$variable"
+      expect_code 0 "$status" "$harness $mode recovery failed: $out"
+      launch=$(cat "$LAUNCH_LOG")
+      assert_contains "$launch" "'$expected' " "$harness did not use the resolved executable"
+    done
+  done
+  pass 'typed spawn recovers all supported harness paths, skips shims, and preserves executable overrides'
+}
+
 test_no_profile_keeps_claude_profile_defaults
 test_active_dispatch_profile_requires_explicit_harness_for_ship
 test_active_dispatch_profile_requires_explicit_harness_for_scout
@@ -606,6 +652,7 @@ test_active_dispatch_profile_refuses_raw_launch_command
 test_claude_threads_model_and_effort
 test_codex_threads_model_and_effort
 test_codex_omits_invalid_max_effort
+test_stale_harness_paths_skip_shims_and_preserve_overrides
 test_launch_fields_remain_literal_shell_data
 test_model_labels_refuse_before_allocation_or_backend
 test_spawn_refuses_endpoint_loss_after_submission
