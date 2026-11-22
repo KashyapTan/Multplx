@@ -1065,8 +1065,10 @@ fn coverage_environment(lookup: impl Fn(&str) -> Option<OsString>) -> Vec<(OsStr
         return Vec::new();
     };
     let mut inherited = vec![(OsString::from("LLVM_PROFILE_FILE"), profile)];
-    if let Some(binary) = lookup("MX_RUST_BIN") {
-        inherited.push((OsString::from("MX_RUST_BIN"), binary));
+    for key in ["MX_RUST_BIN", "RUSTUP_TOOLCHAIN"] {
+        if let Some(value) = lookup(key) {
+            inherited.push((OsString::from(key), value));
+        }
     }
     inherited
 }
@@ -2334,10 +2336,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn coverage_environment_couples_profile_output_to_the_instrumented_binary() {
+    fn coverage_environment_couples_profile_output_to_binary_and_toolchain() {
         let lookup = |key: &str| match key {
             "LLVM_PROFILE_FILE" => Some(OsString::from("/tmp/mx-%p-%m.profraw")),
             "MX_RUST_BIN" => Some(OsString::from("/tmp/instrumented-mx")),
+            "RUSTUP_TOOLCHAIN" => Some(OsString::from("measurement-toolchain")),
             _ => None,
         };
         assert_eq!(
@@ -2351,13 +2354,16 @@ mod tests {
                     OsString::from("MX_RUST_BIN"),
                     OsString::from("/tmp/instrumented-mx")
                 ),
+                (
+                    OsString::from("RUSTUP_TOOLCHAIN"),
+                    OsString::from("measurement-toolchain")
+                ),
             ]
         );
         assert!(coverage_environment(|_| None).is_empty());
         assert_eq!(
-            coverage_environment(
-                |key| (key == "MX_RUST_BIN").then(|| OsString::from("/tmp/untrusted-mx"))
-            ),
+            coverage_environment(|key| matches!(key, "MX_RUST_BIN" | "RUSTUP_TOOLCHAIN")
+                .then(|| OsString::from("untrusted-ambient-value"))),
             Vec::new()
         );
     }
@@ -2408,6 +2414,18 @@ mod tests {
                 line.strip_prefix("LLVM_PROFILE_FILE=")
                     .is_some_and(|value| OsStr::new(value) == profile)
             }));
+            if let Some(toolchain) = std::env::var_os("RUSTUP_TOOLCHAIN") {
+                assert!(text.lines().any(|line| {
+                    line.strip_prefix("RUSTUP_TOOLCHAIN=")
+                        .is_some_and(|value| OsStr::new(value) == toolchain)
+                }));
+            }
+        } else {
+            assert!(
+                !text
+                    .lines()
+                    .any(|line| line.starts_with("RUSTUP_TOOLCHAIN="))
+            );
         }
 
         let host = tempfile::tempdir().expect("host home");

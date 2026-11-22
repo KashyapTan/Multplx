@@ -20,7 +20,8 @@ All its tests passed, but it measured 81,154 of 87,903 lines covered (92.32 perc
 Mapped regions also changed globally from 152,989 to 102,546, including unchanged source modules, so the two measurements do not use the same coverage mapping.
 The [failure artifact](https://github.com/KashyapTan/Multplx/actions/runs/45081550974/artifacts/14778725485) retains the profiles, tool versions and exported coverage; that measured result remains part of the evidence.
 
-The measurement follow-up leaves the Rust and test source at `35c07c4` unchanged, allowing the compiler measurements to be compared on matching source.
+The measurement follow-up preserves the measured product source and behavior test selection at `35c07c4`.
+The runner also retains `RUSTUP_TOOLCHAIN` when coverage is active so recursive fixture builds use the selected measurement compiler; ordinary runs still discard that ambient selector.
 Its result is retained with the current checks on [PR #83](https://github.com/KashyapTan/Multplx/pull/83).
 The coverage job now installs and logs its explicit measurement toolchain instead of inheriting the runner image's moving default.
 
