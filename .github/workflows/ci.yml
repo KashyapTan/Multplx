@@ -185,6 +185,9 @@ jobs:
     # Product builds, tests, lint and release packages still use latest stable.
     env:
       RUSTUP_TOOLCHAIN: 1.99.1
+      # Coverage maps/counters do not need DWARF copied by package fixtures.
+      # Debug assertions, overflow checks and optimization keep dev defaults.
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v6
       - name: Install Rust coverage tools
