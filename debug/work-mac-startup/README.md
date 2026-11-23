@@ -31,10 +31,11 @@ SH
 After this kit is merged, use `git fetch origin main` and `KIT_REF=origin/main` in the block instead.
 While the PR is open, `main` does not contain this kit; use its branch above.
 The source revision is retained in the extracted directory's `source-commit` file.
+Repository reference links use public source URLs so they also work from the extracted kit; sibling kit files remain local.
 Keep the kit until the diagnostic finishes; copy its source revision into the private evidence manifest.
 If Python is unavailable, preserve that error and extract/read [prompt.md](prompt.md) with the actual absolute kit path substituted manually; the capture fallback below must be arranged before launch.
 Choose the model yourself; a display label is not necessarily a valid model ID, and syntax acceptance is not account/model availability.
-The installed runtime's `mx spawn --help` and [dispatch configuration](../../docs/configuration.md#sub-agent-dispatch-profiles-configsubagent-dispatchjson) own the supported choices.
+The installed runtime's `mx spawn --help` and [dispatch configuration](https://github.com/KashyapTan/Multplx/blob/2deb99249c6f775643596888eb6f74630aac2b81/docs/configuration.md#sub-agent-dispatch-profiles-configsubagent-dispatchjson) own the supported choices.
 No global install, provider launch, live-session inspection or operational session start is needed to review or test this kit.
 
 ## Applicability and limits
@@ -186,7 +187,7 @@ Do not withhold the diagnostic report while waiting for an unavailable export.
 
 The first worker is an implementer with one deterministic output and a real local assertion, for example a Python script that writes `BLUE\n` only after receiving the durable answer, and an independent check that reads its output and rejects `AMBER\n`.
 Require a working report, a real pending question (task-bound reporter `--state needs-decision --key QUESTION_ID`, with the actual message and identity from its brief), the exact revision-bound answer, typed implementation evidence at the actual commit and a fresh done report.
-Use [dispatch](../../.agents/skills/task-dispatch/SKILL.md), [supervision](../../.agents/skills/task-supervision/SKILL.md) and [delivery](../../.agents/skills/task-delivery/SKILL.md); this kit does not replace their schemas.
+Use [dispatch](https://github.com/KashyapTan/Multplx/blob/2deb99249c6f775643596888eb6f74630aac2b81/.agents/skills/task-dispatch/SKILL.md), [supervision](https://github.com/KashyapTan/Multplx/blob/2deb99249c6f775643596888eb6f74630aac2b81/.agents/skills/task-supervision/SKILL.md) and [delivery](https://github.com/KashyapTan/Multplx/blob/2deb99249c6f775643596888eb6f74630aac2b81/.agents/skills/task-delivery/SKILL.md); this kit does not replace their schemas.
 Do not use hand-edited status records to simulate success.
 The reviewer receives the first worker's exact current completion evidence/commit, independently checks the artifact and returns a report artifact.
 Actual managed wake delivery and durable disposition are part of the experiment; a worker printing “done” is not a received wake.
