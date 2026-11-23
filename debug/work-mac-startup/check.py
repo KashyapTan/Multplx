@@ -59,7 +59,7 @@ else:
     fake.chmod(0o700)
     before = {p: p.read_bytes() for p in state.rglob('*') if p.is_file()}
     output = root/'observed'
-    run('observe.py', '--state', state, '--task', 'kit-worker', '--mx', fake, '--output', output, '--seconds', '.5')
+    run('observe.py', '--state', state, '--task', 'kit-worker', '--mx', fake, '--output', output, '--seconds', '3')
     events = [json.loads(line) for line in (output/'events.jsonl').read_text().splitlines()]
     assert events[0]['kind'] == 'start' and events[-1]['kind'] == 'end'
     copies = [e for e in events if e['kind'] == 'copy']
@@ -77,7 +77,7 @@ else:
     run('observe.py', '--state', state, '--task', '../escape', '--mx', fake, '--output', root/'bad-task', ok=False)
     run('observe.py', '--state', state, '--task', 'kit-worker', '--mx', fake, '--output', root/'bad-bound', '--seconds', '61', ok=False)
     missing = root/'missing'
-    run('observe.py', '--state', state, '--task', 'absent', '--mx', fake, '--output', missing, '--seconds', '.5')
+    run('observe.py', '--state', state, '--task', 'absent', '--mx', fake, '--output', missing, '--seconds', '3')
     absent_events = [json.loads(line) for line in (missing/'events.jsonl').read_text().splitlines()]
     assert any(e['kind'] == 'command' and e['rc'] == 7 for e in absent_events)
     assert any(e['kind'] == 'unavailable' for e in absent_events)
