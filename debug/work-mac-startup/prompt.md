@@ -31,6 +31,9 @@ BEFORE each spawn, start the guide's bounded `observe.py` against that exact fut
 Pass the same request ID to observer and spawn; retain `.spawn-actions/<request-id>.json` even if task metadata never appears.
 Keep it running across spawn's synchronous startup wait; capture the first seconds, not only the state after the ~13-second loss.
 Record observer PID/output; let its <=60-second lifetime expire naturally.
+A synchronous spawn failure can return around 3 seconds, before the suspected 13-second process loss: retain the entire observation window and verify its `end` event before finalizing the evidence manifest.
+Use a supported process/session wait, or launch observer and spawn from the same shell and join with `wait` there; do not mistake an earlier spawn exit for observer completion.
+If the observer crashes or cannot be joined, preserve stderr and explicitly mark its window incomplete rather than claiming capture through the suspected loss.
 Capture the exact spawn stdout/stderr/exit status, and reconcile task, attempt, endpoint, launcher PID/executable and provider receipt as distinct facts.
 If Python/capture is unavailable, record that gap and arrange the guide's scoped native fallback before launch; do not claim it ran.
 If the first launch fails or is uncertain, stop further launches, preserve evidence immediately, record a parent-authored failed/blocked observation only if current identity and evidence support it, and mark all downstream stages NOT RUN.

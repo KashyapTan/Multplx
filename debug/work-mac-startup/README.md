@@ -114,6 +114,11 @@ Do not pipe it through a command that discards its exit status.
 A failing spawn can leave canonical metadata, intent and an endpoint: retain all of them and reconcile before any future retry.
 Do not clean up an uncertain launch.
 After completion/failure and final provider flush, run the helper again into a new directory with `--seconds 1` to save final state/transcript snapshots.
+A startup error can return around three seconds, earlier than the suspected process loss around 13 seconds.
+Allow the full observer window to finish and confirm its `end` event before the final snapshot/manifest; preserve the interval after spawn failure without retrying.
+Use a supported process/session wait; when observer and spawn run from the same shell, `wait "$OBSERVER_PID"` joins that shell's child after recording spawn's exit status.
+A different shell cannot `wait` for a non-child PID; do not invent that guarantee.
+If the observer crashed or finalization cannot wait for it, label the observation window incomplete and retain its stderr/current output for later reconciliation.
 Keep the live observers' own stdout/stderr and event files even when they failed.
 
 If Python is missing, use the exact metadata `tasktmp` path and backend endpoint as soon as the launch publishes them.
