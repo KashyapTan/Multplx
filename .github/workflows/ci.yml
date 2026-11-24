@@ -181,12 +181,22 @@ jobs:
     name: Rust line coverage
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Keep the measurement compiler/LLVM paired with the recorded 93% baseline.
+    # Product builds, tests, lint and release packages still use latest stable.
+    env:
+      RUSTUP_TOOLCHAIN: 1.99.1
+      # Coverage maps/counters do not need DWARF copied by package fixtures.
+      # Debug assertions, overflow checks and optimization keep dev defaults.
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v6
       - name: Install Rust coverage tools
         run: |
-          rustup component add llvm-tools-preview
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component llvm-tools-preview --no-self-update
+          rustc --version --verbose
+          cargo --version
           cargo install cargo-llvm-cov --version 0.8.7 --locked
+          cargo llvm-cov --version
       - name: Install coverage runtime dependencies
         run: sudo apt-get update && sudo apt-get install -y lsof ripgrep tmux python3 zsh
       - name: Enforce workspace line coverage

@@ -5,6 +5,26 @@ This maintained record holds current empirical evidence for the global bootstrap
 The public `bin/mx-launcher.sh` and `bin/mx-launcher-install.sh` filenames are transport-only adapters.
 The Rust launcher owns verified binary publication, root and home records, update, rollback recovery, and uninstall.
 
+## Coverage measurement toolchain
+
+The measurement job uses Rust 1.99.1 with its matching LLVM tools and `cargo-llvm-cov` 0.8.7; product build, test, lint and release jobs continue to test latest stable Rust.
+The 93 percent floor, file exclusions, test selection and timeout remain unchanged.
+
+[PR #83's original coverage job](https://github.com/KashyapTan/Multplx/actions/runs/44680801514/job/136103549784) passed with 83,150 of 89,258 measured lines covered (93.16 percent).
+That job did not print its compiler version.
+Its runner image was `20261111.82.6`; the [Ubuntu product job on the same image](https://github.com/KashyapTan/Multplx/actions/runs/44680801514/job/136103550250) explicitly logged upgrading the preinstalled Rust 1.99.1 to 1.100.0, while the coverage job only added a component to the preinstalled toolchain.
+The historical coverage compiler is therefore inferred from the runner image and command sequence, rather than directly logged by the coverage job.
+
+[The subsequent coverage job at `35c07c4`](https://github.com/KashyapTan/Multplx/actions/runs/45081550974/job/137390614234) ran on image `20261116.202.1` and recorded Rust 1.100.0 with LLVM 23.1.5 in its preserved failure manifest.
+All its tests passed, but it measured 81,154 of 87,903 lines covered (92.32 percent), below the unchanged floor.
+Mapped regions also changed globally from 152,989 to 102,546, including unchanged source modules, so the two measurements do not use the same coverage mapping.
+The [failure artifact](https://github.com/KashyapTan/Multplx/actions/runs/45081550974/artifacts/14778725485) retains the profiles, tool versions and exported coverage; that measured result remains part of the evidence.
+
+The measurement follow-up preserves the measured product source and behavior test selection at `35c07c4`.
+The runner also retains `RUSTUP_TOOLCHAIN` when coverage is active so recursive fixture builds use the selected measurement compiler; ordinary runs still discard that ambient selector.
+Its result is retained with the current checks on [PR #83](https://github.com/KashyapTan/Multplx/pull/83).
+The coverage job now installs and logs its explicit measurement toolchain instead of inheriting the runner image's moving default.
+
 ## Terminal workspace rendering repair
 
 The previous workspace used `stty raw` and printed a newline-delimited full screen every 100 ms into the shell's main screen buffer.
