@@ -567,10 +567,22 @@
     {
       "path": "TRANSCRIPT_ISSUES_2026-10-12.md",
       "audience": "maintainer-verification"
-    }
-    ,{
+    },
+    {
       "path": "HERDR_WORKSPACE_FOLLOWUP_2026-10-12.md",
       "audience": "maintainer-verification"
+    },
+    {
+      "path": "debug/work-mac-startup/README.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "debug/work-mac-startup/prompt.md",
+      "audience": "operator-example"
+    },
+    {
+      "path": "debug/work-mac-startup/report-template.md",
+      "audience": "operator-example"
     }
   ]
 }
